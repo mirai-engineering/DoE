@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: kidney-segmentation-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # Volume removed - model is already inside the image (copied during build)
+    # Uncomment below for development if you need to mount local models:
+    # volumes:
+    #   - ./backend/models:/app/models:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - kidney-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    container_name: kidney-segmentation-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - kidney-network
+
+networks:
+  kidney-network:
+    driver: bridge
+
