@@ -1,0 +1,26 @@
+{
+  "project_id": "pem_fuel_cell_demo",
+  "display_name": "PEM Fuel Cell Demo",
+  "model_version": "pem_fuel_cell_demo_mlp_v0.1",
+  "model_type": "tabular_mlp",
+  "input_dim": 7,
+  "output_dim": 5,
+  "trained_at": "2026-04-24T21:51:40.791244+00:00",
+  "source_data": "data/synthetic/pem_fuel_cell_demo.csv",
+  "metrics": {
+    "train_scaled_mse": 0.0010922820074483752,
+    "val_scaled_mse": 0.0011571069480851293,
+    "val_mae_bol_current_density": 0.03946535289287567,
+    "val_rmse_bol_current_density": 0.050258930772542953,
+    "val_mae_eol_current_density": 0.042884889990091324,
+    "val_rmse_eol_current_density": 0.054182879626750946,
+    "val_mae_ecsa_loss": 0.015021835453808308,
+    "val_rmse_ecsa_loss": 0.01899263635277748,
+    "val_mae_durability_score": 0.024194657802581787,
+    "val_rmse_durability_score": 0.030588075518608093,
+    "val_mae_cost_score": 0.021155213937163353,
+    "val_rmse_cost_score": 0.026662638410925865,
+    "val_mean_mae": 0.028544390574097633,
+    "val_mean_rmse": 0.03613702952861786
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "project_id": "pem_fuel_cell_demo",
+  "display_name": "PEM Fuel Cell Demo",
+  "description": "Synthetic tabular DoE demo project for surrogate KPI prediction.",
+  "schema_version": "0.1.0",
+  "allow_unknown_inputs": false,
+  "inputs": [
+    {
+      "name": "pt_c_ratio",
+      "label": "Pt/C ratio",
+      "type": "continuous",
+      "min": 0.2,
+      "max": 0.6,
+      "unit": "fraction"
+    },
+    {
+      "name": "i_c_ratio",
+      "label": "I/C ratio",
+      "type": "continuous",
+      "min": 0.5,
+      "max": 1.2,
+      "unit": "ratio"
+    },
+    {
+      "name": "ionomer_ew",
+      "label": "Ionomer equivalent weight",
+      "type": "continuous",
+      "min": 720,
+      "max": 980,
+      "unit": "g/mol"
+    },
+    {
+      "name": "operating_rh",
+      "label": "Operating relative humidity",
+      "type": "continuous",
+      "min": 40,
+      "max": 100,
+      "unit": "%"
+    },
+    {
+      "name": "operating_voltage",
+      "label": "Operating voltage",
+      "type": "continuous",
+      "min": 0.35,
+      "max": 0.9,
+      "unit": "V"
+    },
+    {
+      "name": "ast_rh",
+      "label": "AST relative humidity",
+      "type": "continuous",
+      "min": 40,
+      "max": 100,
+      "unit": "%"
+    },
+    {
+      "name": "ast_upl",
+      "label": "AST upper potential limit",
+      "type": "continuous",
+      "min": 0.95,
+      "max": 1.15,
+      "unit": "V"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "bol_current_density",
+      "label": "BoL current density",
+      "direction": "maximize",
+      "unit": "A/cm\u00b2"
+    },
+    {
+      "name": "eol_current_density",
+      "label": "EoL current density",
+      "direction": "maximize",
+      "unit": "A/cm\u00b2"
+    },
+    {
+      "name": "ecsa_loss",
+      "label": "ECSA loss",
+      "direction": "minimize",
+      "unit": "fraction"
+    },
+    {
+      "name": "durability_score",
+      "label": "Durability score",
+      "direction": "maximize",
+      "unit": "-"
+    },
+    {
+      "name": "cost_score",
+      "label": "Cost score",
+      "direction": "minimize",
+      "unit": "-"
+    }
+  ]
+}
