@@ -3,14 +3,14 @@ services:
     build:
       context: .
       dockerfile: ./backend/Dockerfile
-    container_name: kidney-segmentation-backend
+    container_name: mirai-doe-engine-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
-    # Volume removed - model is already inside the image (copied during build)
-    # Uncomment below for development if you need to mount local models:
+    # Runtime artifacts are bundled into the backend container.
+    # Uncomment below for development if you need to mount local artifacts:
     # volumes:
-    #   - ./backend/models:/app/models:ro
+    #   - ./backend/artifacts:/app/artifacts:ro
     environment:
       - PYTHONUNBUFFERED=1
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
@@ -21,7 +21,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - kidney-network
+      - mirai-doe-network
 
   frontend:
     build:
@@ -29,7 +29,7 @@ services:
       dockerfile: Dockerfile
       args:
         - VITE_API_URL=http://localhost:8000
-    container_name: kidney-segmentation-frontend
+    container_name: mirai-doe-engine-frontend
     restart: unless-stopped
     ports:
       - "3000:80"
@@ -38,9 +38,8 @@ services:
     depends_on:
       - backend
     networks:
-      - kidney-network
+      - mirai-doe-network
 
 networks:
-  kidney-network:
+  mirai-doe-network:
     driver: bridge
-
