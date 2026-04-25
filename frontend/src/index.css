@@ -2,3 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+  font-family: "Aptos", "Avenir Next", "Neue Haas Grotesk Text", sans-serif;
+  background: #eef0ea;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
