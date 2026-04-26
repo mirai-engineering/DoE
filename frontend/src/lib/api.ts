@@ -61,6 +61,13 @@ export interface PredictResponse {
   warnings: string[]
 }
 
+export interface BatchPredictResponse {
+  project_id: string
+  predictions: PredictionMap[]
+  model_version: string
+  warnings: string[]
+}
+
 export interface RecommendRequest {
   objective_weights: Record<string, number>
   fixed_inputs?: Record<string, number>
@@ -82,21 +89,164 @@ export interface RecommendResponse {
   warnings: string[]
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function assertString(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new ApiError(`Invalid API response: ${label} must be a string`)
+  return value
+}
+
+function assertNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number') throw new ApiError(`Invalid API response: ${label} must be a number`)
+  return value
+}
+
+function assertStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new ApiError(`Invalid API response: ${label} must be an array of strings`)
+  }
+  return value
+}
+
+function assertNumberRecord(value: unknown, label: string): Record<string, number> {
+  if (!isRecord(value)) throw new ApiError(`Invalid API response: ${label} must be an object`)
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, assertNumber(item, `${label}.${key}`)]),
+  )
+}
+
+function assertProjectsResponse(value: unknown): ProjectsResponse {
+  if (!isRecord(value) || !Array.isArray(value.projects)) {
+    throw new ApiError('Invalid API response: projects must be an array')
+  }
+
+  return {
+    projects: value.projects.map((project, index) => {
+      if (!isRecord(project)) {
+        throw new ApiError(`Invalid API response: projects.${index} must be an object`)
+      }
+      return {
+        id: assertString(project.id, `projects.${index}.id`),
+        display_name: assertString(project.display_name, `projects.${index}.display_name`),
+      }
+    }),
+  }
+}
+
+function assertProjectSchema(value: unknown): ProjectSchema {
+  if (!isRecord(value) || !Array.isArray(value.inputs) || !Array.isArray(value.outputs)) {
+    throw new ApiError('Invalid API response: project schema shape is invalid')
+  }
+
+  return {
+    project_id: assertString(value.project_id, 'schema.project_id'),
+    display_name: assertString(value.display_name, 'schema.display_name'),
+    description: typeof value.description === 'string' ? value.description : undefined,
+    schema_version: typeof value.schema_version === 'string' ? value.schema_version : undefined,
+    allow_unknown_inputs:
+      typeof value.allow_unknown_inputs === 'boolean' ? value.allow_unknown_inputs : undefined,
+    inputs: value.inputs.map((input, index) => {
+      if (!isRecord(input)) {
+        throw new ApiError(`Invalid API response: inputs.${index} must be an object`)
+      }
+      return {
+        name: assertString(input.name, `inputs.${index}.name`),
+        label: assertString(input.label, `inputs.${index}.label`),
+        type: input.type === 'continuous' ? input.type : 'continuous',
+        min: assertNumber(input.min, `inputs.${index}.min`),
+        max: assertNumber(input.max, `inputs.${index}.max`),
+        unit: assertString(input.unit, `inputs.${index}.unit`),
+      }
+    }),
+    outputs: value.outputs.map((output, index) => {
+      if (!isRecord(output)) {
+        throw new ApiError(`Invalid API response: outputs.${index} must be an object`)
+      }
+      const direction = output.direction
+      if (direction !== 'maximize' && direction !== 'minimize') {
+        throw new ApiError(`Invalid API response: outputs.${index}.direction is invalid`)
+      }
+      return {
+        name: assertString(output.name, `outputs.${index}.name`),
+        label: assertString(output.label, `outputs.${index}.label`),
+        direction,
+        unit: assertString(output.unit, `outputs.${index}.unit`),
+      }
+    }),
+  }
+}
+
+function assertPredictResponse(value: unknown): PredictResponse {
+  if (!isRecord(value)) throw new ApiError('Invalid API response: prediction response is invalid')
+  return {
+    project_id: assertString(value.project_id, 'predict.project_id'),
+    predictions: assertNumberRecord(value.predictions, 'predict.predictions'),
+    model_version: assertString(value.model_version, 'predict.model_version'),
+    warnings: assertStringArray(value.warnings, 'predict.warnings'),
+  }
+}
+
+function assertBatchPredictResponse(value: unknown): BatchPredictResponse {
+  if (!isRecord(value) || !Array.isArray(value.predictions)) {
+    throw new ApiError('Invalid API response: batch prediction response is invalid')
+  }
+  return {
+    project_id: assertString(value.project_id, 'batch.project_id'),
+    predictions: value.predictions.map((prediction, index) =>
+      assertNumberRecord(prediction, `batch.predictions.${index}`),
+    ),
+    model_version: assertString(value.model_version, 'batch.model_version'),
+    warnings: assertStringArray(value.warnings, 'batch.warnings'),
+  }
+}
+
+function assertRecommendResponse(value: unknown): RecommendResponse {
+  if (!isRecord(value) || !Array.isArray(value.recommendations)) {
+    throw new ApiError('Invalid API response: recommendation response is invalid')
+  }
+  return {
+    project_id: assertString(value.project_id, 'recommend.project_id'),
+    recommendations: value.recommendations.map((recommendation, index) => {
+      if (!isRecord(recommendation)) {
+        throw new ApiError(`Invalid API response: recommendations.${index} must be an object`)
+      }
+      return {
+        inputs: assertNumberRecord(recommendation.inputs, `recommendations.${index}.inputs`),
+        predictions: assertNumberRecord(
+          recommendation.predictions,
+          `recommendations.${index}.predictions`,
+        ),
+        score: assertNumber(recommendation.score, `recommendations.${index}.score`),
+      }
+    }),
+    model_version: assertString(value.model_version, 'recommend.model_version'),
+    warnings: assertStringArray(value.warnings, 'recommend.warnings'),
+  }
+}
+
 function normalizeError(error: unknown, fallback: string): ApiError {
   if (axios.isAxiosError(error)) {
     if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
       return new ApiError('Unable to connect to the DoE API. Check that the backend is running.')
     }
 
-    const detail = error.response?.data?.detail
+    const responseData = error.response?.data
+    const detail = isRecord(responseData) ? responseData.detail : undefined
     if (typeof detail === 'string') {
       return new ApiError(detail)
     }
     if (Array.isArray(detail)) {
-      return new ApiError(detail.map((item) => item.msg ?? JSON.stringify(item)).join('; '))
+      return new ApiError(
+        detail
+          .map((item) => (isRecord(item) && typeof item.msg === 'string' ? item.msg : JSON.stringify(item)))
+          .join('; '),
+      )
     }
-    if (typeof error.response?.data?.message === 'string') {
-      return new ApiError(error.response.data.message)
+    if (isRecord(responseData) && typeof responseData.message === 'string') {
+      return new ApiError(responseData.message)
     }
   }
 
@@ -108,8 +258,8 @@ function normalizeError(error: unknown, fallback: string): ApiError {
 
 export async function getProjects(): Promise<ProjectSummary[]> {
   try {
-    const response = await api.get<ProjectsResponse>('/projects')
-    return response.data.projects
+    const response = await api.get<unknown>('/projects')
+    return assertProjectsResponse(response.data).projects
   } catch (error) {
     throw normalizeError(error, 'Unable to load projects')
   }
@@ -117,8 +267,8 @@ export async function getProjects(): Promise<ProjectSummary[]> {
 
 export async function getProjectSchema(projectId: string): Promise<ProjectSchema> {
   try {
-    const response = await api.get<ProjectSchema>(`/projects/${projectId}/schema`)
-    return response.data
+    const response = await api.get<unknown>(`/projects/${projectId}/schema`)
+    return assertProjectSchema(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to load project schema')
   }
@@ -129,10 +279,24 @@ export async function predictExperiment(
   inputs: ExperimentInputs,
 ): Promise<PredictResponse> {
   try {
-    const response = await api.post<PredictResponse>(`/projects/${projectId}/predict`, { inputs })
-    return response.data
+    const response = await api.post<unknown>(`/projects/${projectId}/predict`, { inputs })
+    return assertPredictResponse(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to predict experiment')
+  }
+}
+
+export async function batchPredictExperiments(
+  projectId: string,
+  inputs: ExperimentInputs[],
+): Promise<BatchPredictResponse> {
+  try {
+    const response = await api.post<unknown>(`/projects/${projectId}/batch-predict`, {
+      inputs,
+    })
+    return assertBatchPredictResponse(response.data)
+  } catch (error) {
+    throw normalizeError(error, 'Unable to batch predict experiments')
   }
 }
 
@@ -141,8 +305,8 @@ export async function recommendExperiments(
   request: RecommendRequest,
 ): Promise<RecommendResponse> {
   try {
-    const response = await api.post<RecommendResponse>(`/projects/${projectId}/recommend`, request)
-    return response.data
+    const response = await api.post<unknown>(`/projects/${projectId}/recommend`, request)
+    return assertRecommendResponse(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to recommend experiments')
   }
