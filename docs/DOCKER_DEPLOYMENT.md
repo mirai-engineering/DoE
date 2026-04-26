@@ -113,6 +113,184 @@ npm run dev
 
 ---
 
+## Deep Dive: How Docker Networking Works
+
+### The Problem: Multiple Services on Same Port?
+
+You might wonder: if both frontend and backend want to use port 3000, isn't there a conflict?
+
+The answer: **No** — because each container has its own isolated network namespace.
+
+### How Docker Networking Actually Works
+
+When you run Docker containers, each container gets its own **virtual network interface** with its own IP address. They're like mini-computers:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Your Mac (host machine)                                  │
+│                                                     │
+│  Physical network: 192.168.100.28                       │
+│                                                     │
+│  :3000 (exposed to host) ──────────────────────┐       │
+│                                             │       │
+└──────────────────────────────────────────────│───────┘
+                                              │
+                                 ┌────────────┴────────────┐
+                                 │ Docker internal network │
+                                 │ (172.18.0.0/16)     │
+                                 │                      │
+                                 │  ┌────────────────┐  │
+                                 │  │ nginx-proxy   │  │
+                                 │  │ 172.18.0.2  │  │ :3000
+                                 │  └──────┬───────┘  │
+                                 │         │            │
+              ┌────────────────────┼────────┼────────┼────────┐
+              │                │        │        │        │
+              │                ▼        ▼        ▼        │
+              │         ┌──────────┐ ┌──────────┐     │
+              │         │ frontend │  │ backend │     │
+              │         │ :80     │  │ :8000  │     │
+              │         └──────────┘ └────────┘     │
+              └────────────────────────────────────┘
+```
+
+### Key Insight: Internal Ports vs. Exposed Ports
+
+- **Internal port** — What the service listens on *inside* its container (frontend:80, backend:8000)
+- **Exposed port** — What the host machine exposes to the outside world (nginx:3000 → host:3000)
+
+Each container independently uses whatever port it wants internally. There's no conflict because they're completely isolated.
+
+### How Requests Flow
+
+1. You open `http://localhost:3000` in your browser
+2. Your Mac receives the request on port 3000
+3. Docker forwards it to the nginx-proxy container (which bound to port 3000 inside Docker)
+4. Nginx decides where to send it:
+   - `/` → forwards to `frontend:80`
+   - `/api/*` → forwards to `backend:8000`
+
+### Docker Compose Creates an Internal Network
+
+In `docker-compose.yml`, we defined:
+
+```yaml
+networks:
+  mirai-doe-network:
+    driver: bridge
+```
+
+This creates an internal network where containers can reach each other by name. Inside the network:
+- `http://backend:8000` resolves to the backend container
+- `http://frontend:80` resolves to the frontend container
+
+Without Docker, you'd get "host not found" errors trying to connect to `backend:8000` — it's only available inside Docker's network.
+
+### This is the Docker Advantage
+
+Docker makes it feel like you have three separate computers, each with their own ports:
+
+| What you see | What's actually happening |
+|-------------|----------------------|
+| Port 3000 on your Mac | nginx-proxy listening on :3000 inside container |
+| Backend at port 8000 | backend listening on :8000 inside its container |
+| Frontend at port 80 | nginx serving static files from frontend container |
+
+They don't conflict because they're in isolated network namespaces, connected only through Docker's internal network.
+
+---
+
+## Concrete Example: Our Mirai DoE Setup
+
+Let's trace exactly what happens when you open the app:
+
+### Step 1: You open http://localhost:3000
+
+```
+Browser (on your Mac)
+    │
+    └─► GET / HTTP/1.1
+        Host: localhost:3000
+```
+
+### Step 2: Docker receives the request
+
+```
+Host machine port 3000
+    │
+    └─► Forwards to nginx-proxy container (internal port 3000)
+```
+
+### Step 3: Nginx processes the request
+
+nginx.conf has:
+```
+location / {
+    proxy_pass http://frontend:80;  # Internal Docker network!
+}
+```
+
+### Step 4: Nginx forwards to frontend container
+
+```
+nginx (172.18.0.2:3000)
+    │
+    └─► http://frontend:80
+        │
+        └─► 172.18.0.3:80
+```
+
+### Step 5: Frontend returns HTML
+
+```
+172.18.0.3:80
+    │
+    └─► <!doctype html>...
+        │
+        ◄────────────────┘ Proxy back through nginx
+```
+
+### Step 6: Browser receives the response
+
+Same TCP connection from `localhost:3000`, but the content came from the frontend container internally.
+
+### The API Call Flow (Same Pattern)
+
+When the frontend JavaScript calls the API:
+
+```
+Frontend JavaScript (in user's browser)
+    │
+    └─► POST http://localhost:3000/api/projects/.../predict
+        │
+        ▼
+nginx receives request
+    │
+    │ location /api/ {
+    │     rewrite /api/(.*) /$1 break;
+    │     proxy_pass http://backend:8000;
+    │ }
+    │
+    ▼ (rewrites /api/... → /... and proxies)
+http://backend:8000 (internal Docker network)
+    │
+    └─► ONNX inference
+        │
+        ▼
+Response proxies back through nginx to browser
+```
+
+### Why This Works Without CORS
+
+1. **Browser requests from `http://localhost:3000`** — the frontend JavaScript loaded from `localhost:3000`
+2. **JavaScript calls `http://localhost:3000/api/...`** — same origin!
+3. **nginx forwards to backend** — internal Docker network, no CORS involved
+4. **Response comes back through nginx** — still from `localhost:3000`
+
+The browser sees only one origin (`localhost:3000`), so no CORS headers needed. The magic is nginx hiding the internal container ports from the outside world.
+
+---
+
 ## Architecture Overview
 
 ### Files Involved
