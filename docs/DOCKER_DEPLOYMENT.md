@@ -320,6 +320,47 @@ Browser → http://localhost:3000 → nginx → frontend:80 (static files)
 
 ---
 
+## What Each Component Actually Does
+
+It's easy to confuse nginx with the backend API. Here's what each container is actually doing:
+
+| Component | What it is | What it runs | Holds model? |
+|-----------|-----------|-------------|--------------|
+| **nginx-proxy** | Reverse proxy (traffic cop) | Pure C program, routes HTTP requests | ❌ No |
+| **backend** | FastAPI (Python web server) | API endpoints, runs ONNX model inference | ✅ YES |
+| **frontend** | Static HTML/JS files | Built React app (just files) | ❌ No |
+
+### The Actual Request Flow
+
+```
+Browser ──► http://localhost:3000
+                │
+                ▼ nginx container listens on :3000
+                │ (sees /api/* path, routes to backend)
+                │
+                │ /api/*
+                ▼
+backend:8000 (FastAPI/Python process)
+                │
+                │ Loads .onnx model file from disk
+                │ Runs neural network inference
+                │ Returns JSON result
+                │
+                ▼
+Response back through nginx → Browser
+```
+
+### Common Confusion: "Is nginx running FastAPI?"
+
+**No.** The ONNX model lives in the **backend container** as a `.onnx` file (`backend/artifacts/pem_fuel_cell_demo/model.onnx`). nginx doesn't know about it — it just passes traffic back and forth.
+
+Think of it this way:
+- **nginx** = the receptionist (routes you to the right person)
+- **backend** = the engineer (actually runs the AI model)
+- **frontend** = the brochure (static information)
+
+---
+
 ## Troubleshooting
 
 ### Container won't start
