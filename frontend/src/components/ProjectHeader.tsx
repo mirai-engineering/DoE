@@ -29,9 +29,16 @@ export function ProjectHeader({
           <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-slate-900/10 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">
             Surrogate model console
           </div>
-          <h1 className="max-w-3xl text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-6xl">
-            Mirai DoE Engine
-          </h1>
+          <div className="flex items-center gap-5">
+            <img
+              src="/assets/doe_logo.png"
+              alt="Mirai DoE"
+              className="h-48 w-48 shrink-0 rounded-2xl border border-slate-200 object-contain shadow-sm"
+            />
+            <h1 className="max-w-3xl text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-6xl">
+              Mirai DoE Engine
+            </h1>
+          </div>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
             Predict experiment outcomes and recommend the next best candidates.
           </p>
