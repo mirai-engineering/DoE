@@ -1,6 +1,6 @@
 import type { Data, Layout } from 'plotly.js'
 import type { ProjectSchema, Recommendation } from '../lib/api'
-import { formatNumber, safeRange, shortLabel } from '../lib/doeUtils'
+import { formatNumber, safeRange } from '../lib/doeUtils'
 import { Plot } from '../lib/plotly'
 import { PanelHeader } from './ui'
 
@@ -8,6 +8,41 @@ type ParallelDimension = {
   label: string
   values: number[]
   range: [number, number]
+  tickformat?: string
+}
+
+function buildDimensions(
+  schema: ProjectSchema,
+  recommendations: Recommendation[],
+  scores: number[],
+  scoreMin: number,
+  scoreMax: number,
+): ParallelDimension[] {
+  const dims: ParallelDimension[] = schema.inputs.map((input) => ({
+    label: input.label,
+    values: recommendations.map((rec) => rec.inputs[input.name] ?? 0),
+    range: [input.min, input.max] as [number, number],
+    tickformat: input.unit === '%' ? '.0f' : '.2f',
+  }))
+
+  schema.outputs.forEach((output) => {
+    const values = recommendations.map((rec) => rec.predictions[output.name] ?? 0)
+    dims.push({
+      label: `${output.label} ${output.direction === 'maximize' ? '↑' : '↓'}`,
+      values,
+      range: safeRange(values, [0, 1]) as [number, number],
+      tickformat: output.unit === '%' || output.unit === '-' ? '.0f' : '.2f',
+    })
+  })
+
+  dims.push({
+    label: 'Score',
+    values: scores,
+    range: [scoreMin, scoreMax] as [number, number],
+    tickformat: '.2f',
+  })
+
+  return dims
 }
 
 export function ParallelCoordinatesChart({
@@ -19,29 +54,9 @@ export function ParallelCoordinatesChart({
   recommendations: Recommendation[]
   highlightLimit?: number
 }) {
-  const scores = recommendations.map((candidate) => candidate.score)
+  const scores = recommendations.map((c) => c.score)
   const [scoreMin, scoreMax] = safeRange(scores, [0, 1])
-
-  const dimensions: ParallelDimension[] = [
-    ...schema.inputs.map((input) => ({
-      label: shortLabel(input.label),
-      values: recommendations.map((candidate) => candidate.inputs[input.name] ?? 0),
-      range: [input.min, input.max] as [number, number],
-    })),
-    ...schema.outputs.map((output) => {
-      const values = recommendations.map((candidate) => candidate.predictions[output.name] ?? 0)
-      return {
-        label: `${shortLabel(output.label)} ${output.direction === 'maximize' ? 'max' : 'min'}`,
-        values,
-        range: safeRange(values, [0, 1]),
-      }
-    }),
-    {
-      label: 'Score',
-      values: scores,
-      range: [scoreMin, scoreMax],
-    },
-  ]
+  const dimensions = buildDimensions(schema, recommendations, scores, scoreMin, scoreMax)
 
   const trace: Data = {
     type: 'parcoords',
@@ -65,8 +80,8 @@ export function ParallelCoordinatesChart({
     autosize: true,
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
-    margin: { l: 42, r: 76, t: 28, b: 28 },
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a', size: 11 },
+    margin: { l: 120, r: 120, t: 40, b: 50 },
+    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a', size: 9 },
   }
 
   const topCandidates = recommendations.slice(0, highlightLimit)
@@ -92,8 +107,8 @@ export function ParallelCoordinatesChart({
         ))}
       </div>
       <p className="mt-3 text-sm leading-6 text-slate-600">
-        Inputs are shown first, predicted outputs second, and score last. Units are omitted from
-        axis titles to reduce clutter; exact values are available in the recommendations table.
+        Inputs are shown first, predicted outputs second, and score last. Hover over any
+        line to see exact values with units.
       </p>
       <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#fbfaf5] p-3">
         <Plot
@@ -101,7 +116,7 @@ export function ParallelCoordinatesChart({
           layout={layout}
           config={{ displayModeBar: false, responsive: true }}
           useResizeHandler
-          className="h-[560px] w-full"
+          className="h-[620px] w-full"
         />
       </div>
     </section>
