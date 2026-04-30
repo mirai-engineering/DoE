@@ -6,12 +6,28 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import (
+    BOConfig,
+    BOConfigUpdate,
+    BOInitializeReplayRequest,
+    BORevealReplayResponse,
+    BOReviewRequest,
+    BOReviewResponse,
+    BOStateResponse,
+    BOSuggestResponse,
     BatchPredictRequest,
     BatchPredictResponse,
     PredictRequest,
     PredictResponse,
     RecommendRequest,
     RecommendResponse,
+)
+from .services.bayesian_optimization import (
+    get_bo_state,
+    initialize_replay,
+    reveal_replay_result,
+    review_suggestion,
+    save_bo_config_update,
+    suggest_next_experiment,
 )
 from .services.model_loader import are_models_loaded, load_all_models
 from .services.prediction import predict_rows
@@ -137,4 +153,61 @@ def recommend(project_id: str, request: RecommendRequest):
         return recommend_experiments(project_id, request)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Recommendation failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/bo/state", response_model=BOStateResponse)
+def bo_state(project_id: str):
+    try:
+        return get_bo_state(project_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO state failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/bo/initialize-replay", response_model=BOStateResponse)
+def bo_initialize_replay(project_id: str, request: BOInitializeReplayRequest):
+    try:
+        return initialize_replay(project_id, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO replay initialization failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/bo/suggest", response_model=BOSuggestResponse)
+def bo_suggest(project_id: str, request: BOConfig):
+    try:
+        return suggest_next_experiment(project_id, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO suggestion failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/bo/experiments/{experiment_id}/review", response_model=BOReviewResponse)
+def bo_review(project_id: str, experiment_id: str, request: BOReviewRequest):
+    try:
+        return review_suggestion(project_id, experiment_id, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO review failed for project_id=%s experiment_id=%s", project_id, experiment_id)
+        _raise_api_error(exc)
+
+
+@app.post(
+    "/projects/{project_id}/bo/experiments/{experiment_id}/reveal-replay-result",
+    response_model=BORevealReplayResponse,
+)
+def bo_reveal_replay(project_id: str, experiment_id: str):
+    try:
+        return reveal_replay_result(project_id, experiment_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO replay reveal failed for project_id=%s experiment_id=%s", project_id, experiment_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/bo/config", response_model=BOStateResponse)
+def bo_config(project_id: str, request: BOConfigUpdate):
+    try:
+        return save_bo_config_update(project_id, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO config update failed for project_id=%s", project_id)
         _raise_api_error(exc)

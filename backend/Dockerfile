@@ -28,10 +28,14 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy backend runtime files only
 COPY backend/app ./app
 COPY backend/artifacts ./artifacts
+COPY backend/data/replay ./data/replay
 COPY backend/healthcheck.py ./healthcheck.py
 
 RUN test -s ./artifacts/pem_fuel_cell_demo/model.onnx || \
     (echo "ERROR: DoE ONNX model artifact missing" && exit 1)
+RUN test -s ./data/replay/pem_fuel_cell_demo_initial_observed.csv && \
+    test -s ./data/replay/pem_fuel_cell_demo_hidden_pool.csv || \
+    (echo "ERROR: BO replay datasets missing" && exit 1)
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
