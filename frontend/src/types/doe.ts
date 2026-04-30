@@ -1,9 +1,10 @@
 import type { PredictionMap, Recommendation } from '../lib/api'
 
 export const tabs = [
-  { id: 'home', label: 'Home / Console' },
-  { id: 'recommendations', label: 'Recommendations' },
-  { id: 'visualizations', label: 'Visualizations' },
+  { id: 'batch', label: 'Batch Explorer' },
+  { id: 'recommendations', label: 'Batch Results' },
+  { id: 'visualizations', label: 'Batch Visuals' },
+  { id: 'optimization', label: 'Optimization Loop' },
 ] as const
 
 export type ActiveTab = (typeof tabs)[number]['id']

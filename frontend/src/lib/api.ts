@@ -89,6 +89,137 @@ export interface RecommendResponse {
   warnings: string[]
 }
 
+export type BOExperimentStatus =
+  | 'suggested'
+  | 'accepted'
+  | 'rejected'
+  | 'skipped'
+  | 'tested'
+  | 'observed'
+
+export type BOExperimentSource =
+  | 'initial_observed'
+  | 'bo_suggested'
+  | 'replay_revealed'
+  | 'manual_observed'
+
+export type BOReviewDecision = 'none' | 'accepted' | 'rejected' | 'skipped'
+export type BOReviewReason =
+  | 'infeasible'
+  | 'unsafe'
+  | 'too_expensive'
+  | 'outside_protocol'
+  | 'chemically_implausible'
+  | 'duplicate'
+  | 'other'
+
+export type BOExplorationLevel = 'conservative' | 'balanced' | 'exploratory'
+export type BOAcquisitionFunction = 'ei' | 'ucb'
+
+export interface BOInputConstraint {
+  min?: number | null
+  max?: number | null
+  fixed?: number | null
+}
+
+export interface BOConfig {
+  objective_weights: Record<string, number>
+  strategy?: BOExplorationLevel
+  acquisition_function?: BOAcquisitionFunction
+  exploration_level?: BOExplorationLevel
+  n_suggestions?: number
+  input_constraints?: Record<string, BOInputConstraint>
+  random_seed?: number
+  replay_mode?: boolean
+}
+
+export interface BOConfigUpdate {
+  objective_weights?: Record<string, number>
+  strategy?: BOExplorationLevel
+  acquisition_function?: BOAcquisitionFunction
+  exploration_level?: BOExplorationLevel
+  n_suggestions?: number
+  input_constraints?: Record<string, BOInputConstraint>
+  random_seed?: number
+  replay_mode?: boolean
+}
+
+export interface BOReview {
+  decision: BOReviewDecision
+  reason?: BOReviewReason | null
+  notes?: string | null
+}
+
+export interface LoggedExperiment {
+  experiment_id: string
+  project_id: string
+  iteration: number
+  source: BOExperimentSource
+  status: BOExperimentStatus
+  inputs: ExperimentInputs
+  predicted_outputs?: PredictionMap | null
+  observed_outputs?: PredictionMap | null
+  uncertainty?: Record<string, unknown> | null
+  objective?: Record<string, number | null> | null
+  review?: BOReview | null
+  metadata: Record<string, unknown>
+}
+
+export interface BOCurrentBest {
+  experiment_id: string
+  inputs: ExperimentInputs
+  observed_outputs: PredictionMap
+  observed_score: number
+}
+
+export interface BOStateResponse {
+  project_id: string
+  observed_count: number
+  suggested_count: number
+  rejected_count: number
+  current_best?: BOCurrentBest | null
+  latest_suggestion?: LoggedExperiment | null
+  history: LoggedExperiment[]
+  config: Required<BOConfig>
+}
+
+export interface BOInitializeReplayRequest {
+  reset: boolean
+  n_initial: number
+  selection: 'diverse' | 'random' | 'first_n'
+}
+
+export interface BOSuggestResponse {
+  suggestion: LoggedExperiment
+  state: BOStateResponse
+}
+
+export interface BOReviewRequest {
+  decision: Exclude<BOReviewDecision, 'none'>
+  reason?: BOReviewReason | null
+  notes?: string | null
+}
+
+export interface BOReviewResponse {
+  experiment: LoggedExperiment
+  state: BOStateResponse
+}
+
+export interface BORevealReplayExperiment {
+  suggested_inputs: ExperimentInputs
+  matched_replay_inputs: ExperimentInputs
+  observed_outputs: PredictionMap
+  predicted_outputs?: PredictionMap | null
+  prediction_error?: PredictionMap | null
+  replay_distance: number
+}
+
+export interface BORevealReplayResponse {
+  experiment: BORevealReplayExperiment
+  logged_experiment: LoggedExperiment
+  state: BOStateResponse
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -309,5 +440,83 @@ export async function recommendExperiments(
     return assertRecommendResponse(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to recommend experiments')
+  }
+}
+
+export async function getBOState(projectId: string): Promise<BOStateResponse> {
+  try {
+    const response = await api.get<BOStateResponse>(`/projects/${projectId}/bo/state`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load optimization loop state')
+  }
+}
+
+export async function initializeBOReplay(
+  projectId: string,
+  request: BOInitializeReplayRequest,
+): Promise<BOStateResponse> {
+  try {
+    const response = await api.post<BOStateResponse>(
+      `/projects/${projectId}/bo/initialize-replay`,
+      request,
+    )
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to initialize replay loop')
+  }
+}
+
+export async function suggestBOExperiment(
+  projectId: string,
+  request: BOConfig,
+): Promise<BOSuggestResponse> {
+  try {
+    const response = await api.post<BOSuggestResponse>(`/projects/${projectId}/bo/suggest`, request)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to suggest the next BO experiment')
+  }
+}
+
+export async function reviewBOExperiment(
+  projectId: string,
+  experimentId: string,
+  request: BOReviewRequest,
+): Promise<BOReviewResponse> {
+  try {
+    const response = await api.post<BOReviewResponse>(
+      `/projects/${projectId}/bo/experiments/${experimentId}/review`,
+      request,
+    )
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to review BO suggestion')
+  }
+}
+
+export async function revealBOReplayResult(
+  projectId: string,
+  experimentId: string,
+): Promise<BORevealReplayResponse> {
+  try {
+    const response = await api.post<BORevealReplayResponse>(
+      `/projects/${projectId}/bo/experiments/${experimentId}/reveal-replay-result`,
+    )
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to reveal replay result')
+  }
+}
+
+export async function saveBOConfig(
+  projectId: string,
+  request: BOConfigUpdate,
+): Promise<BOStateResponse> {
+  try {
+    const response = await api.post<BOStateResponse>(`/projects/${projectId}/bo/config`, request)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to save BO configuration')
   }
 }

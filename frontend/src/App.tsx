@@ -4,6 +4,7 @@ import { PredictPanel } from './components/PredictPanel'
 import { RecommendPanel } from './components/RecommendPanel'
 import { RecommendationsPage } from './components/RecommendationsPage'
 import { VisualizationsPage } from './components/VisualizationsPage'
+import { OptimizationLoopPage } from './components/bo/OptimizationLoopPage'
 import { Alert } from './components/ui'
 import type { ProjectSchema, ProjectSummary } from './lib/api'
 import { getProjectSchema, getProjects, predictExperiment, recommendExperiments } from './lib/api'
@@ -23,7 +24,7 @@ import type { ActiveTab, FixedInputConfig, RecommendationRun } from './types/doe
 import type { PredictionMap } from './lib/api'
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('home')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('batch')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [schema, setSchema] = useState<ProjectSchema | null>(null)
@@ -213,38 +214,53 @@ function App() {
           </div>
         ) : schema ? (
           <>
-            {activeTab === 'home' && (
-              <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
-                <PredictPanel
-                  schema={schema}
-                  inputValues={inputValues}
-                  setInputValues={setInputValues}
-                  prediction={prediction}
-                  warnings={predictWarnings}
-                  loading={predictLoading}
-                  error={predictError}
-                  onSubmit={handlePredictSubmit}
-                />
+            {activeTab === 'batch' && (
+              <div className="space-y-8">
+                <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
+                    Batch Explorer
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                    Design-space scan with weighted KPI ranking
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                    Scan thousands of candidate configurations using the surrogate model and
+                    weighted objectives before moving into sequential optimization.
+                  </p>
+                </section>
 
-                <RecommendPanel
-                  schema={schema}
-                  objectiveWeights={objectiveWeights}
-                  setObjectiveWeights={setObjectiveWeights}
-                  fixedInputs={fixedInputs}
-                  setFixedInputs={setFixedInputs}
-                  nCandidates={nCandidates}
-                  setNCandidates={setNCandidates}
-                  tableTopK={tableTopK}
-                  setTableTopK={setTableTopK}
-                  visualizationTopK={visualizationTopK}
-                  setVisualizationTopK={setVisualizationTopK}
-                  loading={recommendLoading}
-                  error={recommendError}
-                  warnings={recommendWarnings}
-                  recommendationRun={recommendationRun}
-                  onSubmit={handleRecommendSubmit}
-                  onViewRecommendations={() => setActiveTab('recommendations')}
-                />
+                <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
+                  <PredictPanel
+                    schema={schema}
+                    inputValues={inputValues}
+                    setInputValues={setInputValues}
+                    prediction={prediction}
+                    warnings={predictWarnings}
+                    loading={predictLoading}
+                    error={predictError}
+                    onSubmit={handlePredictSubmit}
+                  />
+
+                  <RecommendPanel
+                    schema={schema}
+                    objectiveWeights={objectiveWeights}
+                    setObjectiveWeights={setObjectiveWeights}
+                    fixedInputs={fixedInputs}
+                    setFixedInputs={setFixedInputs}
+                    nCandidates={nCandidates}
+                    setNCandidates={setNCandidates}
+                    tableTopK={tableTopK}
+                    setTableTopK={setTableTopK}
+                    visualizationTopK={visualizationTopK}
+                    setVisualizationTopK={setVisualizationTopK}
+                    loading={recommendLoading}
+                    error={recommendError}
+                    warnings={recommendWarnings}
+                    recommendationRun={recommendationRun}
+                    onSubmit={handleRecommendSubmit}
+                    onViewRecommendations={() => setActiveTab('recommendations')}
+                  />
+                </div>
               </div>
             )}
 
@@ -252,7 +268,7 @@ function App() {
               <RecommendationsPage
                 schema={schema}
                 recommendationRun={recommendationRun}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={() => setActiveTab('batch')}
               />
             )}
 
@@ -261,7 +277,15 @@ function App() {
                 schema={schema}
                 recommendationRun={recommendationRun}
                 inputValues={inputValues}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={() => setActiveTab('batch')}
+              />
+            )}
+
+            {activeTab === 'optimization' && (
+              <OptimizationLoopPage
+                schema={schema}
+                objectiveWeights={objectiveWeights}
+                setObjectiveWeights={setObjectiveWeights}
               />
             )}
           </>
