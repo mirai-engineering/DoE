@@ -25,3 +25,7 @@ env/
 
 # JavaScript
 node_modules/
+
+# BO runtime state (seed data in data/replay/ is committed)
+backend/data/experiment_logs/
+backend/data/bo_configs/
