@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type {
   BOAcquisitionFunction,
   BOExplorationLevel,
+  BOFantasyStep,
   BOInputConstraint,
   BOReviewReason,
   BOStateResponse,
@@ -15,6 +16,7 @@ import {
   initializeBOReplay,
   revealBOReplayResult,
   reviewBOExperiment,
+  runBOFantasyRollout,
   saveBOConfig,
   suggestBOExperiment,
 } from '../../lib/api'
@@ -138,6 +140,7 @@ export function OptimizationLoopPage({
   const [rejectingExperimentId, setRejectingExperimentId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState<BOReviewReason>('infeasible')
   const [rejectNotes, setRejectNotes] = useState('')
+  const [fantasyTrajectory, setFantasyTrajectory] = useState<BOFantasyStep[]>([])
 
   useEffect(() => {
     setConstraints(initialConstraintDraft(schema))
@@ -177,18 +180,45 @@ export function OptimizationLoopPage({
     [constraints, schema],
   )
   const activeExperiment = state?.latest_suggestion ?? latestLoopExperiment(state)
-  const latestObserved = latestLoopExperiment(state)
   const canReveal = activeExperiment?.status === 'accepted'
 
   async function runAction(label: string, action: () => Promise<BOStateResponse>) {
     setActionLoading(label)
     setError(null)
     setNotice(null)
+    setFantasyTrajectory([])
     try {
       const nextState = await action()
       setState(nextState)
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : 'Optimization loop action failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handleFantasyRollout() {
+    setActionLoading('fantasy')
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await runBOFantasyRollout(schema.project_id, {
+        steps: 5,
+        config: {
+          objective_weights: numericWeights,
+          strategy: explorationLevel,
+          exploration_level: explorationLevel,
+          acquisition_function: acquisitionFunction,
+          input_constraints: activeConstraints,
+          n_suggestions: 1,
+          random_seed: 42,
+          replay_mode: true,
+        },
+      })
+      setFantasyTrajectory(response.fantasy_trajectory)
+      setNotice('5-step MLP fantasy rollout generated for planning only. No fantasy points were logged as observed.')
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Fantasy rollout failed')
     } finally {
       setActionLoading(null)
     }
@@ -316,6 +346,7 @@ export function OptimizationLoopPage({
           onInitialize={() => handleInitialize(false)}
           onReset={() => handleInitialize(true)}
           onSuggest={handleSuggest}
+          onFantasyRollout={handleFantasyRollout}
           onSaveConfig={handleSaveConfig}
           loading={stateLoading || actionLoading !== null}
           actionLoading={actionLoading}
@@ -339,11 +370,12 @@ export function OptimizationLoopPage({
       <ConstraintsPanel schema={schema} constraints={constraints} setConstraints={setConstraints} />
 
       <div className="grid gap-8 xl:grid-cols-2">
-        <ObjectiveIterationChart state={state} />
+        <ObjectiveIterationChart state={state} fantasyTrajectory={fantasyTrajectory} />
         <AcquisitionChart state={state} />
       </div>
 
-      <PredictedObservedChart schema={schema} experiment={latestObserved} />
+      <FantasyRolloutPanel schema={schema} trajectory={fantasyTrajectory} />
+      <PredictedObservedChart schema={schema} state={state} />
       <HistoryTable schema={schema} state={state} />
 
       {rejectingExperimentId && (
@@ -372,6 +404,7 @@ function SetupPanel({
   onInitialize,
   onReset,
   onSuggest,
+  onFantasyRollout,
   onSaveConfig,
   loading,
   actionLoading,
@@ -386,6 +419,7 @@ function SetupPanel({
   onInitialize: () => void
   onReset: () => void
   onSuggest: () => void
+  onFantasyRollout: () => void
   onSaveConfig: () => void
   loading: boolean
   actionLoading: string | null
@@ -491,6 +525,14 @@ function SetupPanel({
             className="rounded-2xl bg-[#d8c49a] px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-slate-950 shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#ead7ad] disabled:cursor-not-allowed disabled:brightness-75"
           >
             {actionLoading === 'suggest' ? 'Suggesting...' : 'Suggest Next'}
+          </button>
+          <button
+            type="button"
+            onClick={onFantasyRollout}
+            disabled={loading}
+            className="rounded-2xl border border-blue-200/40 bg-blue-50/10 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-blue-100 transition hover:bg-blue-50/20 disabled:cursor-not-allowed disabled:brightness-75 sm:col-span-2"
+          >
+            {actionLoading === 'fantasy' ? 'Running lookahead...' : 'Run 5-Step Lookahead'}
           </button>
         </div>
       </div>
@@ -832,7 +874,13 @@ function ValueList({
   )
 }
 
-function ObjectiveIterationChart({ state }: { state: BOStateResponse | null }) {
+function ObjectiveIterationChart({
+  state,
+  fantasyTrajectory,
+}: {
+  state: BOStateResponse | null
+  fantasyTrajectory: BOFantasyStep[]
+}) {
   const experiments = state?.history ?? []
   const xValues = experiments.map((experiment) => experiment.iteration)
   const observed = experiments.map((experiment) => experiment.objective?.observed_score ?? null)
@@ -872,6 +920,23 @@ function ObjectiveIterationChart({ state }: { state: BOStateResponse | null }) {
       line: { color: '#17211d', width: 3 },
     },
   ]
+  if (fantasyTrajectory.length > 0) {
+    const lastIteration = Math.max(0, ...xValues)
+    data.push({
+      type: 'scatter',
+      mode: 'lines+markers',
+      name: 'MLP fantasy rollout',
+      x: fantasyTrajectory.map((step) => lastIteration + step.iteration),
+      y: fantasyTrajectory.map((step) => step.predicted_score),
+      customdata: fantasyTrajectory.map((step) =>
+        step.low_confidence_region ? 'Simulated using MLP (not observed), low-confidence region' : 'Simulated using MLP (not observed)',
+      ),
+      hovertemplate:
+        '<b>Fantasy step %{x}</b><br>Predicted objective: %{y:.3f}<br>%{customdata}<extra>%{fullData.name}</extra>',
+      marker: { color: '#93c5fd', symbol: 'diamond' },
+      line: { color: '#93c5fd', dash: 'dash', width: 3 },
+    })
+  }
 
   return (
     <ChartPanel
@@ -933,42 +998,160 @@ function AcquisitionChart({ state }: { state: BOStateResponse | null }) {
   )
 }
 
-function PredictedObservedChart({
+function FantasyRolloutPanel({
   schema,
-  experiment,
+  trajectory,
 }: {
   schema: ProjectSchema
-  experiment: LoggedExperiment | null
+  trajectory: BOFantasyStep[]
 }) {
-  const observedExperiment = experiment?.observed_outputs ? experiment : null
+  if (trajectory.length === 0) return null
+
+  const firstInput = schema.inputs[0]
+  const secondInput = schema.inputs[1]
+
+  return (
+    <section className="rounded-[2rem] border border-blue-100 bg-blue-50/70 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <PanelHeader
+        eyebrow="Fantasy rollout"
+        title="5-step MLP lookahead"
+        description="Simulated using the MLP surrogate for planning only. These fantasy points are not stored in the experiment log and are not treated as observed data."
+      />
+      <div className="mt-5 grid gap-3 md:grid-cols-5">
+        {trajectory.map((step) => (
+          <div
+            key={step.iteration}
+            className="rounded-2xl border border-blue-100 bg-white/85 p-4 shadow-sm"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-900">
+                Step {step.iteration}
+              </p>
+              <span
+                className={`rounded-full px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.12em] ${
+                  step.low_confidence_region
+                    ? 'bg-amber-100 text-amber-900'
+                    : 'bg-emerald-100 text-emerald-900'
+                }`}
+              >
+                {step.low_confidence_region ? 'Low confidence' : 'Near data'}
+              </span>
+            </div>
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Predicted score</dt>
+                <dd className="font-semibold text-slate-950">{formatNumber(step.predicted_score)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Acquisition</dt>
+                <dd className="font-semibold text-slate-950">{formatNumber(step.acquisition_score)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-500">Distance</dt>
+                <dd className="font-semibold text-slate-950">
+                  {formatNumber(step.distance_to_nearest_real)}
+                </dd>
+              </div>
+              {firstInput && (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-500">{firstInput.label}</dt>
+                  <dd className="font-semibold text-slate-950">
+                    {formatNumber(step.inputs[firstInput.name])}
+                  </dd>
+                </div>
+              )}
+              {secondInput && (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-500">{secondInput.label}</dt>
+                  <dd className="font-semibold text-slate-950">
+                    {formatNumber(step.inputs[secondInput.name])}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function PredictedObservedChart({
+  schema,
+  state,
+}: {
+  schema: ProjectSchema
+  state: BOStateResponse | null
+}) {
+  const observedExperiment =
+    [...(state?.history ?? [])]
+      .filter((experiment) => experiment.observed_outputs != null && experiment.predicted_outputs != null)
+      .sort((left, right) => right.iteration - left.iteration)[0] ?? null
+
   const labels = schema.outputs.map((output) => output.label)
-  const data: Data[] = observedExperiment
+  const predictedValues = observedExperiment
+    ? schema.outputs.map((output) => observedExperiment.predicted_outputs?.[output.name] ?? 0)
+    : []
+  const observedValues = observedExperiment
+    ? schema.outputs.map((output) => observedExperiment.observed_outputs?.[output.name] ?? 0)
+    : []
+
+  const layout: Partial<Layout> = {
+    autosize: true,
+    barmode: 'group',
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    margin: { l: 54, r: 24, t: 24, b: 58 },
+    legend: { orientation: 'h', y: 1.16 },
+    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a' },
+  }
+
+  const traces: Data[] = observedExperiment
     ? [
         {
           type: 'bar',
           name: 'Predicted',
           x: labels,
-          y: schema.outputs.map((output) => observedExperiment.predicted_outputs?.[output.name] ?? 0),
+          y: predictedValues,
           marker: { color: '#b77f4f' },
         },
         {
           type: 'bar',
           name: 'Observed',
           x: labels,
-          y: schema.outputs.map((output) => observedExperiment.observed_outputs?.[output.name] ?? 0),
+          y: observedValues,
           marker: { color: '#526949' },
         },
       ]
     : []
 
   return (
-    <ChartPanel
-      eyebrow="Surrogate check"
-      title="Predicted vs observed KPIs"
-      data={data}
-      emptyMessage="Reveal a replay result to compare surrogate predictions against observed measurements."
-      barmode="group"
-    />
+    <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <PanelHeader
+        eyebrow="Surrogate check"
+        title={
+          observedExperiment
+            ? `Predicted vs observed KPIs, iteration ${observedExperiment.iteration}`
+            : 'Predicted vs observed KPIs'
+        }
+        description="Predicted and observed values remain visually separate."
+      />
+      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#fbfaf5] p-3">
+        {observedExperiment ? (
+          <Plot
+            data={traces}
+            layout={layout}
+            config={{ displayModeBar: false, responsive: true }}
+            useResizeHandler
+            className="h-[360px] w-full"
+          />
+        ) : (
+          <div className="flex h-[280px] items-center justify-center text-center text-sm text-slate-500">
+            No experiment with both predicted and observed KPI values is available yet.
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -991,7 +1174,7 @@ function ChartPanel({
 }) {
   const hasData = data.some((trace) => {
     const yValues = (trace as { y?: unknown }).y
-    return Array.isArray(yValues) && yValues.some((value: unknown) => value !== null && value !== undefined)
+    return Array.isArray(yValues) && yValues.length > 0
   })
   const layout: Partial<Layout> = {
     autosize: true,
