@@ -220,6 +220,30 @@ export interface BORevealReplayResponse {
   state: BOStateResponse
 }
 
+export interface BOFantasyRolloutRequest {
+  steps: number
+  config?: BOConfig
+}
+
+export interface BOFantasyStep {
+  iteration: number
+  inputs: ExperimentInputs
+  predicted_outputs: PredictionMap
+  predicted_score: number
+  acquisition_score: number
+  expected_improvement: number
+  uncertainty: Record<string, unknown>
+  distance_to_nearest_real: number
+  low_confidence_region: boolean
+  source: 'mlp_fantasy'
+}
+
+export interface BOFantasyRolloutResponse {
+  project_id: string
+  fantasy_trajectory: BOFantasyStep[]
+  metadata: Record<string, unknown>
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -518,5 +542,20 @@ export async function saveBOConfig(
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to save BO configuration')
+  }
+}
+
+export async function runBOFantasyRollout(
+  projectId: string,
+  request: BOFantasyRolloutRequest,
+): Promise<BOFantasyRolloutResponse> {
+  try {
+    const response = await api.post<BOFantasyRolloutResponse>(
+      `/projects/${projectId}/bo/fantasy-rollout`,
+      request,
+    )
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to run fantasy rollout')
   }
 }
