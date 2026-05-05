@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .schemas import (
     BOConfig,
     BOConfigUpdate,
+    BOFantasyRolloutRequest,
+    BOFantasyRolloutResponse,
     BOInitializeReplayRequest,
     BORevealReplayResponse,
     BOReviewRequest,
@@ -29,6 +31,7 @@ from .services.bayesian_optimization import (
     save_bo_config_update,
     suggest_next_experiment,
 )
+from .services.fantasy_rollout import run_fantasy_rollout
 from .services.model_loader import are_models_loaded, load_all_models
 from .services.prediction import predict_rows
 from .services.project_registry import (
@@ -210,4 +213,13 @@ def bo_config(project_id: str, request: BOConfigUpdate):
         return save_bo_config_update(project_id, request)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("BO config update failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/bo/fantasy-rollout", response_model=BOFantasyRolloutResponse)
+def bo_fantasy_rollout(project_id: str, request: BOFantasyRolloutRequest):
+    try:
+        return run_fantasy_rollout(project_id, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("BO fantasy rollout failed for project_id=%s", project_id)
         _raise_api_error(exc)

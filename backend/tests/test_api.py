@@ -275,3 +275,42 @@ def test_bo_rejected_suggestion_cannot_reveal(isolated_client):
 
     assert reveal_response.status_code == 400
     assert "cannot reveal" in reveal_response.json()["detail"]
+
+
+def test_bo_fantasy_rollout_is_not_logged_as_observed(isolated_client):
+    isolated_client.post(
+        f"/projects/{PROJECT_ID}/bo/initialize-replay",
+        json={"reset": True, "n_initial": 6, "selection": "diverse"},
+    )
+    state_before = isolated_client.get(f"/projects/{PROJECT_ID}/bo/state").json()
+
+    response = isolated_client.post(
+        f"/projects/{PROJECT_ID}/bo/fantasy-rollout",
+        json={
+            "steps": 3,
+            "config": {
+                "objective_weights": {
+                    "bol_current_density": 0.35,
+                    "eol_current_density": 0.35,
+                    "durability_score": 0.2,
+                    "ecsa_loss": -0.1,
+                    "cost_score": -0.1,
+                },
+                "exploration_level": "balanced",
+                "acquisition_function": "ei",
+                "n_suggestions": 1,
+                "replay_mode": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["not_logged"] is True
+    assert len(payload["fantasy_trajectory"]) == 3
+    assert all(step["source"] == "mlp_fantasy" for step in payload["fantasy_trajectory"])
+    assert all(step["predicted_outputs"] for step in payload["fantasy_trajectory"])
+
+    state_after = isolated_client.get(f"/projects/{PROJECT_ID}/bo/state").json()
+    assert len(state_after["history"]) == len(state_before["history"])
+    assert state_after["observed_count"] == state_before["observed_count"]

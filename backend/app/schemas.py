@@ -246,3 +246,29 @@ class BORevealReplayResponse(BaseModel):
     experiment: BORevealReplayExperiment
     logged_experiment: LoggedExperiment
     state: BOStateResponse
+
+
+class BOFantasyRolloutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    steps: int = Field(default=5, ge=1, le=10)
+    config: BOConfig | None = None
+
+
+class BOFantasyStep(BaseModel):
+    iteration: int
+    inputs: dict[str, float]
+    predicted_outputs: dict[str, float]
+    predicted_score: float
+    acquisition_score: float
+    expected_improvement: float
+    uncertainty: dict[str, Any]
+    distance_to_nearest_real: float
+    low_confidence_region: bool
+    source: str = "mlp_fantasy"
+
+
+class BOFantasyRolloutResponse(BaseModel):
+    project_id: str
+    fantasy_trajectory: list[BOFantasyStep]
+    metadata: dict[str, Any] = Field(default_factory=dict)

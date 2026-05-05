@@ -9,12 +9,17 @@ WORKDIR /app
 # Copy dependency files (context is root, so need backend/ prefix)
 COPY backend/pyproject.toml ./
 COPY backend/uv.lock ./
+
+# Install locked runtime dependencies before copying app code. BoTorch pulls in
+# large wheels, so keep this layer independent from ordinary source edits.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv export --frozen --no-dev --no-emit-project --format requirements.txt --output-file requirements.txt && \
+    uv pip install --system --requirements requirements.txt
+
 COPY backend/app ./app
 
-# Install locked runtime dependencies and then the local app package
-RUN uv export --frozen --no-dev --no-emit-project --format requirements.txt --output-file requirements.txt && \
-    uv pip install --system --requirements requirements.txt && \
-    uv pip install --system --no-deps .
+# Install the local app package without reinstalling runtime dependencies.
+RUN uv pip install --system --no-deps .
 
 # Stage 2: Runtime
 FROM python:3.11-slim
