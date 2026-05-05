@@ -35,6 +35,7 @@ from .experiment_log import (
     update_experiment,
     write_experiment_log,
 )
+from .botorch_engine import suggest_next_candidate
 from .prediction import predict_rows
 from .preprocessing import input_names, output_names, validate_row
 from .project_registry import get_project_schema
@@ -243,6 +244,46 @@ def _normalized_input_vector(schema: dict, inputs: dict[str, float]) -> np.ndarr
         maximum = float(variable["max"])
         values.append((float(inputs[name]) - minimum) / max(maximum - minimum, 1e-12))
     return np.asarray(values, dtype=np.float64)
+
+
+def _normalized_bounds(schema: dict, config: BOConfig) -> np.ndarray:
+    bounds = _effective_bounds(schema, config)
+    lower: list[float] = []
+    upper: list[float] = []
+    for variable in schema.get("inputs", []):
+        name = variable["name"]
+        schema_minimum = float(variable["min"])
+        schema_maximum = float(variable["max"])
+        scale = max(schema_maximum - schema_minimum, 1e-12)
+        minimum, maximum, fixed = bounds[name]
+        if fixed is not None:
+            normalized_fixed = (fixed - schema_minimum) / scale
+            lower.append(float(np.clip(normalized_fixed, 0.0, 1.0)))
+            upper.append(float(np.clip(normalized_fixed, 0.0, 1.0)))
+        else:
+            lower.append(float(np.clip((minimum - schema_minimum) / scale, 0.0, 1.0)))
+            upper.append(float(np.clip((maximum - schema_minimum) / scale, 0.0, 1.0)))
+    return np.asarray([lower, upper], dtype=np.float64)
+
+
+def _raw_inputs_from_normalized(schema: dict, values: list[float] | np.ndarray) -> dict[str, float]:
+    normalized_values = np.asarray(values, dtype=np.float64).reshape(-1)
+    names = input_names(schema)
+    if normalized_values.shape[0] != len(names):
+        raise ValueError("Normalized candidate dimension does not match project schema")
+
+    inputs: dict[str, float] = {}
+    for value, variable in zip(normalized_values, schema.get("inputs", []), strict=True):
+        minimum = float(variable["min"])
+        maximum = float(variable["max"])
+        clipped = float(np.clip(value, 0.0, 1.0))
+        inputs[variable["name"]] = minimum + clipped * (maximum - minimum)
+    return inputs
+
+
+def _nearest_normalized_distance(x_candidate: np.ndarray, x_real: np.ndarray) -> float:
+    distances = np.linalg.norm(x_real - np.asarray(x_candidate, dtype=np.float64).reshape(1, -1), axis=1)
+    return float(np.min(distances))
 
 
 def _rbf_kernel(left: np.ndarray, right: np.ndarray, length_scale: float) -> np.ndarray:
@@ -460,30 +501,64 @@ def suggest_next_experiment(project_id: str, incoming_config: BOConfig) -> BOSug
         dtype=np.float64,
     )
     training_inputs = _normalized_input_array(schema, observed)
-    gp = _fit_gp(training_inputs, objective_values)
-
-    candidate_pool_size = 5000
-    seed = int(config.random_seed + len(history) * 17)
-    candidates = _generate_candidate_pool(schema, config, n_candidates=candidate_pool_size, random_seed=seed)
-    candidate_array = np.asarray([_normalized_input_vector(schema, candidate) for candidate in candidates], dtype=np.float64)
-
-    mu, std = _predict_gp(gp, candidate_array)
     preset = EXPLORATION_PRESETS[config.exploration_level]
-    improvement = expected_improvement(mu, std, float(np.max(objective_values)), xi=float(preset["xi"]))
-    if config.acquisition_function == BOAcquisitionFunction.ucb:
-        acquisition = upper_confidence_bound(mu, std, kappa=float(preset["kappa"]))
-    else:
-        acquisition = improvement
 
-    best_index = int(np.argmax(acquisition))
-    selected_inputs = candidates[best_index]
+    engine_name = "botorch"
+    candidate_pool_size: int | None = None
+    try:
+        bo_result = suggest_next_candidate(
+            training_inputs,
+            objective_values,
+            _normalized_bounds(schema, config),
+            {
+                "acquisition": config.acquisition_function.value,
+                "xi": float(preset["xi"]),
+                "beta": float(preset["kappa"]) ** 2,
+                "num_restarts": 12,
+                "raw_samples": 256,
+            },
+        )
+        selected_normalized = np.asarray(bo_result["x_next"], dtype=np.float64)
+        selected_inputs = _raw_inputs_from_normalized(schema, selected_normalized)
+        objective_mean = float(bo_result["mean"])
+        std_value = float(bo_result["std"])
+        acquisition_score = float(bo_result["acquisition"])
+        expected_improvement_score = float(bo_result["expected_improvement"])
+    except Exception:  # noqa: BLE001 - keep the demo usable if BoTorch optimization fails numerically.
+        engine_name = "numpy_gp_fallback"
+        gp = _fit_gp(training_inputs, objective_values)
+
+        candidate_pool_size = 5000
+        seed = int(config.random_seed + len(history) * 17)
+        candidates = _generate_candidate_pool(schema, config, n_candidates=candidate_pool_size, random_seed=seed)
+        candidate_array = np.asarray(
+            [_normalized_input_vector(schema, candidate) for candidate in candidates],
+            dtype=np.float64,
+        )
+
+        mu, std = _predict_gp(gp, candidate_array)
+        improvement = expected_improvement(mu, std, float(np.max(objective_values)), xi=float(preset["xi"]))
+        if config.acquisition_function == BOAcquisitionFunction.ucb:
+            acquisition = upper_confidence_bound(mu, std, kappa=float(preset["kappa"]))
+        else:
+            acquisition = improvement
+
+        best_index = int(np.argmax(acquisition))
+        selected_inputs = candidates[best_index]
+        selected_normalized = candidate_array[best_index]
+        objective_mean = float(mu[best_index])
+        std_value = float(std[best_index])
+        acquisition_score = float(acquisition[best_index])
+        expected_improvement_score = float(improvement[best_index])
+
     predicted_outputs, _, model_version = predict_rows(project_id, [selected_inputs], warn_near_bounds=False)
+    nearest_real_distance = _nearest_normalized_distance(selected_normalized, training_inputs)
 
     uncertainty_level = "low"
-    std_value = float(std[best_index])
-    if std_value > float(np.percentile(std, 66)):
+    observed_spread = max(float(np.std(objective_values)), 1e-12)
+    if std_value > observed_spread * 0.75:
         uncertainty_level = "high"
-    elif std_value > float(np.percentile(std, 33)):
+    elif std_value > observed_spread * 0.35:
         uncertainty_level = "medium"
 
     experiment = LoggedExperiment(
@@ -496,9 +571,12 @@ def suggest_next_experiment(project_id: str, incoming_config: BOConfig) -> BOSug
         predicted_outputs=predicted_outputs[0],
         observed_outputs=None,
         uncertainty={
-            "objective_mean": float(mu[best_index]),
+            "objective_mean": objective_mean,
             "objective_std": std_value,
+            "objective_variance": std_value**2,
             "uncertainty_level": uncertainty_level,
+            "distance_to_nearest_observed": nearest_real_distance,
+            "low_confidence_region": nearest_real_distance > 0.2,
         },
         objective={
             "predicted_score": compute_weighted_objective(
@@ -506,8 +584,8 @@ def suggest_next_experiment(project_id: str, incoming_config: BOConfig) -> BOSug
                 config.objective_weights,
                 stats,
             ),
-            "acquisition_score": float(acquisition[best_index]),
-            "expected_improvement": float(improvement[best_index]),
+            "acquisition_score": acquisition_score,
+            "expected_improvement": expected_improvement_score,
             "current_best_observed": float(np.max(objective_values)),
         },
         review=ExperimentReview(),
@@ -516,10 +594,11 @@ def suggest_next_experiment(project_id: str, incoming_config: BOConfig) -> BOSug
             "bo_run_id": str(uuid4()),
             "created_at": _utc_now(),
             "candidate_pool_size": candidate_pool_size,
+            "optimizer_engine": engine_name,
             "acquisition_function": config.acquisition_function.value,
             "exploration_level": config.exploration_level.value,
             "n_observed": len(observed),
-            "reason": _suggestion_reason(float(improvement[best_index]), uncertainty_level, config.exploration_level),
+            "reason": _suggestion_reason(expected_improvement_score, uncertainty_level, config.exploration_level),
         },
     )
     append_experiment(project_id, experiment)
