@@ -20,7 +20,7 @@ Generic tabular Design of Experiments optimization engine for validating experim
 |---|---|
 | Backend | FastAPI · ONNX Runtime · Pydantic |
 | Frontend | Vite · React 18 · TypeScript · Tailwind CSS |
-| Model | PyTorch → ONNX (MLPMulti-Layer Perceptron surrogate) |
+| Model | PyTorch → ONNX (MLP/Multi-Layer Perceptron surrogate) |
 | Deployment | Docker · Docker Compose · Nginx |
 
 ---

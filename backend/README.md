@@ -6,13 +6,13 @@ Scripts for generating synthetic tabular data, training surrogate MLP models, an
 
 ```
 data/synthetic/{project_id}.csv
-                                  ┌──────────────────────────┐
+                                  ┌──────────────────────────   ┐
 artifacts/{project_id}/           │  generate_synthetic_data.py │
-  schema.json                      │                            │
+  schema.json                     │                             │
   preprocessing.json  ←────────── │    train_mlp.py             │
-  model.pt             ←────────── │                            │
-  model.onnx ←──────────────────── │    export_onnx.py           │
-  metadata.json                      └────────────────────────────┘
+  model.pt             ←───────── │                             │
+  model.onnx ←─────────────────── │    export_onnx.py           │
+  metadata.json                   └────────────────────────────-┘
 ```
 
 The runtime (`backend/app/services/`) only reads the ONNX model and preprocessing params at startup. PyTorch is **not needed in production**.
