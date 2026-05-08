@@ -41,6 +41,7 @@ backend/artifacts/pem_fuel_cell_real_cathode_degradation/
 # Data
 # Root-level raw data is local-only. Generated backend/data CSV artifacts may be tracked.
 /data/
+backend/data/real/**/*.csv
 
 # Tooling
 .pi/
