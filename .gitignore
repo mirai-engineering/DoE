@@ -32,3 +32,6 @@ backend/data/bo_configs/
 
 # Data
 data/
+
+# Tooling
+.pi/
