@@ -23,7 +23,8 @@ Build a staged, auditable transformation path from `Cell_01` raw CSV/workbook/PD
 - `backend/tests/test_real_fuel_cell_data_pipeline.py`
 - `docs/REAL_FUEL_CELL_DATASET.md`
 - `backend/data/real/pem_fuel_cell_cathode_degradation/*.csv`
-- `backend/artifacts/pem_fuel_cell_real_cathode_degradation/schema.json`
+
+Phase 1 stops after audited CSV artifacts. It does not create ONNX models, preprocessing artifacts, replay splits, or production project artifacts.
 
 ### Reuse
 
@@ -34,13 +35,13 @@ Build a staged, auditable transformation path from `Cell_01` raw CSV/workbook/PD
 
 ### Steps
 
-- [ ] Parse only `Cell_01` metadata from `data_overview.xlsx`.
-- [ ] Inventory only `Cell_01` raw files.
-- [ ] Create `Cell_01` canonical long tables for IV, CV/ECSA, and diagnostics.
-- [ ] Align BoL/EoL raw IV curves using measured BoL voltages with EoL interpolation inside overlap.
-- [ ] Produce a paper-aligned 7-input / 4-output `model_table.csv`.
-- [ ] Validate units, schema order, provenance, and no synthetic/proxy outputs.
-- [ ] Decide separately whether to train/export a real model or stop at audited CSVs.
+- [x] Parse only `Cell_01` metadata from `data_overview.xlsx`.
+- [x] Inventory only `Cell_01` raw files.
+- [x] Create `Cell_01` canonical long tables for IV, CV/ECSA, and diagnostics.
+- [x] Align BoL/EoL raw IV curves using measured BoL voltages with EoL interpolation inside overlap.
+- [x] Produce a paper-aligned 7-input / 4-output `model_table.csv`.
+- [x] Validate units, schema order, provenance, and no synthetic/proxy outputs.
+- [x] Stop after producing audited CSV artifacts; do not train/export a model in Phase 1.
 
 ### Verification
 
@@ -48,6 +49,40 @@ Build a staged, auditable transformation path from `Cell_01` raw CSV/workbook/PD
 - Confirm no `Cell_02`–`Cell_42` rows are processed in Phase 1.
 - Confirm `durability_score` and `cost_score` are absent from the real validation schema.
 - Confirm every model row has source-file provenance and no voltage extrapolation.
+
+### Execution Evidence
+
+Completed Phase 1 with audited CSV artifacts under:
+
+```text
+backend/data/real/pem_fuel_cell_cathode_degradation/
+```
+
+Generated row counts:
+
+```text
+inventory_manifest.csv: 194
+cell_metadata.csv: 1
+polarization_long.csv: 320
+ecsa_by_cycle.csv: 9
+model_table.csv: 57
+rejected_rows.csv: 9
+eis_h2n2_summary.csv: 18
+eis_h2air_long.csv: 984
+limiting_current_summary.csv: 32
+lsv_summary.csv: 2
+ast_trace_manifest.csv: 10
+```
+
+Verification command passed:
+
+```bash
+cd backend && uv run pytest tests/test_api.py tests/test_real_fuel_cell_data_pipeline.py
+```
+
+Result: 16 passed, 6 warnings from BoTorch ExpectedImprovement numerics in existing BO tests.
+
+No training, ONNX export, production artifact registration, or replay file generation was performed.
 
 ## Source Material Reviewed
 
@@ -625,22 +660,26 @@ Rules:
 - If `ecsa_loss` is negative because of measurement noise, do not silently clip it; log it and decide explicitly whether to keep the physical value or mark the row for review.
 - Mark `ecsa_loss` as a derived paper output computed from measured ECSA endpoints.
 
-### Step 7 — Create a real project artifact boundary
+### Step 7 — Produce audited CSV artifacts only
 
-Do not overwrite the synthetic demo artifacts. Add a new project directory only after the data pipeline is validated.
-
-Potential target:
+Do not overwrite the synthetic demo artifacts. Do not create a new production artifact directory in Phase 1. Phase 1 stops after audited CSV outputs under:
 
 ```text
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/schema.json
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/preprocessing.json
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/model.onnx
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/metadata.json
+backend/data/real/pem_fuel_cell_cathode_degradation/
 ```
 
-The schema must reflect the final model columns and ranges from the real data, not copied blindly from the synthetic schema.
+Required CSV artifacts:
 
-Minimum metadata fields:
+```text
+inventory_manifest.csv
+cell_metadata.csv
+polarization_long.csv
+ecsa_by_cycle.csv
+model_table.csv
+rejected_rows.csv
+```
+
+Recommended CSV metadata/provenance columns across these files:
 
 ```text
 source_pdf
@@ -648,38 +687,27 @@ source_data_root
 phase_scope
 source_cell_count
 source_cell_ids
-source_archive_count
-model_table_path
+source_container
+source_file
+source_row
 curve_variant
 voltage_alignment_method
 measured_outputs
 derived_outputs
-excluded_rows_report
 known_limitations
 ```
 
 For Phase 1, `phase_scope` should explicitly say `Cell_01 only`, `source_cell_count` should be `1`, and `source_cell_ids` should be `Cell_01`.
 
-### Step 8 — Defer full replay files until after `Cell_01` validation
+### Step 8 — Do not create replay files in Phase 1
 
-Do not create the final BO replay split in Phase 1 unless it is needed for a smoke test. A meaningful grouped replay split requires multiple cells; `Cell_01` alone cannot validate generalization across cells.
+Phase 1 should produce model-ready data only. Do not create a temporary `Cell_01` smoke replay split and do not create final BO replay files.
 
-If a smoke replay is needed for UI/API plumbing, create clearly labeled temporary files only after user approval:
+Reason:
 
-```text
-backend/data/replay/pem_fuel_cell_real_cathode_degradation_cell_01_smoke_initial.csv
-backend/data/replay/pem_fuel_cell_real_cathode_degradation_cell_01_smoke_hidden.csv
-```
-
-Smoke replay constraints:
-
-- label it as `Cell_01` smoke data, not a scientific replay benchmark,
-- split rows by voltage/RH only, since there is only one cell,
-- never present smoke replay metrics as model generalization evidence,
-- keep hidden outputs measured/interpolated from real `Cell_01` rows,
-- never treat surrogate predictions as observed truth.
-
-Full replay generation belongs to the later all-cell phase, where grouped splitting by `cell_id` becomes possible.
+- `Cell_01` alone is enough to validate parsing and model-table construction.
+- It is not enough to validate a meaningful BO replay benchmark or generalization across cells.
+- Replay generation belongs to a later all-cell phase after the CSV pipeline is audited.
 
 ## Proposed Implementation Files For A Later Approved Step
 
@@ -691,18 +719,19 @@ backend/training/real_fuel_cell_schema.py
 backend/tests/test_real_fuel_cell_data_pipeline.py
 docs/REAL_FUEL_CELL_DATASET.md
 backend/data/real/pem_fuel_cell_cathode_degradation/*.csv
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/schema.json
 ```
 
-If training support must become multi-project-aware, likely touched files include:
+Do not touch these in Phase 1:
 
 ```text
 backend/training/train_mlp.py
 backend/training/export_onnx.py
 backend/app/services/project_registry.py
+backend/artifacts/pem_fuel_cell_real_cathode_degradation/*
+backend/data/replay/pem_fuel_cell_real_cathode_degradation_*.csv
 ```
 
-Touch these only if necessary and keep the existing synthetic project working.
+Phase 1 must keep the existing synthetic project working and stop after audited CSV artifacts.
 
 ## Validation And QA Plan
 
@@ -728,27 +757,26 @@ Touch these only if necessary and keep the existing synthetic project working.
 - `ast_upl` comes from the testing overview workbook.
 - Raw and IR-corrected IV curves are never mixed in the same target.
 
-### Model-readiness checks
+### Model-table readiness checks
 
-- `model_table.csv` columns match the selected `schema.json` input/output order.
-- Train/validation split strategy is cell-aware if generalization across cells matters.
-- Preprocessing min/max values are computed from training data and saved.
-- ONNX predictions are compared against native PyTorch predictions on the same sample batch.
-- At least one sample is traced end-to-end from raw archive path to frontend prediction output.
+- `model_table.csv` columns match the paper-aligned input/output order.
+- `model_table.csv` uses exact paper labels if a later figure/source check shows the working names differ.
+- No train/validation split is created in Phase 1.
+- No preprocessing artifact is saved in Phase 1.
+- No ONNX export or native-vs-ONNX comparison is performed in Phase 1.
+- At least one row is traced from raw `Cell_01` source path to final `model_table.csv` values.
 
 ### Replay checks
 
 For Phase 1:
 
-- No full scientific replay split is required.
-- If a smoke replay is explicitly approved, initial and hidden rows must come from real `Cell_01` model rows.
-- Hidden pool retains outputs but does not reveal them until replay reveal.
-- No duplicate replay IDs.
-- Smoke replay files are clearly labeled as non-benchmark plumbing data.
+- No replay split is created.
+- No smoke replay files are created.
+- The CSV pipeline stops at model-ready data.
 
 For the later all-cell phase:
 
-- Replay splitting should be grouped by `cell_id` unless the user explicitly chooses row-level interpolation replay.
+- Replay splitting should be planned separately and likely grouped by `cell_id`.
 
 ## Open Questions / Ask-Before Rules
 
@@ -761,21 +789,23 @@ Resolved by review and PDF inspection:
 5. Raw `IV_data.csv` is the Phase 1 current-density source; `IV_data_IR_corr.csv` remains QA-only.
 6. Voltage alignment uses measured BoL voltages with EoL interpolation inside overlap; no arbitrary fixed grid for Phase 1.
 
-Still ask before implementation if any of these become necessary:
+Additional resolved decisions from review:
 
-1. Is `data/` intended to be versioned in git, stored with Git LFS, or treated as local-only raw data?
-2. Should Phase 1 create a temporary `Cell_01` smoke replay split, or only produce model-ready data?
-3. Should the next approved implementation also train/export a model, or stop after producing audited CSV artifacts?
-4. If exact paper figure labels differ from the working output names here, should we rename repo columns to match the paper labels verbatim?
+1. Treat `data/` as local-only raw data for now.
+2. Phase 1 produces model-ready data only; no temporary `Cell_01` smoke replay split.
+3. Phase 1 stops after audited CSV artifacts; no model training or ONNX export.
+4. If exact paper figure labels differ from the working output names here, rename repo CSV columns to match the paper labels verbatim.
 
 Hard stop conditions:
 
 - Do not overwrite synthetic demo artifacts.
-- Do not train on synthetic and real rows mixed together unless explicitly requested.
+- Do not train on synthetic and real rows mixed together.
+- Do not train/export a model in Phase 1.
+- Do not create replay files in Phase 1.
 - Do not invent missing measurements.
 - Do not fill EoL outputs with model predictions.
 - Do not add dependencies outside `uv` workflow without approval.
-- Do not change public API routes unless explicitly requested.
+- Do not change public API routes.
 
 ## Acceptance Criteria For This Plan
 
@@ -787,7 +817,8 @@ This plan is complete when:
 - it records PDF-derived context and experimental feature/target definitions,
 - it identifies high-risk unit conversions and later-phase missing-cell caveats,
 - it lists concrete future implementation files and validation checks,
-- it keeps implementation as a separate approval step.
+- it stops the next implementation at audited CSV artifacts,
+- it keeps training/export/replay work as separate future approval steps.
 
 ## Suggested Local Verification Commands For Future Implementation
 
@@ -799,10 +830,4 @@ uv run python backend/training/build_real_fuel_cell_dataset.py --cell-id Cell_01
 uv run python -m pytest backend/tests/test_real_fuel_cell_data_pipeline.py backend/tests/test_api.py
 ```
 
-If model training is included in a later approved step:
-
-```bash
-uv run python backend/training/train_mlp.py --project-id pem_fuel_cell_real_cathode_degradation
-```
-
-The exact training command may require a small trainer refactor because the current `train_mlp.py` is tied to `pem_fuel_cell_demo` constants.
+Do not run training/export commands in Phase 1. Training, ONNX export, project registration, and replay generation require a separate future plan after the audited CSV artifacts are reviewed.
