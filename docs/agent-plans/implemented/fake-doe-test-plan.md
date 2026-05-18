@@ -12,7 +12,7 @@ Add this plan as a documentation-only artifact in `docs/`. Do not modify backend
 
 ## Files to modify
 
-- `docs/fake-doe-test-plan.md` — add this fake DoE plan for Plannotator testing.
+- `docs/agent-plans/implemented/fake-doe-test-plan.md` — add this fake DoE plan for Plannotator testing.
 
 ## Reuse
 
@@ -28,7 +28,7 @@ Add this plan as a documentation-only artifact in `docs/`. Do not modify backend
 
 ## Verification
 
-- Confirm `docs/fake-doe-test-plan.md` exists.
+- Confirm `docs/agent-plans/implemented/fake-doe-test-plan.md` exists.
 - Open the plan in Plannotator and verify comments/approval workflow works.
 - Confirm no source code files were changed for this fake test.
 

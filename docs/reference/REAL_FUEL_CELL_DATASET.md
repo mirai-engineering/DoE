@@ -16,7 +16,7 @@ The root `data/` folder is treated as **local-only raw data** for now. Generated
 backend/data/real/pem_fuel_cell_cathode_degradation/
 ```
 
-No model training, ONNX export, replay split, or production project artifact is created in Phase 1.
+Original data Phase 1 created audited CSV artifacts only. The workflow now supports all 42 cell archives, grouped-by-cell preprocessing/training splits, and 3 BO-only holdout cells for replay. The all-cells MVP still uses provisional report-only model-quality thresholds.
 
 ## What `Cell_01` Means
 
@@ -96,6 +96,32 @@ Dry run:
 ```bash
 uv run python training/build_real_fuel_cell_dataset.py --cell-id Cell_01 --dry-run --profile
 ```
+
+## Cell_01 Smoke MLOps Artifacts
+
+The smoke training workflow writes ignored local artifacts under:
+
+```text
+backend/data/real/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
+backend/mlruns/
+backend/.mlflow-cache/pem_fuel_cell_real_cathode_degradation/
+backend/artifacts/pem_fuel_cell_real_cathode_degradation/
+```
+
+Run:
+
+```bash
+cd backend
+uv run python training/build_real_fuel_cell_dataset.py --scope all_cells --profile
+uv run python training/preprocess_real_fuel_cell.py --project-id pem_fuel_cell_real_cathode_degradation --scope all_cells
+uv run python training/train_real_fuel_cell_models.py --project-id pem_fuel_cell_real_cathode_degradation --register-mlflow --set-alias challenger
+```
+
+The split standard is grouped by `cell_id`. Exactly 3 cells are reserved as BO holdout and excluded from preprocessing fit, model training, validation, final test, model selection, and threshold calculation. Their rows are exported to BO replay CSVs under `backend/data/replay/`; the initial replay file now contains 30 interleaved rows across all 3 holdout cells so the BO loop can initialize with typical `n_initial` values.
+
+The Design Studio uses the same schema and served model for interactive exploration. For the fuel-cell preset, it sweeps `operating_voltage` over the observed in-domain voltage grid from training artifacts and plots predicted BoL/EoL polarization curves. Controls and output cards are generated from schema inputs/outputs so future engineering projects can reuse the same playground with different variable names and response plots.
+
+The current ANN uses a scientific tabular architecture (`7 → 128 → 64 → 32 → 4`) with LayerNorm, SiLU activations, dropout, AdamW, LR scheduling, and early stopping on validation loss. Model Quality reports physical units, train-cell reference means/ranges, relative errors, and improvement versus a train-mean baseline.
 
 ## Current Phase 1 Row Counts
 

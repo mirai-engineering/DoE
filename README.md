@@ -61,7 +61,7 @@ The frontend proxies `/api` to `http://localhost:8000`.
 ### Prod Environment 
 #### Docker Compose
 
-See [`docs/DOCKER_DEPLOYMENT.md`](./docs/DOCKER_DEPLOYMENT.md) for detailed deployment instructions.
+See [`docs/tutorials/DOCKER_DEPLOYMENT.md`](./docs/tutorials/DOCKER_DEPLOYMENT.md) for detailed deployment instructions.
 
 Start all services locally:
 

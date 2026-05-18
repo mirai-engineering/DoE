@@ -16,7 +16,7 @@ The recommended first use case is **BO recommendation quality in replay mode**, 
 
 Documentation / planning only for the first phase:
 
-- `docs/autoresearch-for-doe-plan.md` — this plan.
+- `docs/agent-plans/implemented/autoresearch-for-doe-plan.md` — this plan.
 
 Future implementation candidates, not part of this first documentation-only step:
 
@@ -28,8 +28,8 @@ Future implementation candidates, not part of this first documentation-only step
 
 ## Reuse
 
-- `docs/BO_OPTIMIZATION_LOOP_GUIDE.md` for the current BO/replay workflow and terminology.
-- `docs/add_bo_loop_agent_task.md` for intended BO architecture, candidate suggestion behavior, and acceptance criteria.
+- `docs/tutorials/BO_OPTIMIZATION_LOOP_GUIDE.md` for the current BO/replay workflow and terminology.
+- `docs/agent-plans/implemented/add_bo_loop_agent_task.md` for intended BO architecture, candidate suggestion behavior, and acceptance criteria.
 - Repo-local skills:
   - `.pi/skills/bayesian-optimization-feature/SKILL.md`
   - `.pi/skills/surrogate-model-debugging/SKILL.md`
@@ -205,7 +205,7 @@ Decision: do not build the harness in this step. This plan remains documentation
 
 For this documentation-only plan:
 
-- Confirm this file exists at `docs/autoresearch-for-doe-plan.md`.
+- Confirm this file exists at `docs/agent-plans/implemented/autoresearch-for-doe-plan.md`.
 - Review that it maps `autoresearch` concepts to Mirai DoE without proposing uncontrolled self-modifying product code.
 - Confirm no backend/frontend implementation files were changed.
 

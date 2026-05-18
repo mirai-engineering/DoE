@@ -81,8 +81,8 @@ Likely frontend files:
 
 Docs/config candidates:
 
-- `docs/REAL_FUEL_CELL_DATASET.md` — update with the smoke training/preprocessing workflow and its limitations.
-- `docs/MLFLOW_MODEL_LIFECYCLE.md` — document local MLflow tracking, registry, Production model loading, promotion, and scientist review flow.
+- `docs/reference/REAL_FUEL_CELL_DATASET.md` — update with the smoke training/preprocessing workflow and its limitations.
+- `docs/reference/MLFLOW_MODEL_LIFECYCLE.md` — document local MLflow tracking, registry, Production model loading, promotion, and scientist review flow.
 - Do **not** modify `docker-compose.yml` in this step. Add a clear reminder that a Docker Compose MLflow server should be added soon.
 
 ## Reuse
@@ -99,23 +99,23 @@ Docs/config candidates:
 
 ## Steps
 
-- [ ] Add local-only MLflow/MLOps state handling: ignore `backend/mlruns/`, generated training artifacts, local model cache, and scientist review JSON.
-- [ ] Add minimal dependencies for this first pass: MLflow, pandas, scikit-learn, and any lightweight plotting/report dependency needed for static artifacts. Do not add XGBoost.
-- [ ] Define the Cell_01 smoke training contract: paper-aligned seven inputs, four outputs, exact labels, local artifact paths, and explicit “smoke only / not final scientific evidence” metadata.
-- [ ] Implement EDA/profiling over `Cell_01` model and diagnostic CSVs: missingness, ranges, duplicates, output distributions, rejected rows, source provenance, and leakage warnings.
-- [ ] Implement preprocessing: fit-only-on-train imputation, scaling, optional target scaling, saved preprocessing artifacts, and a readable preprocessing report.
-- [ ] Implement the smoke split: preserve grouped-by-`cell_id` as the future standard, but for one cell use a lifecycle/cycle-aware validation strategy with later-stage/cycle-derived rows emphasized in validation/test reporting. Clearly note this must change to true grouped-by-cell splitting when all cells are implemented.
-- [ ] Train MVLR/simple linear regression as the credibility baseline.
-- [ ] Train the MLP using the existing `TabularMLP`/ONNX export conventions.
-- [ ] Evaluate both models with R², RMSE, and MAE per output and per split; do not enforce hard scientific pass/fail thresholds in the one-cell smoke workflow.
-- [ ] Log all runs to local MLflow: params, metrics, source data hashes, preprocessing artifacts, plots/reports, model artifacts, ONNX, schema, and metadata.
-- [ ] Register the best smoke model as the MLflow `Production` model for the real project, while clearly labeling it as smoke/demo quality.
-- [ ] Update runtime loading so `pem_fuel_cell_real_cathode_degradation` resolves its MLflow `Production` model; preserve existing local artifact loading for `pem_fuel_cell_demo`.
-- [ ] Expose backend endpoints for model quality: latest runs, per-output metrics, preprocessing report, artifact summaries, active MLflow model metadata, and local scientist review JSON.
-- [ ] Add a new top-level Model Quality tab showing split metrics, model comparison, per-output accuracy, residual/error summaries, preprocessing summary, active model version, and scientist review status.
-- [ ] Add generic “AI preprocessing assistant” placeholders only: proposed transformations, rationale, pending review state, accept/reject affordance, and “not active yet” messaging.
-- [ ] Document the near-term Docker Compose MLflow server follow-up, but do not modify Docker Compose now.
-- [ ] Add tests covering preprocessing parity, split integrity notes, MLflow local logging/registry, runtime model resolution, API contracts, and frontend build.
+- [x] Add local-only MLflow/MLOps state handling: ignore `backend/mlruns/`, generated training artifacts, local model cache, and scientist review JSON.
+- [x] Add minimal dependencies for this first pass: MLflow, pandas, scikit-learn, and any lightweight plotting/report dependency needed for static artifacts. Do not add XGBoost.
+- [x] Define the Cell_01 smoke training contract: paper-aligned seven inputs, four outputs, exact labels, local artifact paths, and explicit “smoke only / not final scientific evidence” metadata.
+- [x] Implement EDA/profiling over `Cell_01` model and diagnostic CSVs: missingness, ranges, duplicates, output distributions, rejected rows, source provenance, and leakage warnings.
+- [x] Implement preprocessing: fit-only-on-train imputation, scaling, optional target scaling, saved preprocessing artifacts, and a readable preprocessing report.
+- [x] Implement the smoke split: preserve grouped-by-`cell_id` as the future standard, but for one cell use a lifecycle/cycle-aware validation strategy with later-stage/cycle-derived rows emphasized in validation/test reporting. Clearly note this must change to true grouped-by-cell splitting when all cells are implemented.
+- [x] Train MVLR/simple linear regression as the credibility baseline.
+- [x] Train the MLP using the existing `TabularMLP`/ONNX export conventions.
+- [x] Evaluate both models with R², RMSE, and MAE per output and per split; do not enforce hard scientific pass/fail thresholds in the one-cell smoke workflow.
+- [x] Log all runs to local MLflow: params, metrics, source data hashes, preprocessing artifacts, plots/reports, model artifacts, ONNX, schema, and metadata.
+- [x] Register the best smoke model as the MLflow `Production` model for the real project, while clearly labeling it as smoke/demo quality.
+- [x] Update runtime loading so `pem_fuel_cell_real_cathode_degradation` resolves its MLflow `Production` model; preserve existing local artifact loading for `pem_fuel_cell_demo`.
+- [x] Expose backend endpoints for model quality: latest runs, per-output metrics, preprocessing report, artifact summaries, active MLflow model metadata, and local scientist review JSON.
+- [x] Add a new top-level Model Quality tab showing split metrics, model comparison, per-output accuracy, residual/error summaries, preprocessing summary, active model version, and scientist review status.
+- [x] Add generic “AI preprocessing assistant” placeholders only: proposed transformations, rationale, pending review state, accept/reject affordance, and “not active yet” messaging.
+- [x] Document the near-term Docker Compose MLflow server follow-up, but do not modify Docker Compose now.
+- [x] Add tests covering preprocessing parity, split integrity notes, MLflow local logging/registry, runtime model resolution, API contracts, and frontend build.
 
 ## Verification
 
@@ -147,6 +147,47 @@ Manual checks:
 - Scientist feedback is stored locally as JSON.
 - Generic AI preprocessing assistant controls are visible as inactive placeholders only.
 - No Docker Compose MLflow service is added in this pass; the follow-up is documented.
+
+## Execution Evidence
+
+Completed implementation artifacts:
+
+```text
+backend/training/preprocess_real_fuel_cell.py
+backend/training/train_real_fuel_cell_models.py
+backend/training/mlflow_utils.py
+backend/app/services/mlflow_registry.py
+backend/app/services/model_quality.py
+frontend/src/components/ModelQualityPage.tsx
+docs/reference/MLFLOW_MODEL_LIFECYCLE.md
+```
+
+Generated local-only ignored runtime artifacts include:
+
+```text
+backend/mlruns/
+backend/.mlflow-cache/pem_fuel_cell_real_cathode_degradation/
+backend/artifacts/pem_fuel_cell_real_cathode_degradation/
+backend/data/real/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
+```
+
+Verification commands executed:
+
+```bash
+cd backend && uv run python training/preprocess_real_fuel_cell.py --project-id pem_fuel_cell_real_cathode_degradation --cell-id Cell_01
+cd backend && uv run python training/train_real_fuel_cell_models.py --project-id pem_fuel_cell_real_cathode_degradation --register-mlflow --promote-production --epochs 200
+cd backend && uv run pytest tests/test_api.py tests/test_real_fuel_cell_data_pipeline.py
+cd frontend && npm run build
+```
+
+Results:
+
+```text
+backend tests: 19 passed, warnings only
+frontend build: passed, Vite chunk-size warning only
+best smoke model in latest run: MLP
+MLflow Production model: pem_fuel_cell_real_cathode_degradation
+```
 
 ## Resolved Decisions
 

@@ -21,7 +21,7 @@ Build a staged, auditable transformation path from `Cell_01` raw CSV/workbook/PD
 - `backend/training/build_real_fuel_cell_dataset.py`
 - `backend/training/real_fuel_cell_schema.py`
 - `backend/tests/test_real_fuel_cell_data_pipeline.py`
-- `docs/REAL_FUEL_CELL_DATASET.md`
+- `docs/reference/REAL_FUEL_CELL_DATASET.md`
 - `backend/data/real/pem_fuel_cell_cathode_degradation/*.csv`
 
 Phase 1 stops after audited CSV artifacts. It does not create ONNX models, preprocessing artifacts, replay splits, or production project artifacts.
@@ -717,7 +717,7 @@ Do not implement these from this plan without approval.
 backend/training/build_real_fuel_cell_dataset.py
 backend/training/real_fuel_cell_schema.py
 backend/tests/test_real_fuel_cell_data_pipeline.py
-docs/REAL_FUEL_CELL_DATASET.md
+docs/reference/REAL_FUEL_CELL_DATASET.md
 backend/data/real/pem_fuel_cell_cathode_degradation/*.csv
 ```
 
