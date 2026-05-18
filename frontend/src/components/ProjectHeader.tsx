@@ -23,11 +23,11 @@ export function ProjectHeader({
   onTabChange: (tab: ActiveTab) => void
 }) {
   return (
-    <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-[#f8f6ef]/90 shadow-2xl shadow-slate-900/10 backdrop-blur">
+    <section className="relative z-[80] overflow-visible rounded-[2rem] border border-white/70 bg-[#f8f6ef]/95 shadow-2xl shadow-slate-900/10 backdrop-blur">
       <div className="grid gap-8 p-6 md:grid-cols-[1.35fr_0.65fr] md:p-8">
         <div>
           <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-slate-900/10 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">
-            Surrogate model console
+            ML-guided DoE platform
           </div>
           <div className="flex items-center gap-5">
             <img
@@ -39,8 +39,8 @@ export function ProjectHeader({
               Mirai DoE Engine
             </h1>
           </div>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-            Predict experiment outcomes and recommend the next best candidates.
+          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+            Abstract ML engineering for test teams: trust tailored models, design better experiments, and quantify saved test effort.
           </p>
 
           <Tabs activeTab={activeTab} onTabChange={onTabChange} />

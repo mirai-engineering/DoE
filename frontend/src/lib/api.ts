@@ -41,6 +41,64 @@ export interface SchemaOutput {
   unit: string
 }
 
+export type VariableRole = 'input' | 'output' | 'group' | 'sweep' | 'time' | 'metadata'
+export type TemplateId = 'fuel_cell' | 'generic_tabular_doe'
+
+export interface VariableMetadata {
+  name: string
+  label: string
+  unit?: string
+  role: VariableRole
+  semantic_type?: string
+  direction?: 'maximize' | 'minimize' | 'target' | null
+  min?: number | null
+  max?: number | null
+  approved?: boolean
+  recommended_plot_roles?: string[]
+}
+
+export interface PlotRecipeAxis {
+  source: string
+  variable?: string
+  variables?: string[]
+  label?: string
+  unit?: string
+}
+
+export interface PlotRecipe {
+  id: string
+  label: string
+  description?: string
+  kind: string
+  template_id?: TemplateId | string
+  safe?: boolean
+  recommended?: boolean
+  x?: PlotRecipeAxis
+  y?: PlotRecipeAxis
+  series?: Array<Record<string, unknown>>
+  group_by?: string | null
+  filters?: string[]
+}
+
+export interface UiConfig {
+  selected_plot_recipe_id?: string
+  plot_recipes?: PlotRecipe[]
+  model_quality?: Record<string, unknown>
+  design_studio?: Record<string, unknown>
+  business_impact?: Record<string, unknown>
+}
+
+export interface ProjectDomainMetadata {
+  template_id: TemplateId | string
+  label: string
+  test_article_label?: string
+  inferred?: boolean
+  approval_status?: string
+  approved_by?: string | null
+  variables?: VariableMetadata[]
+  ui_config?: UiConfig
+}
+
 export interface ProjectSchema {
   project_id: string
   display_name: string
@@ -49,6 +107,7 @@ export interface ProjectSchema {
   allow_unknown_inputs?: boolean
   inputs: SchemaInput[]
   outputs: SchemaOutput[]
+  domain_metadata?: ProjectDomainMetadata
 }
 
 export type ExperimentInputs = Record<string, number>
@@ -88,6 +147,162 @@ export interface RecommendResponse {
   model_version: string
   warnings: string[]
 }
+
+export interface IntakeFileInventoryItem {
+  filename: string
+  original_filename?: string | null
+  relative_path: string
+  content_type: string
+  size_bytes: number
+  sha256: string
+  suffix: string
+}
+
+export interface IngestionSessionResponse {
+  project_id: string
+  project_name: string
+  dataset_id: string
+  ingestion_session_id: string
+  status: string
+  approval_status: string
+  created_at: string
+  updated_at: string
+  storage: Record<string, unknown>
+  files: IntakeFileInventoryItem[]
+  notes: string
+  mapping: Record<string, unknown>
+  manifest_assistant: Record<string, unknown>
+}
+
+export interface IntakeSessionsResponse {
+  sessions: IngestionSessionResponse[]
+}
+
+export interface FuelCellPackageValidation {
+  valid: boolean
+  errors: string[]
+  workbook?: string | null
+  cell_archive_count: number
+  cell_ids: string[]
+  message: string
+}
+
+export interface PreprocessingStatus {
+  status: string
+  updated_at?: string
+  stage?: string
+  row_counts?: Record<string, number>
+  cell_ids?: string[]
+  report_path?: string
+  canonical_dir?: string
+  training_artifact_dir?: string
+  validation?: FuelCellPackageValidation
+  [key: string]: unknown
+}
+
+export interface DomainMetadataStatus {
+  status: string
+  approval_status: string
+  template_id?: string
+  domain_metadata: ProjectDomainMetadata
+  updated_at?: string
+  updated_by?: string
+  approved_at?: string
+  approved_by?: string
+  notes?: string
+}
+
+export interface LinearTrainingConfig {
+  include_mvlr: boolean
+  fit_intercept: boolean
+  include_ridge: boolean
+  ridge_alphas: number[]
+}
+
+export interface MLPTrainingConfig {
+  include: boolean
+  architecture_family: string
+  hidden_layers: number[]
+  trunk_layers: number[]
+  head_layers: number[]
+  secondary_head_layers: number[]
+  activation: string
+  normalization: string
+  dropout: number
+  optimizer: string
+  learning_rate: number
+  weight_decay: number
+  batch_size: number | string
+  max_epochs: number
+  early_stopping_patience: number
+  loss: string
+  output_weights: Record<string, number>
+  seeds: number[]
+}
+
+export interface TrainingSearchConfig {
+  mode: string
+  wall_clock_budget_minutes: number
+  rerun_top_k: number
+}
+
+export interface TrainingConfiguration {
+  linear: LinearTrainingConfig
+  mlp: MLPTrainingConfig
+  search: TrainingSearchConfig
+  selection_metric: string
+}
+
+export interface TrainingRequestResponse {
+  training_request_id: string
+  project_id: string
+  dataset_id: string
+  ingestion_session_id: string
+  status: string
+  preset: string
+  model_families: string[]
+  training_config?: TrainingConfiguration
+  training_plan?: Record<string, unknown>
+  route_after_completion?: string
+  [key: string]: unknown
+}
+
+export interface PreprocessingEdaSummary {
+  status: PreprocessingStatus
+  summary: {
+    cell_archive_count?: number
+    extracted_file_count?: number
+    cells_succeeded?: number
+    cells_failed?: number
+    model_rows?: number
+    canonical_tables?: Record<string, number>
+    missingness?: Record<string, number>
+    duplicate_feature_target_rows?: number
+    duplicate_input_rows?: number
+    rejected_rows?: { count?: number; reasons?: Record<string, number> }
+    split_counts?: Record<string, number>
+    split_strategy?: string
+    bo_holdout_cell_count?: number
+    input_distributions?: Record<string, Record<string, number>>
+    output_distributions?: Record<string, Record<string, number>>
+    leakage_warnings?: string[]
+  }
+  artifacts: {
+    canonical_dir?: string
+    training_artifact_dir?: string
+    ydata_html_endpoint?: string
+    ydata_html_exists?: boolean
+    eda_report_json?: string
+    split_report_json?: string
+    preprocessing_report_json?: string
+    canonical_files?: string[]
+    plots?: string[]
+  }
+  approval: Record<string, unknown>
+}
+
+export type PreprocessingReport = Record<string, unknown>
+export type TrainingStatus = Record<string, unknown>
 
 export type BOExperimentStatus =
   | 'suggested'
@@ -242,6 +457,92 @@ export interface BOFantasyRolloutResponse {
   project_id: string
   fantasy_trajectory: BOFantasyStep[]
   metadata: Record<string, unknown>
+}
+
+export interface ModelQualityPredictionsResponse {
+  project_id: string
+  source: string
+  columns: string[]
+  rows: Array<Record<string, unknown>>
+  row_count: number
+  total_row_count: number
+  truncated: boolean
+}
+
+export interface ModelQualitySummary {
+  project_id: string
+  quality_label: string
+  metrics: Record<string, unknown>
+  preprocessing_report: Record<string, unknown>
+  artifact_summary: Record<string, unknown>
+  active_model: Record<string, unknown>
+  scientist_review: Record<string, unknown>
+  latest_runs: Array<Record<string, unknown>>
+  candidate_comparison?: Array<Record<string, unknown>>
+  ai_preprocessing_assistant: Record<string, unknown>
+}
+
+export interface DesignStudioState {
+  project_id: string
+  active_model: Record<string, unknown>
+  inputs: SchemaInput[]
+  outputs: SchemaOutput[]
+  default_inputs: Record<string, number>
+  default_objective_weights: Record<string, number>
+  plot_recipes?: PlotRecipe[]
+  selected_plot_recipe_id?: string
+  presets: Record<string, unknown>
+  real_cell_options: Array<Record<string, unknown>>
+}
+
+export interface DesignStudioParetoCandidate {
+  rank: number
+  label: string
+  inputs: Record<string, number>
+  predictions: Record<string, number>
+  score: number
+  tradeoff_summary: string
+}
+
+export interface DesignStudioParetoResponse {
+  project_id: string
+  source: string
+  model_version: string
+  objective_weights: Record<string, number>
+  objectives: Array<Record<string, unknown>>
+  n_candidates: number
+  pareto_count: number
+  returned_count: number
+  candidates: DesignStudioParetoCandidate[]
+  warnings: string[]
+}
+
+export interface DesignStudioPrediction {
+  project_id: string
+  source: string
+  model_version: string
+  inputs: Record<string, number>
+  predictions_at_selected_point: Record<string, number>
+  curve?: Record<string, unknown> | null
+  warnings: string[]
+  comparison_real_cell?: Record<string, unknown> | null
+  seed?: Record<string, unknown>
+}
+
+export interface BusinessImpactSummary {
+  project_id: string
+  title: string
+  headline: Record<string, string>
+  case_study: Record<string, number | string>
+  scenario: Record<string, unknown>
+  visuals: {
+    funnel: Array<Record<string, unknown>>
+    time_comparison: Array<Record<string, unknown>>
+    cost_comparison: Array<Record<string, unknown>>
+  }
+  takeaways: Array<{ title: string; body: string }>
+  sources: Array<{ label: string; claim: string; url: string }>
+  caveats: string[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -429,6 +730,178 @@ export async function getProjectSchema(projectId: string): Promise<ProjectSchema
   }
 }
 
+export async function createIngestionSession(
+  projectName: string,
+  files: File[],
+  notes?: string,
+): Promise<IngestionSessionResponse> {
+  try {
+    const formData = new FormData()
+    formData.append('project_name', projectName)
+    if (notes) formData.append('notes', notes)
+    files.forEach((file) => formData.append('files', file))
+    const response = await api.post<IngestionSessionResponse>('/data-intake/sessions', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to create ingestion session')
+  }
+}
+
+export async function listIngestionSessions(): Promise<IngestionSessionResponse[]> {
+  try {
+    const response = await api.get<IntakeSessionsResponse>('/data-intake/sessions')
+    return response.data.sessions
+  } catch (error) {
+    throw normalizeError(error, 'Unable to list ingestion sessions')
+  }
+}
+
+function sessionPath(session: Pick<IngestionSessionResponse, 'project_id' | 'dataset_id' | 'ingestion_session_id'>): string {
+  return `/data-intake/projects/${session.project_id}/datasets/${session.dataset_id}/sessions/${session.ingestion_session_id}`
+}
+
+export async function appendIngestionFiles(session: IngestionSessionResponse, files: File[]): Promise<IngestionSessionResponse> {
+  try {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    const response = await api.post<IngestionSessionResponse>(`${sessionPath(session)}/files`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to append files to ingestion session')
+  }
+}
+
+export async function validateFuelCellPackage(session: IngestionSessionResponse): Promise<FuelCellPackageValidation> {
+  try {
+    const response = await api.get<FuelCellPackageValidation>(`${sessionPath(session)}/fuel-cell-package/validation`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to validate fuel-cell package')
+  }
+}
+
+export async function startFuelCellPreprocessing(session: IngestionSessionResponse): Promise<PreprocessingStatus> {
+  try {
+    const response = await api.post<PreprocessingStatus>(`${sessionPath(session)}/preprocessing/start`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to start preprocessing')
+  }
+}
+
+export async function getPreprocessingStatus(session: IngestionSessionResponse): Promise<PreprocessingStatus> {
+  try {
+    const response = await api.get<PreprocessingStatus>(`${sessionPath(session)}/preprocessing/status`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load preprocessing status')
+  }
+}
+
+export async function getPreprocessingReport(session: IngestionSessionResponse): Promise<PreprocessingReport> {
+  try {
+    const response = await api.get<PreprocessingReport>(`${sessionPath(session)}/preprocessing-report`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load preprocessing report')
+  }
+}
+
+export function preprocessingYdataReportUrl(session: IngestionSessionResponse): string {
+  return `${API_URL}${sessionPath(session)}/preprocessing/ydata-report.html`
+}
+
+export async function getPreprocessingEdaSummary(session: IngestionSessionResponse): Promise<PreprocessingEdaSummary> {
+  try {
+    const response = await api.get<PreprocessingEdaSummary>(`${sessionPath(session)}/preprocessing/eda-summary`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load preprocessing EDA summary')
+  }
+}
+
+export async function getDomainMetadata(session: IngestionSessionResponse): Promise<DomainMetadataStatus> {
+  try {
+    const response = await api.get<DomainMetadataStatus>(`${sessionPath(session)}/domain-metadata`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load metadata setup')
+  }
+}
+
+export async function updateDomainMetadata(session: IngestionSessionResponse, domainMetadata: ProjectDomainMetadata, notes?: string): Promise<DomainMetadataStatus> {
+  try {
+    const response = await api.put<DomainMetadataStatus>(`${sessionPath(session)}/domain-metadata`, { domain_metadata: domainMetadata, updated_by: 'Mirai admin', notes })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to save metadata setup')
+  }
+}
+
+export async function approveDomainMetadata(session: IngestionSessionResponse, notes?: string): Promise<DomainMetadataStatus> {
+  try {
+    const response = await api.post<DomainMetadataStatus>(`${sessionPath(session)}/domain-metadata/approval`, { approver: 'Mirai admin', notes })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to approve metadata setup')
+  }
+}
+
+export async function approvePreprocessing(session: IngestionSessionResponse, notes?: string): Promise<PreprocessingReport> {
+  try {
+    const response = await api.post<PreprocessingReport>(`${sessionPath(session)}/preprocessing-approval`, { approver: 'Mirai admin', notes })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to approve preprocessing')
+  }
+}
+
+export async function listTrainingRequests(session: IngestionSessionResponse): Promise<TrainingRequestResponse[]> {
+  try {
+    const response = await api.get<{ training_requests: TrainingRequestResponse[] }>(`${sessionPath(session)}/training-requests`)
+    return response.data.training_requests ?? []
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load training requests')
+  }
+}
+
+export async function createTrainingRequest(session: IngestionSessionResponse, trainingConfig?: TrainingConfiguration): Promise<TrainingRequestResponse> {
+  try {
+    const response = await api.post<TrainingRequestResponse>(`${sessionPath(session)}/training-requests`, {
+      requested_by: 'Mirai admin',
+      preset: trainingConfig?.search.mode ?? 'balanced_training',
+      model_families: ['mean_baseline', 'mvlr', 'ridge', 'mlp'],
+      training_config: trainingConfig,
+      notes: 'Created from Preprocessing Review UI.',
+    })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to create training request')
+  }
+}
+
+export async function startTrainingRequest(session: IngestionSessionResponse, trainingRequestId: string): Promise<TrainingStatus> {
+  try {
+    const response = await api.post<TrainingStatus>(`${sessionPath(session)}/training-requests/${trainingRequestId}/start`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to start training')
+  }
+}
+
+export async function getTrainingStatus(session: IngestionSessionResponse, trainingRequestId: string): Promise<TrainingStatus> {
+  try {
+    const response = await api.get<TrainingStatus>(`${sessionPath(session)}/training-requests/${trainingRequestId}/status`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load training status')
+  }
+}
+
 export async function predictExperiment(
   projectId: string,
   inputs: ExperimentInputs,
@@ -557,5 +1030,106 @@ export async function runBOFantasyRollout(
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to run fantasy rollout')
+  }
+}
+
+export async function getModelQualityPredictions(
+  projectId: string,
+  params?: { model_name?: string; splits?: string; limit?: number },
+): Promise<ModelQualityPredictionsResponse> {
+  try {
+    const response = await api.get<ModelQualityPredictionsResponse>(`/projects/${projectId}/model-quality/predictions`, { params })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load prediction diagnostics')
+  }
+}
+
+export function getModelQualityPredictionsExportUrl(
+  projectId: string,
+  params?: { model_name?: string; splits?: string },
+): string {
+  const search = new URLSearchParams()
+  if (params?.model_name) search.set('model_name', params.model_name)
+  if (params?.splits) search.set('splits', params.splits)
+  const query = search.toString()
+  return `${API_URL}/projects/${projectId}/model-quality/predictions/export.zip${query ? `?${query}` : ''}`
+}
+
+export async function getModelQualitySummary(projectId: string): Promise<ModelQualitySummary> {
+  try {
+    const response = await api.get<ModelQualitySummary>(`/projects/${projectId}/model-quality/summary`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load model quality summary')
+  }
+}
+
+export async function getDesignStudioState(projectId: string): Promise<DesignStudioState> {
+  try {
+    const response = await api.get<DesignStudioState>(`/projects/${projectId}/design-studio/state`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load Design Studio')
+  }
+}
+
+export async function predictDesignStudio(projectId: string, request: Record<string, unknown>): Promise<DesignStudioPrediction> {
+  try {
+    const response = await api.post<DesignStudioPrediction>(`/projects/${projectId}/design-studio/predict`, request)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to predict Design Studio candidate')
+  }
+}
+
+export async function seedDesignStudioBatch(projectId: string, request: Record<string, unknown>): Promise<DesignStudioPrediction> {
+  try {
+    const response = await api.post<DesignStudioPrediction>(`/projects/${projectId}/design-studio/seed/batch`, request)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to seed Design Studio from batch search')
+  }
+}
+
+export async function findDesignStudioPareto(projectId: string, request: Record<string, unknown>): Promise<DesignStudioParetoResponse> {
+  try {
+    const response = await api.post<DesignStudioParetoResponse>(`/projects/${projectId}/design-studio/pareto`, request)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to find Pareto tradeoff candidates')
+  }
+}
+
+export async function exportDesignStudioZip(projectId: string, request: Record<string, unknown>): Promise<Blob> {
+  try {
+    const response = await api.post(`/projects/${projectId}/design-studio/export.zip`, request, { responseType: 'blob' })
+    return response.data as Blob
+  } catch (error) {
+    throw normalizeError(error, 'Unable to export Design Studio package')
+  }
+}
+
+export async function getBusinessImpactSummary(projectId: string): Promise<BusinessImpactSummary> {
+  try {
+    const response = await api.get<BusinessImpactSummary>(`/projects/${projectId}/impact/summary`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load business impact summary')
+  }
+}
+
+export async function saveScientistReview(
+  projectId: string,
+  request: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await api.post<Record<string, unknown>>(
+      `/projects/${projectId}/model-quality/scientist-review`,
+      request,
+    )
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to save scientist review')
   }
 }

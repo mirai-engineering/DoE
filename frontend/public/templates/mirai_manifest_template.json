@@ -1,0 +1,48 @@
+{
+  "manifest_version": "0.1",
+  "project": {
+    "project_id": "example_catalyst_surrogate",
+    "display_name": "Example Catalyst Surrogate",
+    "domain": "fuel_cell | battery | engine | materials | other",
+    "owner": "company-or-team-name"
+  },
+  "tables": [
+    {
+      "path": "model_table.csv",
+      "table_type": "model_table",
+      "primary_key": ["experiment_id"],
+      "description": "One row per modelable experiment/condition."
+    }
+  ],
+  "columns": [
+    {
+      "table": "model_table.csv",
+      "name": "experiment_id",
+      "role": "id",
+      "unit": null,
+      "description": "Unique experiment or tested-sample identifier."
+    },
+    {
+      "table": "model_table.csv",
+      "name": "temperature_c",
+      "role": "input",
+      "unit": "degC",
+      "description": "Controlled test temperature."
+    },
+    {
+      "table": "model_table.csv",
+      "name": "performance_metric",
+      "role": "output",
+      "unit": "domain-specific",
+      "direction": "maximize",
+      "description": "Target KPI to model."
+    }
+  ],
+  "joins": [],
+  "split_hints": {
+    "group_key": "experiment_id",
+    "time_column": null,
+    "recommended_strategy": "grouped"
+  },
+  "notes": "Replace example columns with your package-specific data dictionary."
+}

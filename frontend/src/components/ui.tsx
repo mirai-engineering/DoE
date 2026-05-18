@@ -269,7 +269,7 @@ export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }
         Run candidate recommendation first to unlock visualizations.
       </h2>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
-        Use the Batch Explorer tab to sample the design space. The ranked table, KPI comparison,
+        Use Batch Search → Configure to sample the design space. The ranked table, KPI comparison,
         parallel coordinates, and response surface will use the generated candidates.
       </p>
       <button
@@ -277,7 +277,7 @@ export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }
         onClick={onGoHome}
         className="mt-6 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329]"
       >
-        Go to Batch Explorer
+        Go to Batch Search
       </button>
     </section>
   )

@@ -1,0 +1,6 @@
+XLSX template placeholder
+
+For MVP builds that do not generate binary spreadsheets in the frontend bundle, use data_dictionary_template.csv.
+The backend/template service can later generate a real XLSX with the same columns:
+
+table, path, column_name, role, unit, dtype, description, required, allowed_min, allowed_max, direction, join_key

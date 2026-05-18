@@ -315,15 +315,15 @@ export function OptimizationLoopPage({
     <div className="space-y-8">
       <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
         <PanelHeader
-          eyebrow="Optimization Loop"
-          title="Sequential BO recommendation"
-          description="Recommend the next experiment using observed results, uncertainty estimates, and expert constraints."
+          eyebrow="Explore & Exploit Tests"
+          title="Choose the next test with measured feedback"
+          description="Balance exploring uncertain regions with exploiting designs the model already believes are strong. This replay workflow simulates sequential learning from completed tests."
         />
         <div className="mt-6 grid gap-3 md:grid-cols-4">
           <Metadata label="Observed" value={formatNumber(state?.observed_count)} />
           <Metadata label="Open suggestions" value={formatNumber(state?.suggested_count)} />
           <Metadata label="Rejected" value={formatNumber(state?.rejected_count)} />
-          <Metadata label="Replay mode" value="Historical" />
+          <Metadata label="Learning mode" value="Historical replay" />
         </div>
       </section>
 
@@ -751,8 +751,8 @@ function ConstraintsPanel({
     <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Expert constraints"
-        title="BO-only search limits"
-        description="These bounds affect future optimization-loop suggestions without changing the Batch Explorer."
+        title="Sequential-search limits"
+        description="These bounds affect future explore/exploit suggestions without changing Batch Search."
       />
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
@@ -1216,7 +1216,7 @@ function HistoryTable({ schema, state }: { schema: ProjectSchema; state: BOState
     <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Experiment log"
-        title="Optimization history"
+        title="Explore/exploit history"
         description="JSONL-backed history persists suggested, reviewed, and observed replay states."
       />
       <div className="mt-6 overflow-x-auto">

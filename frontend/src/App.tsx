@@ -5,6 +5,11 @@ import { RecommendPanel } from './components/RecommendPanel'
 import { RecommendationsPage } from './components/RecommendationsPage'
 import { VisualizationsPage } from './components/VisualizationsPage'
 import { OptimizationLoopPage } from './components/bo/OptimizationLoopPage'
+import { ModelQualityPage } from './components/ModelQualityPage'
+import { BusinessImpactPage } from './components/BusinessImpactPage'
+import { DesignStudioPage } from './components/DesignStudioPage'
+import { DataIntakePage } from './components/DataIntakePage'
+import { PreprocessingReviewPage } from './components/PreprocessingReviewPage'
 import { Alert } from './components/ui'
 import type { ProjectSchema, ProjectSummary } from './lib/api'
 import { getProjectSchema, getProjects, predictExperiment, recommendExperiments } from './lib/api'
@@ -24,7 +29,8 @@ import type { ActiveTab, FixedInputConfig, RecommendationRun } from './types/doe
 import type { PredictionMap } from './lib/api'
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('batch')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('model-quality')
+  const [batchView, setBatchView] = useState<'configure' | 'results' | 'visuals'>('configure')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [schema, setSchema] = useState<ProjectSchema | null>(null)
@@ -58,7 +64,11 @@ function App() {
         const projectList = await getProjects()
         if (!isMounted) return
         setProjects(projectList)
-        setSelectedProjectId(selectDefaultProject(projectList)?.id ?? '')
+        const storedProjectId = window.localStorage.getItem('mirai.activeProjectId')
+        const preferred = storedProjectId && projectList.some((project) => project.id === storedProjectId)
+          ? storedProjectId
+          : selectDefaultProject(projectList)?.id ?? ''
+        setSelectedProjectId(preferred)
       } catch (error) {
         if (isMounted) {
           setAppError(error instanceof Error ? error.message : 'Unable to load projects')
@@ -104,6 +114,26 @@ function App() {
       isMounted = false
     }
   }, [selectedProjectId])
+
+  async function refreshProjectsAndSelect(projectId: string) {
+    setProjectsLoading(true)
+    setAppError(null)
+    try {
+      const projectList = await getProjects()
+      setProjects(projectList)
+      setSelectedProjectId(projectId)
+      window.localStorage.setItem('mirai.activeProjectId', projectId)
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Unable to refresh projects')
+    } finally {
+      setProjectsLoading(false)
+    }
+  }
+
+  function handleProjectChange(projectId: string) {
+    setSelectedProjectId(projectId)
+    window.localStorage.setItem('mirai.activeProjectId', projectId)
+  }
 
   function resetRunState() {
     setPrediction(null)
@@ -175,7 +205,8 @@ function App() {
         recommendations: response.recommendations,
       })
       setRecommendWarnings(response.warnings)
-      setActiveTab('recommendations')
+      setActiveTab('batch')
+      setBatchView('results')
     } catch (error) {
       setRecommendationRun(null)
       setRecommendError(error instanceof Error ? error.message : 'Recommendation failed')
@@ -187,10 +218,11 @@ function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#eef0ea] text-slate-950">
+    <main className="min-h-screen overflow-x-hidden bg-[#eef0ea] text-slate-950">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute -left-32 top-[-18rem] h-[34rem] w-[34rem] rounded-full bg-[#d4c3a3]/60 blur-3xl" />
-        <div className="absolute right-[-12rem] top-40 h-[30rem] w-[30rem] rounded-full bg-[#6f8c7b]/25 blur-3xl" />
+        <div className="absolute -left-32 top-[-18rem] h-[34rem] w-[34rem] rounded-full bg-[#d4c3a3]/70 blur-3xl" />
+        <div className="absolute right-[-12rem] top-36 h-[32rem] w-[32rem] rounded-full bg-[#526949]/25 blur-3xl" />
+        <div className="absolute left-1/2 top-[-8rem] h-[22rem] w-[42rem] -translate-x-1/2 rounded-full bg-slate-950/10 blur-3xl" />
         <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-[#dfe4d7] to-transparent" />
       </div>
 
@@ -202,7 +234,7 @@ function App() {
           schema={schema}
           projectsLoading={projectsLoading}
           activeTab={activeTab}
-          onProjectChange={setSelectedProjectId}
+          onProjectChange={handleProjectChange}
           onTabChange={setActiveTab}
         />
 
@@ -218,68 +250,93 @@ function App() {
               <div className="space-y-8">
                 <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
-                    Batch Explorer
+                    Batch Search
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
                     Design-space scan with weighted KPI ranking
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                    Scan thousands of candidate configurations using the surrogate model and
-                    weighted objectives before moving into sequential optimization.
+                    Configure candidate scans, review ranked results, and inspect response-surface visuals in one workflow.
                   </p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {[
+                      { id: 'configure', label: 'Configure' },
+                      { id: 'results', label: 'Results' },
+                      { id: 'visuals', label: 'Visuals' },
+                    ].map((view) => (
+                      <button
+                        key={view.id}
+                        type="button"
+                        onClick={() => setBatchView(view.id as 'configure' | 'results' | 'visuals')}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          batchView === view.id ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/20' : 'border border-slate-900/10 bg-white/70 text-slate-600 hover:bg-white'
+                        }`}
+                      >
+                        {view.label}
+                      </button>
+                    ))}
+                  </div>
                 </section>
 
-                <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
-                  <PredictPanel
-                    schema={schema}
-                    inputValues={inputValues}
-                    setInputValues={setInputValues}
-                    prediction={prediction}
-                    warnings={predictWarnings}
-                    loading={predictLoading}
-                    error={predictError}
-                    onSubmit={handlePredictSubmit}
-                  />
+                {batchView === 'configure' && (
+                  <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
+                    <PredictPanel
+                      schema={schema}
+                      inputValues={inputValues}
+                      setInputValues={setInputValues}
+                      prediction={prediction}
+                      warnings={predictWarnings}
+                      loading={predictLoading}
+                      error={predictError}
+                      onSubmit={handlePredictSubmit}
+                    />
 
-                  <RecommendPanel
+                    <RecommendPanel
+                      schema={schema}
+                      objectiveWeights={objectiveWeights}
+                      setObjectiveWeights={setObjectiveWeights}
+                      fixedInputs={fixedInputs}
+                      setFixedInputs={setFixedInputs}
+                      nCandidates={nCandidates}
+                      setNCandidates={setNCandidates}
+                      tableTopK={tableTopK}
+                      setTableTopK={setTableTopK}
+                      visualizationTopK={visualizationTopK}
+                      setVisualizationTopK={setVisualizationTopK}
+                      loading={recommendLoading}
+                      error={recommendError}
+                      warnings={recommendWarnings}
+                      recommendationRun={recommendationRun}
+                      onSubmit={handleRecommendSubmit}
+                      onViewRecommendations={() => setBatchView('results')}
+                    />
+                  </div>
+                )}
+
+                {batchView === 'results' && (
+                  <RecommendationsPage
                     schema={schema}
-                    objectiveWeights={objectiveWeights}
-                    setObjectiveWeights={setObjectiveWeights}
-                    fixedInputs={fixedInputs}
-                    setFixedInputs={setFixedInputs}
-                    nCandidates={nCandidates}
-                    setNCandidates={setNCandidates}
-                    tableTopK={tableTopK}
-                    setTableTopK={setTableTopK}
-                    visualizationTopK={visualizationTopK}
-                    setVisualizationTopK={setVisualizationTopK}
-                    loading={recommendLoading}
-                    error={recommendError}
-                    warnings={recommendWarnings}
                     recommendationRun={recommendationRun}
-                    onSubmit={handleRecommendSubmit}
-                    onViewRecommendations={() => setActiveTab('recommendations')}
+                    onGoHome={() => setBatchView('configure')}
                   />
-                </div>
+                )}
+
+                {batchView === 'visuals' && (
+                  <VisualizationsPage
+                    schema={schema}
+                    recommendationRun={recommendationRun}
+                    inputValues={inputValues}
+                    onGoHome={() => setBatchView('configure')}
+                  />
+                )}
               </div>
             )}
 
-            {activeTab === 'recommendations' && (
-              <RecommendationsPage
-                schema={schema}
-                recommendationRun={recommendationRun}
-                onGoHome={() => setActiveTab('batch')}
-              />
-            )}
+            {activeTab === 'data-intake' && <DataIntakePage schema={schema} onSessionCreated={(session) => { void refreshProjectsAndSelect(session.project_id) }} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
 
-            {activeTab === 'visualizations' && (
-              <VisualizationsPage
-                schema={schema}
-                recommendationRun={recommendationRun}
-                inputValues={inputValues}
-                onGoHome={() => setActiveTab('batch')}
-              />
-            )}
+            {activeTab === 'preprocessing-review' && <PreprocessingReviewPage schema={schema} onOpenModelQuality={() => setActiveTab('model-quality')} />}
+
+            {activeTab === 'design-studio' && <DesignStudioPage schema={schema} />}
 
             {activeTab === 'optimization' && (
               <OptimizationLoopPage
@@ -288,6 +345,10 @@ function App() {
                 setObjectiveWeights={setObjectiveWeights}
               />
             )}
+
+            {activeTab === 'impact' && <BusinessImpactPage schema={schema} />}
+
+            {activeTab === 'model-quality' && <ModelQualityPage schema={schema} />}
           </>
         ) : null}
       </div>

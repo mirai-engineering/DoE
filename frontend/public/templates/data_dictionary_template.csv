@@ -1,0 +1,4 @@
+table,path,column_name,role,unit,dtype,description,required,allowed_min,allowed_max,direction,join_key
+model_table,model_table.csv,experiment_id,id,,string,Unique experiment identifier,true,,,,experiment_id
+model_table,model_table.csv,temperature_c,input,degC,float,Controlled test temperature,true,0,120,,
+model_table,model_table.csv,performance_metric,output,domain-specific,float,Target KPI for surrogate modeling,true,,,maximize,

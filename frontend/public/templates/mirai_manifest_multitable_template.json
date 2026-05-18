@@ -1,0 +1,50 @@
+{
+  "manifest_version": "0.1",
+  "project": {
+    "project_id": "example_multitable_surrogate",
+    "display_name": "Example Multi-Table Testbench Surrogate",
+    "domain": "battery | fuel_cell | engine | materials | other"
+  },
+  "tables": [
+    {
+      "path": "experiments.csv",
+      "table_type": "experiment_metadata",
+      "primary_key": ["experiment_id"],
+      "description": "One row per physical sample, campaign, or test run."
+    },
+    {
+      "path": "conditions.csv",
+      "table_type": "controlled_conditions",
+      "primary_key": ["experiment_id", "condition_id"],
+      "description": "Controlled settings and input variables."
+    },
+    {
+      "path": "measurements/performance_curves.csv",
+      "table_type": "measurement_long_table",
+      "primary_key": ["experiment_id", "condition_id", "measurement_index"],
+      "description": "Raw or semi-processed curve/time/cycle measurements."
+    },
+    {
+      "path": "results.csv",
+      "table_type": "target_outputs",
+      "primary_key": ["experiment_id", "condition_id"],
+      "description": "Derived KPIs or target outputs."
+    }
+  ],
+  "columns": [
+    {"table": "experiments.csv", "name": "experiment_id", "role": "id", "unit": null, "description": "Join key for sample/test."},
+    {"table": "conditions.csv", "name": "temperature_c", "role": "input", "unit": "degC", "description": "Controlled operating temperature."},
+    {"table": "conditions.csv", "name": "pressure_bar", "role": "input", "unit": "bar", "description": "Controlled pressure."},
+    {"table": "measurements/performance_curves.csv", "name": "time_s", "role": "curve_axis", "unit": "s", "description": "Measurement time axis."},
+    {"table": "results.csv", "name": "efficiency_pct", "role": "output", "unit": "%", "direction": "maximize", "description": "Target efficiency KPI."}
+  ],
+  "joins": [
+    {"left_table": "experiments.csv", "right_table": "conditions.csv", "keys": ["experiment_id"], "relationship": "one_to_many"},
+    {"left_table": "conditions.csv", "right_table": "results.csv", "keys": ["experiment_id", "condition_id"], "relationship": "one_to_one"}
+  ],
+  "split_hints": {
+    "group_key": "experiment_id",
+    "time_column": null,
+    "recommended_strategy": "grouped"
+  }
+}
