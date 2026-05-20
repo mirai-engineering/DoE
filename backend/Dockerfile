@@ -1,8 +1,12 @@
 # Stage 1: Build dependencies
 FROM python:3.11-slim AS builder
 
-# Install uv
+# Install uv and build tools needed for Python packages that may not provide
+# wheels for every platform (for example phik via ydata-profiling).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -17,6 +21,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --requirements requirements.txt
 
 COPY backend/app ./app
+COPY backend/ml_lifecycle ./ml_lifecycle
 
 # Install the local app package without reinstalling runtime dependencies.
 RUN uv pip install --system --no-deps .
@@ -32,6 +37,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy backend runtime files only
 COPY backend/app ./app
+COPY backend/ml_lifecycle ./ml_lifecycle
 COPY backend/data-minio/intake ./data-minio/intake
 COPY backend/data-minio/workspaces ./data-minio/workspaces
 COPY backend/mlruns ./mlruns
