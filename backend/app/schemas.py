@@ -14,6 +14,121 @@ class PredictRequest(ExperimentInput):
     pass
 
 
+class IntakeFileInventoryItem(BaseModel):
+    filename: str
+    original_filename: str | None = None
+    relative_path: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    suffix: str
+
+
+class IngestionSessionResponse(BaseModel):
+    project_id: str
+    project_name: str
+    workspace_id: str | None = None
+    workspace_name: str | None = None
+    dataset_id: str
+    ingestion_session_id: str
+    status: str
+    approval_status: str
+    created_at: str
+    updated_at: str
+    storage: dict[str, Any]
+    files: list[IntakeFileInventoryItem]
+    notes: str = ""
+    ingestion_path: str = "generic_tabular_doe"
+    mapping: dict[str, Any] = Field(default_factory=dict)
+    manifest_assistant: dict[str, Any] = Field(default_factory=dict)
+
+
+class FileInventoryResponse(BaseModel):
+    files: list[IntakeFileInventoryItem]
+    generated_at: str | None = None
+
+
+class PreprocessingApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approver: str = "Mirai admin"
+    notes: str | None = None
+
+
+class DomainMetadataUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    domain_metadata: dict[str, Any]
+    updated_by: str = "Mirai admin"
+    notes: str | None = None
+
+
+class DomainMetadataApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approver: str = "Mirai admin"
+    notes: str | None = None
+
+
+class LinearTrainingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_mvlr: bool = True
+    fit_intercept: bool = True
+    include_ridge: bool = True
+    ridge_alphas: list[float] = Field(default_factory=lambda: [0.01, 0.1, 1.0, 10.0])
+
+
+class MLPTrainingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include: bool = True
+    architecture_family: str = "plain_mlp"
+    hidden_layers: list[int] = Field(default_factory=lambda: [128, 64, 32])
+    trunk_layers: list[int] = Field(default_factory=lambda: [128, 128])
+    head_layers: list[int] = Field(default_factory=lambda: [64])
+    secondary_head_layers: list[int] = Field(default_factory=lambda: [32])
+    activation: str = "SiLU"
+    normalization: str = "layer_norm"
+    dropout: float = Field(default=0.05, ge=0.0, le=0.8)
+    optimizer: str = "AdamW"
+    learning_rate: float = Field(default=0.003, gt=0.0)
+    weight_decay: float = Field(default=0.0001, ge=0.0)
+    batch_size: int | str = "full_batch"
+    max_epochs: int = Field(default=500, ge=1, le=1500)
+    early_stopping_patience: int = Field(default=100, ge=1, le=500)
+    loss: str = "smooth_l1"
+    output_weights: dict[str, float] = Field(default_factory=dict)
+    seeds: list[int] = Field(default_factory=lambda: [7])
+
+
+class TrainingSearchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str = "single_config"
+    wall_clock_budget_minutes: int = Field(default=60, ge=1, le=120)
+    rerun_top_k: int = Field(default=0, ge=0, le=5)
+
+
+class TrainingConfiguration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    linear: LinearTrainingConfig = Field(default_factory=LinearTrainingConfig)
+    mlp: MLPTrainingConfig = Field(default_factory=MLPTrainingConfig)
+    search: TrainingSearchConfig = Field(default_factory=TrainingSearchConfig)
+    selection_metric: str = "validation_weighted_normalized_rmse"
+
+
+class TrainingRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_by: str = "Mirai admin"
+    preset: str = "balanced_training"
+    model_families: list[str] = Field(default_factory=lambda: ["mean_baseline", "mvlr", "ridge", "mlp"])
+    training_config: TrainingConfiguration = Field(default_factory=TrainingConfiguration)
+    notes: str | None = None
+
+
 class PredictResponse(BaseModel):
     project_id: str
     predictions: dict[str, float]
@@ -246,6 +361,15 @@ class BORevealReplayResponse(BaseModel):
     experiment: BORevealReplayExperiment
     logged_experiment: LoggedExperiment
     state: BOStateResponse
+
+
+class ScientistReviewUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    status: str | None = None
+    decision: str | None = None
+    reviewer: str | None = None
+    notes: str | None = None
 
 
 class BOFantasyRolloutRequest(BaseModel):

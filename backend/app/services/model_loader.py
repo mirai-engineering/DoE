@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import logging
+from typing import Any
 
+import joblib
 import numpy as np
 import onnxruntime as ort
 
@@ -9,6 +11,7 @@ from .project_registry import (
     get_project_model_path,
     get_project_preprocessing,
     get_project_schema,
+    is_packaged_project,
     list_projects,
 )
 
@@ -19,12 +22,14 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class ProjectModel:
     project_id: str
-    session: ort.InferenceSession
+    session: ort.InferenceSession | None
     input_name: str
     output_name: str
     schema: dict
     metadata: dict
     preprocessing: dict
+    estimator: Any | None = None
+    model_kind: str = "onnx_scaled"
 
 
 _MODEL_CACHE: dict[str, ProjectModel] = {}
@@ -40,10 +45,29 @@ def load_model(project_id: str) -> ProjectModel:
     preprocessing = get_project_preprocessing(project_id)
     model_path = get_project_model_path(project_id)
 
+    if model_path.suffix.lower() == ".joblib":
+        logger.info("Loading sklearn/joblib model for project_id=%s from %s", project_id, model_path)
+        estimator = joblib.load(model_path)
+        model = ProjectModel(
+            project_id=project_id,
+            session=None,
+            input_name="raw_features",
+            output_name="raw_outputs",
+            schema=schema,
+            metadata={**metadata, "model_artifact_format": "joblib"},
+            preprocessing=preprocessing,
+            estimator=estimator,
+            model_kind="sklearn_raw",
+        )
+        _MODEL_CACHE[project_id] = model
+        return model
+
     logger.info("Loading ONNX model for project_id=%s from %s", project_id, model_path)
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
+    template_id = preprocessing.get("template_id") or (schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else None)
+    model_kind = "onnx_raw" if template_id == "generic_tabular_doe" and input_name == "raw_features" else "onnx_scaled"
 
     model = ProjectModel(
         project_id=project_id,
@@ -51,8 +75,9 @@ def load_model(project_id: str) -> ProjectModel:
         input_name=input_name,
         output_name=output_name,
         schema=schema,
-        metadata=metadata,
+        metadata={**metadata, "model_artifact_format": "onnx"},
         preprocessing=preprocessing,
+        model_kind=model_kind,
     )
     _MODEL_CACHE[project_id] = model
     logger.info(
@@ -68,6 +93,8 @@ def load_model(project_id: str) -> ProjectModel:
 def load_all_models() -> bool:
     all_loaded = True
     for project in list_projects():
+        if not is_packaged_project(project["id"]):
+            continue
         try:
             load_model(project["id"])
         except Exception as exc:  # noqa: BLE001 - health reports the aggregate state.
@@ -77,7 +104,7 @@ def load_all_models() -> bool:
 
 
 def are_models_loaded() -> bool:
-    projects = list_projects()
+    projects = [project for project in list_projects() if is_packaged_project(project["id"])]
     if not projects:
         return False
     return all(project["id"] in _MODEL_CACHE for project in projects)
@@ -90,5 +117,11 @@ def get_model_bundle(project_id: str) -> ProjectModel:
 def predict(project_id: str, input_matrix: np.ndarray) -> np.ndarray:
     model = load_model(project_id)
     features = np.ascontiguousarray(input_matrix, dtype=np.float32)
+    if model.model_kind == "sklearn_raw":
+        if model.estimator is None:
+            raise RuntimeError(f"Sklearn model for {project_id} is not loaded")
+        return np.asarray(model.estimator.predict(input_matrix), dtype=np.float32)
+    if model.session is None:
+        raise RuntimeError(f"ONNX session for {project_id} is not loaded")
     outputs = model.session.run([model.output_name], {model.input_name: features})[0]
     return np.asarray(outputs, dtype=np.float32)

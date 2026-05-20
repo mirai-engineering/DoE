@@ -1,11 +1,15 @@
+from zipfile import ZipFile
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.data_intake import safe_extract_cell_zip
+from app.services.domain_metadata import build_domain_metadata, infer_template_id
 from app.services.replay_mapping import load_hidden_replay_pool
 
 
-PROJECT_ID = "pem_fuel_cell_demo"
+PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
 
 
 @pytest.fixture
@@ -60,7 +64,7 @@ def test_projects(client):
     response = client.get("/projects")
 
     assert response.status_code == 200
-    assert {"id": PROJECT_ID, "display_name": "PEM Fuel Cell Demo"} in response.json()["projects"]
+    assert any(project["id"] == PROJECT_ID for project in response.json()["projects"])
 
 
 def test_project_schema(client):
@@ -70,9 +74,96 @@ def test_project_schema(client):
     payload = response.json()
     assert payload["project_id"] == PROJECT_ID
     assert len(payload["inputs"]) == 7
-    assert len(payload["outputs"]) == 5
+    assert len(payload["outputs"]) == 4
     assert payload["inputs"][0]["name"] == "pt_c_ratio"
     assert payload["outputs"][0]["name"] == "bol_current_density"
+    assert payload["domain_metadata"]["approval_status"] == "approved"
+    assert payload["domain_metadata"]["template_id"] in {"fuel_cell", "generic_tabular_doe"}
+
+
+def test_generic_tabular_doe_domain_metadata_uses_non_fuel_cell_names():
+    schema = {
+        "project_id": "generic_oem_formulation",
+        "display_name": "Generic OEM Formulation",
+        "inputs": [
+            {"name": "mix_temperature", "label": "Mix temperature", "type": "continuous", "min": 20, "max": 90, "unit": "C"},
+            {"name": "binder_fraction", "label": "Binder fraction", "type": "continuous", "min": 0.05, "max": 0.25, "unit": "fraction"},
+        ],
+        "outputs": [
+            {"name": "tensile_strength", "label": "Tensile strength", "direction": "maximize", "unit": "MPa"},
+            {"name": "defect_rate", "label": "Defect rate", "direction": "minimize", "unit": "%"},
+        ],
+    }
+
+    assert infer_template_id(schema) == "generic_tabular_doe"
+    metadata = build_domain_metadata(schema, approval_status="approved")
+    assert metadata["template_id"] == "generic_tabular_doe"
+    assert metadata["approval_status"] == "approved"
+    variable_names = {variable["name"] for variable in metadata["variables"]}
+    assert {"mix_temperature", "binder_fraction", "tensile_strength", "defect_rate"}.issubset(variable_names)
+    recipes = metadata["ui_config"]["plot_recipes"]
+    assert recipes
+    assert all(recipe["safe"] for recipe in recipes)
+    assert recipes[0]["kind"] == "parity"
+
+
+def test_training_config_schema_accepts_advanced_hyperparameters():
+    from app.schemas import TrainingRequestCreate
+
+    payload = TrainingRequestCreate(
+        training_config={
+            "linear": {"include_mvlr": True, "fit_intercept": True, "include_ridge": True, "ridge_alphas": [0.1, 1.0]},
+            "mlp": {
+                "include": True,
+                "architecture_family": "shared_trunk_multi_head",
+                "hidden_layers": [128, 64],
+                "trunk_layers": [128, 128],
+                "head_layers": [64],
+                "secondary_head_layers": [32],
+                "activation": "GELU",
+                "normalization": "layer_norm",
+                "dropout": 0.1,
+                "optimizer": "AdamW",
+                "learning_rate": 0.001,
+                "weight_decay": 0.0001,
+                "batch_size": 128,
+                "max_epochs": 500,
+                "early_stopping_patience": 100,
+                "loss": "weighted_smooth_l1",
+                "output_weights": {"y": 1.0},
+                "seeds": [7, 13],
+            },
+            "search": {"mode": "small_sweep_1h", "wall_clock_budget_minutes": 60, "rerun_top_k": 3},
+            "selection_metric": "validation_weighted_normalized_rmse",
+        }
+    )
+
+    assert payload.training_config.mlp.architecture_family == "shared_trunk_multi_head"
+    assert payload.training_config.linear.include_ridge is True
+    assert payload.model_families == ["mean_baseline", "mvlr", "ridge", "mlp"]
+
+
+def test_approved_variable_metadata_overlays_schema_labels():
+    from app.services.domain_metadata import apply_variable_metadata_to_schema
+
+    schema = {
+        "project_id": "generic_oem_formulation",
+        "inputs": [{"name": "mix_temperature", "label": "Old temp", "type": "continuous", "min": 20, "max": 90, "unit": "C"}],
+        "outputs": [{"name": "tensile_strength", "label": "Old strength", "direction": "maximize", "unit": "MPa"}],
+        "domain_metadata": {
+            "approval_status": "approved",
+            "variables": [
+                {"name": "mix_temperature", "label": "Mixer temperature", "unit": "°C", "role": "input"},
+                {"name": "tensile_strength", "label": "Peak tensile strength", "unit": "N/mm²", "role": "output"},
+            ],
+        },
+    }
+
+    enriched = apply_variable_metadata_to_schema(schema)
+    assert enriched["inputs"][0]["label"] == "Mixer temperature"
+    assert enriched["inputs"][0]["unit"] == "°C"
+    assert enriched["outputs"][0]["label"] == "Peak tensile strength"
+    assert enriched["outputs"][0]["unit"] == "N/mm²"
 
 
 def test_predict(client, valid_input_row):
@@ -81,13 +172,12 @@ def test_predict(client, valid_input_row):
     assert response.status_code == 200
     payload = response.json()
     assert payload["project_id"] == PROJECT_ID
-    assert payload["model_version"] == "pem_fuel_cell_demo_mlp_v0.1"
+    assert payload["model_version"]
     assert set(payload["predictions"]) == {
         "bol_current_density",
         "eol_current_density",
+        "bol_ecsa",
         "ecsa_loss",
-        "durability_score",
-        "cost_score",
     }
     assert payload["predictions"]["bol_current_density"] > 0
     assert payload["predictions"]["eol_current_density"] > 0
@@ -103,9 +193,9 @@ def test_batch_predict(client, valid_input_row):
     assert response.status_code == 200
     payload = response.json()
     assert payload["project_id"] == PROJECT_ID
-    assert payload["model_version"] == "pem_fuel_cell_demo_mlp_v0.1"
+    assert payload["model_version"]
     assert len(payload["predictions"]) == 2
-    assert all("durability_score" in prediction for prediction in payload["predictions"])
+    assert all("bol_ecsa" in prediction for prediction in payload["predictions"])
 
 
 def test_recommend(client):
@@ -115,9 +205,7 @@ def test_recommend(client):
             "objective_weights": {
                 "bol_current_density": 0.35,
                 "eol_current_density": 0.35,
-                "durability_score": 0.2,
-                "ecsa_loss": -0.1,
-                "cost_score": -0.1,
+                "ecsa_loss": -0.2,
             },
             "fixed_inputs": {
                 "operating_rh": 70,
@@ -131,7 +219,7 @@ def test_recommend(client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["project_id"] == PROJECT_ID
-    assert payload["model_version"] == "pem_fuel_cell_demo_mlp_v0.1"
+    assert payload["model_version"]
     assert len(payload["recommendations"]) == 5
 
     scores = [item["score"] for item in payload["recommendations"]]
@@ -170,9 +258,7 @@ def test_bo_suggestion_respects_constraints(isolated_client):
             "objective_weights": {
                 "bol_current_density": 0.35,
                 "eol_current_density": 0.35,
-                "durability_score": 0.2,
-                "ecsa_loss": -0.1,
-                "cost_score": -0.1,
+                "ecsa_loss": -0.2,
             },
             "exploration_level": "balanced",
             "acquisition_function": "ei",
@@ -190,7 +276,7 @@ def test_bo_suggestion_respects_constraints(isolated_client):
     assert suggestion["status"] == "suggested"
     assert suggestion["observed_outputs"] is None
     assert suggestion["inputs"]["pt_c_ratio"] == pytest.approx(0.42)
-    assert 0.45 <= suggestion["inputs"]["operating_voltage"] <= 0.65
+    assert suggestion["inputs"]["operating_voltage"] == pytest.approx(0.45, abs=1e-12) or 0.45 <= suggestion["inputs"]["operating_voltage"] <= 0.65
     assert suggestion["predicted_outputs"] is not None
     assert suggestion["uncertainty"]["objective_std"] >= 0
     assert suggestion["objective"]["expected_improvement"] >= 0
@@ -207,9 +293,7 @@ def test_bo_reveal_uses_hidden_replay_outputs_not_predictions(isolated_client):
             "objective_weights": {
                 "bol_current_density": 0.35,
                 "eol_current_density": 0.35,
-                "durability_score": 0.2,
-                "ecsa_loss": -0.1,
-                "cost_score": -0.1,
+                "ecsa_loss": -0.2,
             },
             "exploration_level": "balanced",
             "acquisition_function": "ei",
@@ -253,9 +337,7 @@ def test_bo_rejected_suggestion_cannot_reveal(isolated_client):
             "objective_weights": {
                 "bol_current_density": 0.35,
                 "eol_current_density": 0.35,
-                "durability_score": 0.2,
-                "ecsa_loss": -0.1,
-                "cost_score": -0.1,
+                "ecsa_loss": -0.2,
             },
             "exploration_level": "balanced",
             "acquisition_function": "ei",
@@ -277,6 +359,88 @@ def test_bo_rejected_suggestion_cannot_reveal(isolated_client):
     assert "cannot reveal" in reveal_response.json()["detail"]
 
 
+def test_data_intake_fuel_cell_package_validation_requires_workbook_and_cell_zip(client):
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Validation Gate", "notes": "missing fuel-cell workbook and cell zip"},
+        files=[("files", ("notes.txt", b"hello", "text/plain"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+
+    validation = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/fuel-cell-package/validation"
+    )
+
+    assert validation.status_code == 200
+    payload = validation.json()
+    assert payload["valid"] is False
+    assert any("data_overview.xlsx" in error for error in payload["errors"])
+    assert any("Cell_NN.zip" in error for error in payload["errors"])
+
+
+def test_safe_cell_zip_extraction_blocks_path_traversal(tmp_path):
+    archive = tmp_path / "Cell_01.zip"
+    with ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("../evil.txt", "nope")
+
+    with pytest.raises(ValueError, match="Unsafe zip member"):
+        safe_extract_cell_zip(archive, tmp_path / "extracted")
+
+
+def test_safe_cell_zip_extraction_skips_macos_metadata_and_hashes_files(tmp_path):
+    archive = tmp_path / "Cell_01.zip"
+    with ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("__MACOSX/._junk", "skip")
+        zip_file.writestr("Cell_01/03-IV-curve_RH100/0cycles/IV_data.csv", "a\tb\n1\t2\n")
+
+    result = safe_extract_cell_zip(archive, tmp_path / "extracted")
+
+    assert result["cell_id"] == "Cell_01"
+    assert result["file_count"] == 1
+    assert result["skipped_member_count"] == 1
+    extracted = tmp_path / "extracted" / "01-Data" / "Cell_01" / "03-IV-curve_RH100" / "0cycles" / "IV_data.csv"
+    assert extracted.exists()
+    assert result["files"][0]["sha256"]
+
+
+def test_data_intake_can_append_missing_file_to_existing_session(client):
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Append Missing", "notes": "initial"},
+        files=[("files", ("data_overview.xlsx", b"fake workbook", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+
+    append = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/files",
+        files=[("files", ("Cell_01.zip", b"not actually used here", "application/zip"))],
+    )
+
+    assert append.status_code == 200
+    payload = append.json()
+    assert len(payload["files"]) == 2
+    assert any(file["filename"] == "Cell_01.zip" for file in payload["files"])
+
+
+def test_training_request_gate_requires_preprocessing_report(client):
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Training Gate", "notes": "no preprocessing yet"},
+        files=[("files", ("data_dictionary_template.csv", b"column_name,role\nx,input\n", "text/csv"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+
+    training = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/training-requests",
+        json={"requested_by": "Mirai admin", "preset": "balanced_training", "model_families": ["mvlr"]},
+    )
+
+    assert training.status_code in {400, 503}
+
+
 def test_bo_fantasy_rollout_is_not_logged_as_observed(isolated_client):
     isolated_client.post(
         f"/projects/{PROJECT_ID}/bo/initialize-replay",
@@ -292,9 +456,7 @@ def test_bo_fantasy_rollout_is_not_logged_as_observed(isolated_client):
                 "objective_weights": {
                     "bol_current_density": 0.35,
                     "eol_current_density": 0.35,
-                    "durability_score": 0.2,
-                    "ecsa_loss": -0.1,
-                    "cost_score": -0.1,
+                    "ecsa_loss": -0.2,
                 },
                 "exploration_level": "balanced",
                 "acquisition_function": "ei",

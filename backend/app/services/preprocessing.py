@@ -108,6 +108,20 @@ def rows_to_feature_matrix(
 
 
 def transform_inputs(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
+    values = np.asarray(input_matrix, dtype=np.float32).copy()
+
+    imputer = preprocessing.get("input_imputer")
+    if imputer:
+        method = imputer.get("method")
+        if method != "median":
+            raise ValueError(f"Unsupported input imputer method: {method}")
+        statistics = np.asarray(imputer["statistics"], dtype=np.float32)
+        if statistics.shape[0] != values.shape[1]:
+            raise ValueError("Input imputer statistics do not match feature count")
+        missing_mask = ~np.isfinite(values)
+        if missing_mask.any():
+            values[missing_mask] = np.take(statistics, np.where(missing_mask)[1])
+
     scaler = preprocessing.get("input_scaler", {})
     method = scaler.get("method")
     if method != "minmax":
@@ -116,7 +130,7 @@ def transform_inputs(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarra
     minimum = np.asarray(scaler["min"], dtype=np.float32)
     maximum = np.asarray(scaler["max"], dtype=np.float32)
     scale = np.where(maximum > minimum, maximum - minimum, 1.0)
-    return ((input_matrix - minimum) / scale).astype(np.float32)
+    return ((values - minimum) / scale).astype(np.float32)
 
 
 def inverse_transform_outputs(output_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:

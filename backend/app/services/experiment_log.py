@@ -7,12 +7,16 @@ from ..schemas import BOConfig, LoggedExperiment
 from .project_registry import BACKEND_ROOT, get_project_schema
 
 
+def _object_store_root() -> Path:
+    return Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+
+
 def _experiment_log_dir() -> Path:
-    return Path(os.getenv("DOE_EXPERIMENT_LOG_DIR", BACKEND_ROOT / "data" / "experiment_logs"))
+    return Path(os.getenv("DOE_EXPERIMENT_LOG_DIR", _object_store_root() / "experiment_logs"))
 
 
 def _bo_config_dir() -> Path:
-    return Path(os.getenv("DOE_BO_CONFIG_DIR", BACKEND_ROOT / "data" / "bo_configs"))
+    return Path(os.getenv("DOE_BO_CONFIG_DIR", _object_store_root() / "bo_configs"))
 
 
 def _project_file_stem(project_id: str) -> str:

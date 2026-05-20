@@ -1,79 +1,83 @@
 import csv
-import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from ..schemas import ReplayInitializationSelection, ReplayMatch
+from .data_intake import list_ingestion_sessions, session_workspace
 from .experiment_log import load_experiment_log
 from .preprocessing import input_names, output_names
-from .project_registry import BACKEND_ROOT, get_project_schema
-
-
-def _replay_dir() -> Path:
-    return Path(os.getenv("DOE_REPLAY_DIR", BACKEND_ROOT / "data" / "replay"))
-
-
-def _synthetic_source_path(project_id: str) -> Path:
-    return BACKEND_ROOT / "data" / "synthetic" / f"{project_id}.csv"
+from .project_registry import REAL_FUEL_CELL_PROJECT_ID, REAL_REFERENCE_ARTIFACT_DIR, get_project_schema
 
 
 def _load_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
-        raise FileNotFoundError(f"Replay dataset not found: {path}")
+        raise FileNotFoundError(f"Training split table not found: {path}")
     with path.open("r", encoding="utf-8", newline="") as file:
         return list(csv.DictReader(file))
 
 
-def _fallback_rows(project_id: str, *, initial: bool) -> list[dict[str, str]]:
-    rows = _load_csv_rows(_synthetic_source_path(project_id))
-    start = 0 if initial else 25
-    stop = 25 if initial else 225
-    prefix = "initial" if initial else "hidden"
-    selected: list[dict[str, str]] = []
-    for index, row in enumerate(rows[start:stop], start=1):
-        selected.append({"replay_id": f"{prefix}_{index:03d}", **row})
-    return selected
+def _latest_ingestion_workspace(project_id: str) -> dict[str, Path] | None:
+    sessions = [session for session in list_ingestion_sessions() if session.get("project_id") == project_id]
+    if not sessions:
+        return None
+    latest = sorted(sessions, key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)[0]
+    return session_workspace(str(latest["project_id"]), str(latest["dataset_id"]), str(latest["ingestion_session_id"]))
 
 
-def _load_replay_rows(project_id: str, suffix: str) -> list[dict[str, str]]:
-    path = _replay_dir() / f"{project_id}_{suffix}.csv"
-    if path.exists():
-        return _load_csv_rows(path)
-    if not _synthetic_source_path(project_id).exists():
-        raise FileNotFoundError(f"Replay dataset not found: {path}")
-    return _fallback_rows(project_id, initial=suffix == "initial_observed")
+def _training_split_table_path(project_id: str) -> Path:
+    workspace = _latest_ingestion_workspace(project_id)
+    if workspace is not None:
+        canonical = workspace["canonical"] / "model_table.csv"
+        if canonical.exists():
+            return canonical
+        training = workspace["training_latest"] / "model_table_preprocessed.csv"
+        if training.exists():
+            return training
+    if project_id == REAL_FUEL_CELL_PROJECT_ID:
+        return REAL_REFERENCE_ARTIFACT_DIR / "model_table_preprocessed.csv"
+    raise FileNotFoundError(f"No train/validation split table is available for BO replay project_id={project_id}")
 
 
-def _numeric_row(row: dict[str, str], schema: dict) -> dict[str, Any]:
+def _numeric_row(row: dict[str, str], schema: dict, *, index: int) -> dict[str, Any]:
     names = input_names(schema) + output_names(schema)
     missing = [name for name in names if name not in row or row[name] == ""]
     if missing:
-        raise ValueError(f"Replay row is missing required columns: {', '.join(missing)}")
+        raise ValueError(f"Training split row is missing required columns: {', '.join(missing)}")
+    replay_id = row.get("replay_id") or row.get("row_id") or f"{row.get('split', 'trainval')}_{index:06d}"
     return {
-        "replay_id": row.get("replay_id") or row.get("experiment_id") or "",
+        "replay_id": replay_id,
+        "source_split": row.get("split", "train_validation"),
         "inputs": {name: float(row[name]) for name in input_names(schema)},
         "outputs": {name: float(row[name]) for name in output_names(schema)},
     }
 
 
-def load_initial_observed(project_id: str) -> list[dict[str, Any]]:
+def _load_train_validation_rows(project_id: str) -> list[dict[str, Any]]:
     schema = get_project_schema(project_id)
-    return [_numeric_row(row, schema) for row in _load_replay_rows(project_id, "initial_observed")]
+    rows = _load_csv_rows(_training_split_table_path(project_id))
+    train_validation = [row for row in rows if str(row.get("split", "")).lower() in {"train", "validation"}]
+    if not train_validation:
+        raise ValueError(f"No train/validation rows are available for BO replay project_id={project_id}")
+    return [_numeric_row(row, schema, index=index) for index, row in enumerate(train_validation, start=1)]
+
+
+def load_initial_observed(project_id: str) -> list[dict[str, Any]]:
+    return [row for row in _load_train_validation_rows(project_id) if row.get("source_split") == "train"]
 
 
 def load_hidden_replay_pool(project_id: str) -> list[dict[str, Any]]:
-    schema = get_project_schema(project_id)
-    return [_numeric_row(row, schema) for row in _load_replay_rows(project_id, "hidden_pool")]
+    return _load_train_validation_rows(project_id)
 
 
 def get_used_replay_ids(project_id: str) -> set[str]:
     used: set[str] = set()
     for experiment in load_experiment_log(project_id):
-        replay_id = experiment.metadata.get("matched_replay_id")
-        if isinstance(replay_id, str) and replay_id:
-            used.add(replay_id)
+        for key in ("matched_replay_id", "replay_id"):
+            replay_id = experiment.metadata.get(key)
+            if isinstance(replay_id, str) and replay_id:
+                used.add(replay_id)
     return used
 
 
@@ -106,7 +110,7 @@ def select_initial_observed(
 ) -> list[dict[str, Any]]:
     rows = load_initial_observed(project_id)
     if len(rows) < n_initial:
-        raise ValueError(f"Only {len(rows)} initial replay rows are available")
+        raise ValueError(f"Only {len(rows)} initial train-split rows are available")
 
     if selection == ReplayInitializationSelection.first_n:
         return rows[:n_initial]
@@ -144,7 +148,7 @@ def find_nearest_hidden_experiment(
     used = used_replay_ids or get_used_replay_ids(project_id)
     hidden_rows = [row for row in load_hidden_replay_pool(project_id) if str(row["replay_id"]) not in used]
     if not hidden_rows:
-        raise ValueError("No unused hidden replay experiments remain")
+        raise ValueError("No unused train/validation replay experiments remain")
 
     x_star = _normalized_input_vector(schema, suggested_inputs)
     matrix = _normalized_input_matrix(schema, hidden_rows)

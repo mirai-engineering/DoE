@@ -22,9 +22,12 @@ def predict_rows(
         rows,
         warn_near_bounds=warn_near_bounds,
     )
-    features = transform_inputs(raw_features, model.preprocessing)
-    scaled_outputs = predict(project_id, features)
-    outputs = inverse_transform_outputs(scaled_outputs, model.preprocessing)
+    if getattr(model, "model_kind", "onnx_scaled") in {"sklearn_raw", "onnx_raw"}:
+        outputs = predict(project_id, raw_features)
+    else:
+        features = transform_inputs(raw_features, model.preprocessing)
+        scaled_outputs = predict(project_id, features)
+        outputs = inverse_transform_outputs(scaled_outputs, model.preprocessing)
 
     names = output_names(model.schema)
     named_predictions: list[dict[str, float]] = []

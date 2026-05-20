@@ -1,0 +1,16 @@
+{
+  "workspace_id": "fraunhofer",
+  "display_name": "Fraunhofer",
+  "client_type": "demo_partner",
+  "status": "active",
+  "default_template_ids": [
+    "generic_tabular_doe"
+  ],
+  "allowed_extractors": [
+    "pem_cell_zip_bundle"
+  ],
+  "lifecycle_contract": "generic_tabular_doe",
+  "notes": "Fuel-cell hybrid demo: PEM bundle extractor adapter followed by the generic Mirai tabular DoE lifecycle.",
+  "created_at": "2026-05-20T12:58:28+00:00",
+  "updated_at": "2026-05-20T13:04:18+00:00"
+}
