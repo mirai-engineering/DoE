@@ -26,22 +26,22 @@ env/
 # JavaScript
 node_modules/
 
-# BO runtime state (seed data in data/replay/ is committed)
-backend/data/experiment_logs/
-backend/data/bo_configs/
+# Backend object-store runtime state (future MinIO/S3 service)
+backend/data-minio/experiment_logs/
+backend/data-minio/bo_configs/
+backend/data-minio/model_quality_reviews/
+backend/data-minio/intake/
+backend/data-minio/preprocessing_reviews/
 
 # Local MLflow / MLOps runtime state
 backend/mlruns/
 backend/.mlflow-cache/
-backend/data/model_quality_reviews/
-backend/data/preprocessing_reviews/
-backend/data/real/*/training_artifacts/
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/
 
 # Data
-# Root-level raw data is local-only. Generated backend/data CSV artifacts may be tracked.
+# Root-level raw/reference data is local-only.
 /data/
-backend/data/real/**/*.csv
 
 # Tooling
 .pi/
+# Local legacy archives moved out of runtime paths
+legacy/

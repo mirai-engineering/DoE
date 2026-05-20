@@ -32,15 +32,30 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy backend runtime files only
 COPY backend/app ./app
-COPY backend/artifacts ./artifacts
-COPY backend/data/replay ./data/replay
+COPY backend/data-minio/intake ./data-minio/intake
+COPY backend/data-minio/workspaces ./data-minio/workspaces
+COPY backend/mlruns ./mlruns
+COPY data/reference/pem_fuel_cell_cathode_degradation/model_table.csv ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest
 COPY backend/healthcheck.py ./healthcheck.py
 
-RUN test -s ./artifacts/pem_fuel_cell_demo/model.onnx || \
-    (echo "ERROR: DoE ONNX model artifact missing" && exit 1)
-RUN test -s ./data/replay/pem_fuel_cell_demo_initial_observed.csv && \
-    test -s ./data/replay/pem_fuel_cell_demo_hidden_pool.csv || \
-    (echo "ERROR: BO replay datasets missing" && exit 1)
+ENV DOE_OBJECT_STORE_ROOT=/app/data-minio
+ENV DOE_REFERENCE_DATA_ROOT=/app/data/reference
+
+RUN test -s ./data-minio/workspaces/fraunhofer/workspace.json || \
+    (echo "ERROR: Fraunhofer workspace metadata missing" && exit 1)
+RUN test -d ./mlruns/models || \
+    (echo "ERROR: MLflow registry state missing" && exit 1)
+RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv || \
+    (echo "ERROR: business-impact real data artifacts missing" && exit 1)
+RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing_report.json && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing.json && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/split_report.json || \
+    (echo "ERROR: model-quality preprocessing/split artifacts missing" && exit 1)
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
