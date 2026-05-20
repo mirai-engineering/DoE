@@ -68,7 +68,7 @@ curl http://localhost:3000/
 curl http://localhost:3000/health
 
 # Backend API (example: predict)
-curl -X POST http://localhost:3000/api/projects/pem_fuel_cell_demo/predict \
+curl -X POST http://localhost:3000/api/projects/fraunhofer_demo_39e89ec9/predict \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -352,7 +352,7 @@ Response back through nginx → Browser
 
 ### Common Confusion: "Is nginx running FastAPI?"
 
-**No.** The ONNX model lives in the **backend container** as a `.onnx` file (`backend/artifacts/pem_fuel_cell_demo/model.onnx`). nginx doesn't know about it — it just passes traffic back and forth.
+**No.** The ONNX model lives in the **backend container** as a `.onnx` file (`MLflow run artifact or active session training artifact`). nginx doesn't know about it — it just passes traffic back and forth.
 
 Think of it this way:
 - **nginx** = the receptionist (routes you to the right person)

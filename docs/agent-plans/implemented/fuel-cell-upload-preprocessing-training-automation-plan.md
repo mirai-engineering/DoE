@@ -134,6 +134,6 @@ Manual end-to-end validation:
 
 ## Open questions
 
-1. Should uploaded-session training **overwrite/update the packaged runtime artifacts** (`backend/data/real/.../training_artifacts/latest` and `backend/artifacts/...`) so Model Quality immediately shows the new run, or should it remain isolated under the uploaded session and require a project registry update before serving?
+1. Should uploaded-session training **overwrite/update the packaged runtime artifacts** (`backend/data/real/.../training_artifacts/latest` and `backend/data-minio/runtime-projects/...`) so Model Quality immediately shows the new run, or should it remain isolated under the uploaded session and require a project registry update before serving?
 2. For this MVP, is synchronous training acceptable from the UI button, or do you want a background job/status polling implementation immediately?
 3. Should we support uploading the whole `Cathode Catalyst Degradation` folder as one zip and unpacking nested `01-Data/Cell_*.zip`, or is selecting `data_overview.xlsx` plus individual `Cell_*.zip` files enough for now?

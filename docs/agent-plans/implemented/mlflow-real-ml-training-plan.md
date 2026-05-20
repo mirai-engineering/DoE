@@ -16,7 +16,7 @@ The user's intended product direction is:
 
 - `backend/training/train_mlp.py` trains the synthetic `pem_fuel_cell_demo` model and already has a small `_maybe_log_mlflow` stub, but MLflow is not a dependency yet.
 - `backend/mlflow&BO-integration.md` already sketches MLflow tracking, registry, champion/challenger routing, and future model-stage handling.
-- Runtime model loading currently expects local artifacts under `backend/artifacts/{project_id}/`: `schema.json`, `preprocessing.json`, `model.onnx`, and `metadata.json`.
+- Runtime model loading currently expects local artifacts under `backend/data-minio/runtime-projects/{project_id}/`: `schema.json`, `preprocessing.json`, `model.onnx`, and `metadata.json`.
 - `backend/app/services/project_registry.py` discovers projects from local artifact directories and does not yet resolve MLflow model stages.
 - Frontend currently has tabs for Batch Explorer, Batch Results, Batch Visuals, and Optimization Loop. There is no Model Training / Model Quality interface yet.
 - `frontend/src/lib/api.ts` has typed API clients for projects, prediction, recommendations, and BO, but no training-run or model-registry client yet.
@@ -90,7 +90,7 @@ Docs/config candidates:
 - `backend/training/build_real_fuel_cell_dataset.py` for audited real-data CSV generation.
 - `backend/training/train_mlp.py` for existing MLP architecture, scaling pattern, ONNX export flow, and MLflow stub.
 - `backend/training/export_onnx.py` for verified ONNX export.
-- `backend/scripts/model.py` for `TabularMLP`.
+- `backend/training/common/model_definitions.py` for `TabularMLP`.
 - `backend/app/services/preprocessing.py` for runtime min-max preprocessing conventions.
 - `backend/app/services/project_registry.py` for local artifact discovery and future stage-aware routing.
 - `backend/mlflow&BO-integration.md` for existing MLflow architecture notes.
@@ -167,7 +167,7 @@ Generated local-only ignored runtime artifacts include:
 ```text
 backend/mlruns/
 backend/.mlflow-cache/pem_fuel_cell_real_cathode_degradation/
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/
+backend/data-minio/runtime-projects/pem_fuel_cell_real_cathode_degradation/
 backend/data/real/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
 ```
 

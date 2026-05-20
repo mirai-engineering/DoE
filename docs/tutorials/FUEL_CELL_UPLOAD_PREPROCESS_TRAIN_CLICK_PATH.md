@@ -61,7 +61,7 @@ After training completes, the MVP copies the selected session's active artifacts
 ```text
 backend/data/real/pem_fuel_cell_cathode_degradation/
 backend/data/real/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/
+data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
 ```
 
 For professional multi-client deployment, this mutable-copy activation should be replaced by immutable MinIO/S3 artifact URIs and per-project activation records. That follow-up is tracked in:

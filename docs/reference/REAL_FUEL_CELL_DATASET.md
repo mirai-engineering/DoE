@@ -105,7 +105,7 @@ The smoke training workflow writes ignored local artifacts under:
 backend/data/real/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
 backend/mlruns/
 backend/.mlflow-cache/pem_fuel_cell_real_cathode_degradation/
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/
+data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/
 ```
 
 Run:
@@ -117,7 +117,7 @@ uv run python training/preprocess_real_fuel_cell.py --project-id pem_fuel_cell_r
 uv run python training/train_real_fuel_cell_models.py --project-id pem_fuel_cell_real_cathode_degradation --register-mlflow --set-alias challenger
 ```
 
-The split standard is grouped by `cell_id`. Exactly 3 cells are reserved as BO holdout and excluded from preprocessing fit, model training, validation, final test, model selection, and threshold calculation. Their rows are exported to BO replay CSVs under `backend/data/replay/`; the initial replay file now contains 30 interleaved rows across all 3 holdout cells so the BO loop can initialize with typical `n_initial` values.
+The split standard is grouped by `cell_id`. Train and validation rows are available to the BO replay loop, while test cells remain untouched for model-quality evaluation and threshold reporting. The BO loop no longer depends on separate replay CSV exports.
 
 The Design Studio uses the same schema and served model for interactive exploration. For the fuel-cell preset, it sweeps `operating_voltage` over the observed in-domain voltage grid from training artifacts and plots predicted BoL/EoL polarization curves. Controls and output cards are generated from schema inputs/outputs so future engineering projects can reuse the same playground with different variable names and response plots.
 

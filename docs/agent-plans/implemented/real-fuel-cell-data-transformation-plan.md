@@ -28,7 +28,7 @@ Phase 1 stops after audited CSV artifacts. It does not create ONNX models, prepr
 
 ### Reuse
 
-- Existing artifact conventions from `backend/artifacts/pem_fuel_cell_demo/`.
+- Existing artifact conventions from `backend/data-minio/runtime-projects/pem_fuel_cell_demo/`.
 - Existing preprocessing/model-export caution from `.pi/skills/surrogate-model-debugging/SKILL.md`.
 - Source evaluation logic from `data/Cathode Catalyst Degradation/03-Evaluation_scripts/`.
 - PDF-derived paper schema and protocol details from the extracted markdown.
@@ -204,9 +204,9 @@ Current synthetic training/replay files use flat CSV rows with one experiment po
 backend/data/synthetic/pem_fuel_cell_demo.csv
 backend/data/replay/pem_fuel_cell_demo_initial_observed.csv
 backend/data/replay/pem_fuel_cell_demo_hidden_pool.csv
-backend/artifacts/pem_fuel_cell_demo/schema.json
-backend/artifacts/pem_fuel_cell_demo/preprocessing.json
-backend/artifacts/pem_fuel_cell_demo/model.onnx
+backend/data-minio/runtime-projects/pem_fuel_cell_demo/schema.json
+backend/data-minio/runtime-projects/pem_fuel_cell_demo/preprocessing.json
+backend/data-minio/runtime-projects/pem_fuel_cell_demo/model.onnx
 ```
 
 The real-data transformation should initially produce the same kind of flat supervised-learning table, but under a new real-data project ID so the synthetic demo remains available.
@@ -727,7 +727,7 @@ Do not touch these in Phase 1:
 backend/training/train_mlp.py
 backend/training/export_onnx.py
 backend/app/services/project_registry.py
-backend/artifacts/pem_fuel_cell_real_cathode_degradation/*
+backend/data-minio/runtime-projects/pem_fuel_cell_real_cathode_degradation/*
 backend/data/replay/pem_fuel_cell_real_cathode_degradation_*.csv
 ```
 

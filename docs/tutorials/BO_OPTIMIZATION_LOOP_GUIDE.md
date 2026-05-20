@@ -68,7 +68,7 @@ Seeds the BO experiment log with initial observed experiments.
 
 What it does:
 
-- Loads rows from `backend/data/replay/pem_fuel_cell_demo_initial_observed.csv`.
+- Loads rows from `train rows from the active training split artifact`.
 - Writes them to the project experiment log.
 - Marks them as `initial_observed` and `observed`.
 - Stores their real measured KPI outputs.
@@ -196,7 +196,7 @@ Reveals the replay measurement for an accepted suggestion.
 
 What it does:
 
-- Finds the nearest unused hidden experiment from `backend/data/replay/pem_fuel_cell_demo_hidden_pool.csv`.
+- Finds the nearest unused hidden experiment from `train+validation rows from the active training split artifact, excluding already-used replay IDs`.
 - Copies that row's real measured KPI outputs into the experiment log.
 - Marks the experiment as `observed`.
 - Stores replay metadata:
