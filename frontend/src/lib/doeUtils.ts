@@ -1,7 +1,7 @@
 import type { ProjectSchema, ProjectSummary, PredictionMap } from './api'
 import type { FixedInputConfig } from '../types/doe'
 
-export const preferredProjectId = 'pem_fuel_cell_demo'
+export const preferredProjectId = 'fraunhofer_demo_39e89ec9'
 export const defaultTableTopK = 5
 export const defaultVisualizationTopK = 75
 export const maxVisualizationTopK = 100
@@ -10,11 +10,9 @@ const demoDefaultFixedInputNames = ['operating_rh', 'operating_voltage']
 const demoDefaultHeatmapAxes = ['pt_c_ratio', 'i_c_ratio'] as const
 
 const defaultObjectiveWeights: Record<string, number> = {
-  bol_current_density: 0.35,
-  eol_current_density: 0.35,
-  durability_score: 0.2,
-  ecsa_loss: -0.1,
-  cost_score: -0.1,
+  bol_current_density: 0.4,
+  eol_current_density: 0.4,
+  ecsa_loss: -0.2,
 }
 
 export function selectDefaultProject(projects: ProjectSummary[]) {

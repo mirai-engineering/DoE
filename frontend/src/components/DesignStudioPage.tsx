@@ -54,6 +54,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
   const [selectedRealCell, setSelectedRealCell] = useState('')
   const [selectedPlotRecipeId, setSelectedPlotRecipeId] = useState('')
+  const [sweepInputName, setSweepInputName] = useState('')
+  const [primaryOutputName, setPrimaryOutputName] = useState('')
+  const [secondaryOutputName, setSecondaryOutputName] = useState('')
+  const [sweepPointCount, setSweepPointCount] = useState('60')
+  const [responseAxesSwapped, setResponseAxesSwapped] = useState(false)
   const [objectiveMode, setObjectiveMode] = useState('')
   const [objectiveWeights, setObjectiveWeights] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -109,6 +114,45 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const selectedObjective = objectivePresets.find((item) => item.id === objectiveMode)
   const currentGoalLabel = selectedObjective?.label || 'Selected objective'
   const activeObjectiveCount = Object.values(selectedObjectiveWeights).filter((value) => Math.abs(value) > 1e-12).length
+  const isFuelCellResponseRecipe = (recipe?: PlotRecipe) => recipe?.kind === 'fuel_cell_polarization'
+
+  function dynamicPlotRecipe(recipeId = selectedPlotRecipeId): PlotRecipe | undefined {
+    const recipe = state?.plot_recipes?.find((item) => item.id === recipeId)
+    if (isFuelCellResponseRecipe(recipe)) return undefined
+    const xVariable = sweepInputName || asString(asRecord(recipe?.x).variable) || schema.inputs[0]?.name
+    const yVariable = primaryOutputName || asString(asRecord(recipe?.y).variable) || schema.outputs[0]?.name
+    const secondary = secondaryOutputName && secondaryOutputName !== yVariable ? secondaryOutputName : ''
+    if (!xVariable || !yVariable) return undefined
+    return {
+      id: recipeId || `dynamic_${xVariable}_${yVariable}`,
+      label: `${schema.outputs.find((output) => output.name === yVariable)?.label ?? yVariable} vs ${schema.inputs.find((input) => input.name === xVariable)?.label ?? xVariable}`,
+      description: 'Scientist-selected response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+      kind: 'scatter_response',
+      template_id: 'generic_tabular_doe',
+      safe: true,
+      recommended: true,
+      x: { source: 'input', variable: xVariable },
+      y: { source: 'prediction', variable: yVariable },
+      series: secondary ? [{ variable: secondary }] : [],
+      filters: [],
+      group_by: null,
+      points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
+    } as PlotRecipe & { points: number }
+  }
+
+  function requestPlotPayload(recipeId = selectedPlotRecipeId) {
+    const recipe = state?.plot_recipes?.find((item) => item.id === recipeId)
+    const dynamicRecipe = dynamicPlotRecipe(recipeId)
+    return dynamicRecipe ? { plot_recipe_id: recipeId || undefined, plot_recipe: dynamicRecipe } : { plot_recipe_id: recipe?.id || recipeId || undefined }
+  }
+
+  function applyRecipeDefaults(recipe?: PlotRecipe) {
+    if (!recipe || isFuelCellResponseRecipe(recipe)) return
+    setSweepInputName(asString(asRecord(recipe.x).variable) || schema.inputs[0]?.name || '')
+    setPrimaryOutputName(asString(asRecord(recipe.y).variable) || schema.outputs[0]?.name || '')
+    const firstSeries = Array.isArray(recipe.series) ? asString(asRecord(recipe.series[0]).variable) : ''
+    setSecondaryOutputName(firstSeries && firstSeries !== asString(asRecord(recipe.y).variable) ? firstSeries : '')
+  }
 
   async function loadState() {
     setLoading(true)
@@ -117,11 +161,34 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       const payload = await getDesignStudioState(schema.project_id)
       const defaultInputs = Object.fromEntries(schema.inputs.map((input) => [input.name, String(payload.default_inputs[input.name] ?? (input.min + input.max) / 2)]))
       const numericDefaultInputs = Object.fromEntries(schema.inputs.map((input) => [input.name, Number(defaultInputs[input.name])]))
-      const defaultPlotRecipeId = payload.selected_plot_recipe_id || payload.plot_recipes?.find((recipe) => recipe.recommended)?.id || payload.plot_recipes?.[0]?.id || ''
+      const defaultRecipe = payload.plot_recipes?.find((recipe) => recipe.id === payload.selected_plot_recipe_id) || payload.plot_recipes?.find((recipe) => recipe.recommended) || payload.plot_recipes?.[0]
+      const defaultPlotRecipeId = defaultRecipe?.id || ''
+      const defaultSweep = asString(asRecord(defaultRecipe?.x).variable) || schema.inputs[0]?.name || ''
+      const defaultOutput = asString(asRecord(defaultRecipe?.y).variable) || schema.outputs[0]?.name || ''
+      const defaultDynamicRecipe = defaultRecipe?.kind === 'fuel_cell_polarization' || !defaultSweep || !defaultOutput
+        ? undefined
+        : {
+            id: defaultPlotRecipeId || `dynamic_${defaultSweep}_${defaultOutput}`,
+            label: `${schema.outputs.find((output) => output.name === defaultOutput)?.label ?? defaultOutput} vs ${schema.inputs.find((input) => input.name === defaultSweep)?.label ?? defaultSweep}`,
+            description: 'Scientist-selected response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+            kind: 'scatter_response',
+            template_id: 'generic_tabular_doe',
+            safe: true,
+            recommended: true,
+            x: { source: 'input', variable: defaultSweep },
+            y: { source: 'prediction', variable: defaultOutput },
+            series: [],
+            filters: [],
+            group_by: null,
+            points: 60,
+          }
       setState(payload)
       setInputs(defaultInputs)
       setSelectedPlotRecipeId(defaultPlotRecipeId)
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, plot_recipe_id: defaultPlotRecipeId || undefined }))
+      setSweepInputName(defaultSweep)
+      setPrimaryOutputName(defaultOutput)
+      setSecondaryOutputName('')
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, plot_recipe_id: defaultPlotRecipeId || undefined, ...(defaultDynamicRecipe ? { plot_recipe: defaultDynamicRecipe } : {}) }))
       setHasPendingInputChanges(false)
       const defaultObjectiveName = Object.keys(payload.default_objective_weights ?? {})[0]
       setObjectiveMode(defaultObjectiveName ? `single:${defaultObjectiveName}` : 'custom')
@@ -137,7 +204,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     setPredicting(true)
     setError(null)
     try {
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, comparison_real_cell: selectedRealCellPayload, plot_recipe_id: plotRecipeId || undefined }))
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, comparison_real_cell: selectedRealCellPayload, ...requestPlotPayload(plotRecipeId) }))
       setHasPendingInputChanges(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to predict design')
@@ -148,6 +215,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
   async function choosePlotRecipe(plotRecipeId: string) {
     setSelectedPlotRecipeId(plotRecipeId)
+    applyRecipeDefaults(state?.plot_recipes?.find((recipe) => recipe.id === plotRecipeId))
     if (state && prediction) await runPrediction(numericInputs, plotRecipeId)
   }
 
@@ -164,7 +232,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         objective_weights: selectedObjectiveWeights,
         n_candidates: 3000,
         comparison_real_cell: selectedRealCellPayload,
-        plot_recipe_id: selectedPlotRecipeId || undefined,
+        ...requestPlotPayload(),
       })
       setPrediction(seeded)
       setInputs(Object.fromEntries(schema.inputs.map((input) => [input.name, String(seeded.inputs[input.name] ?? inputs[input.name] ?? '')])))
@@ -197,7 +265,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         n_candidates: 3000,
         max_results: 12,
         comparison_real_cell: selectedRealCellPayload,
-        plot_recipe_id: selectedPlotRecipeId || undefined,
+        ...requestPlotPayload(),
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to find Pareto tradeoffs')
@@ -219,7 +287,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         inputs: numericInputs,
         comparison_real_cell: selectedRealCellPayload,
         comparison_candidate: savedComparison?.inputs,
-        plot_recipe_id: selectedPlotRecipeId || undefined,
+        ...requestPlotPayload(),
       })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -281,6 +349,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const curveYAxisVariable = asString(asRecord(asRecord(curveRecipe).y).variable) || asString(asRecord(selectedPlotRecipe?.y).variable)
   const curveXAxisMeta = schema.inputs.find((input) => input.name === curveXAxisVariable) ?? schema.outputs.find((output) => output.name === curveXAxisVariable)
   const curveYAxisMeta = schema.outputs.find((output) => output.name === curveYAxisVariable) ?? schema.inputs.find((input) => input.name === curveYAxisVariable)
+  const curveYVariables = (Array.isArray(asRecord(curveRecipe).y_variables) ? asRecord(curveRecipe).y_variables as unknown[] : [])
+    .map((value) => asString(value))
+    .filter(Boolean)
+  const fallbackYVariables = [curveYAxisVariable, secondaryOutputName].filter((value, index, values) => value && values.indexOf(value) === index)
+  const genericCurveYVariables = curveYVariables.length ? curveYVariables : fallbackYVariables
+  const genericOutputMetas = genericCurveYVariables.map((variable) => schema.outputs.find((output) => output.name === variable)).filter(Boolean)
+  const genericOutputUnits = Array.from(new Set(genericOutputMetas.map((output) => output?.unit).filter(Boolean)))
+  const genericSwappedXAxisTitle = genericCurveYVariables.length === 1
+    ? `${genericOutputMetas[0]?.label ?? genericCurveYVariables[0]}${genericOutputMetas[0]?.unit ? ` / ${genericOutputMetas[0].unit}` : ''}`
+    : `Selected predicted output${genericOutputUnits.length === 1 ? ` / ${genericOutputUnits[0]}` : ''}`
+  const genericSwappedYAxisTitle = `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}`
   const responseCurveData = curveKind === 'fuel_cell_polarization'
     ? asPlotData([
         { name: 'Current design BoL', x: curveRows.map((row) => asNumber(row.bol_current_density)), y: curveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#2563eb', width: 3, dash: 'dash' } },
@@ -291,11 +370,36 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         { name: 'Measured real EoL', x: realCurveRows.map((row) => asNumber(row.eol_current_density_true)), y: realCurveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#92400e', width: 2 }, visible: realCurveRows.length ? true : 'legendonly' },
       ])
     : asPlotData([
-        { name: selectedPlotRecipe?.label || 'Predicted response', x: curveRows.map((row) => asNumber(row[curveXAxisVariable])), y: curveRows.map((row) => asNumber(row[curveYAxisVariable])), type: 'scatter', mode: 'lines+markers', line: { color: '#526949', width: 3 } },
+        ...genericCurveYVariables.map((variable, index) => ({
+          name: `Predicted ${schema.outputs.find((output) => output.name === variable)?.label || variable}`,
+          x: curveRows.map((row) => asNumber(row[responseAxesSwapped ? variable : curveXAxisVariable])),
+          y: curveRows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : variable])),
+          type: 'scatter',
+          mode: 'lines+markers',
+          line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed'][index % 4], width: 3 },
+        })),
+        ...genericCurveYVariables
+          .filter((variable) => realCurveRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
+          .map((variable, index) => ({
+            name: `Observed ${schema.outputs.find((output) => output.name === variable)?.label || variable}`,
+            x: realCurveRows.map((row) => asNumber(row[responseAxesSwapped ? `${variable}_true` : curveXAxisVariable])),
+            y: realCurveRows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : `${variable}_true`])),
+            type: 'scatter',
+            mode: 'lines+markers',
+            line: { color: ['#334155', '#92400e', '#0f766e', '#6d28d9'][index % 4], width: 2, dash: 'dot' },
+            visible: realCurveRows.length ? true : 'legendonly',
+          })),
       ])
   const responseCurveLayout = curveKind === 'fuel_cell_polarization'
     ? asPlotLayout({ ...plotLayoutBase, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', height: 470, xaxis: { title: { text: 'Current density / A cm⁻²' }, zeroline: false }, yaxis: { title: { text: 'Cell voltage / V' }, zeroline: false } })
-    : asPlotLayout({ ...plotLayoutBase, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', height: 470, xaxis: { title: { text: `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false }, yaxis: { title: { text: `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false } })
+    : asPlotLayout({
+        ...plotLayoutBase,
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+        height: 470,
+        xaxis: { title: { text: responseAxesSwapped ? genericSwappedXAxisTitle : `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false },
+        yaxis: { title: { text: responseAxesSwapped ? genericSwappedYAxisTitle : `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false },
+      })
 
   return (
     <div className="space-y-8">
@@ -328,6 +432,50 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <strong className="text-slate-900">Selected downstream view:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
             </div>
           </div>
+          {selectedPlotRecipe?.kind !== 'fuel_cell_polarization' && (
+            <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-950">Scientist response plot</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose one input to sweep while the other current design settings stay fixed. Then plot one or two predicted outputs from the selected project&apos;s challenger model.</p>
+                </div>
+                <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
+                <label className="text-sm font-semibold text-slate-700">
+                  Sweep input
+                  <select value={sweepInputName} onChange={(event) => setSweepInputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Y-axis output
+                  <select value={primaryOutputName} onChange={(event) => setPrimaryOutputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Optional second output
+                  <select value={secondaryOutputName} onChange={(event) => setSecondaryOutputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <option value="">None</option>
+                    {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Sweep points
+                  <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => setSweepPointCount(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <label className="rounded-2xl border border-slate-200 bg-[#fbfaf5] px-3 py-2 text-sm font-semibold text-slate-700">
+                  Axis orientation
+                  <span className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-600">
+                    <input type="checkbox" checked={responseAxesSwapped} onChange={(event) => setResponseAxesSwapped(event.target.checked)} className="h-4 w-4 accent-[#526949]" />
+                    Switch axes
+                  </span>
+                </label>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">Changing these controls updates the next generated response curve. Use <strong>Switch axes</strong> for visuals such as fuel-cell polarization curves, where current density is conventionally shown on X and voltage on Y even when the model predicts current from voltage.</p>
+            </div>
+          )}
         </section>
       )}
 
@@ -588,7 +736,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             <p className="mt-3 rounded-2xl bg-[#fbfaf5] px-4 py-3 text-sm leading-6 text-slate-600">
               {curveKind === 'fuel_cell_polarization'
                 ? 'Dashed curves are served-model predictions for the current design. Dotted curves are a saved candidate comparison. Solid measured curves come from the selected real experiment.'
-                : 'This plot is generated from the selected safe Plot Options recipe using the served model and approved project schema metadata.'}
+                : 'Predicted traces come from the served challenger model. Observed traces, when selected, come from training predictions.csv rows for the chosen cell/RH/split and use *_true measured columns.'}
             </p>
           </section>
 

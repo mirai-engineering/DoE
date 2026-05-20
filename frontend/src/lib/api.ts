@@ -16,13 +16,26 @@ export class ApiError extends Error {
   }
 }
 
+export interface WorkspaceSummary {
+  workspace_id: string
+  display_name: string
+  client_type?: string
+  status?: string
+  default_template_ids?: string[]
+  allowed_extractors?: string[]
+  lifecycle_contract?: string
+}
+
 export interface ProjectSummary {
   id: string
   display_name: string
+  workspace_id?: string
+  workspace_name?: string
 }
 
 export interface ProjectsResponse {
   projects: ProjectSummary[]
+  workspaces: WorkspaceSummary[]
 }
 
 export interface SchemaInput {
@@ -102,6 +115,8 @@ export interface ProjectDomainMetadata {
 export interface ProjectSchema {
   project_id: string
   display_name: string
+  workspace_id?: string
+  workspace_name?: string
   description?: string
   schema_version?: string
   allow_unknown_inputs?: boolean
@@ -161,6 +176,8 @@ export interface IntakeFileInventoryItem {
 export interface IngestionSessionResponse {
   project_id: string
   project_name: string
+  workspace_id?: string | null
+  workspace_name?: string | null
   dataset_id: string
   ingestion_session_id: string
   status: string
@@ -170,6 +187,7 @@ export interface IngestionSessionResponse {
   storage: Record<string, unknown>
   files: IntakeFileInventoryItem[]
   notes: string
+  ingestion_path?: 'generic_tabular_doe' | 'fuel_cell_doe_demo' | string
   mapping: Record<string, unknown>
   manifest_assistant: Record<string, unknown>
 }
@@ -282,7 +300,7 @@ export interface PreprocessingEdaSummary {
     rejected_rows?: { count?: number; reasons?: Record<string, number> }
     split_counts?: Record<string, number>
     split_strategy?: string
-    bo_holdout_cell_count?: number
+    bo_policy?: string
     input_distributions?: Record<string, Record<string, number>>
     output_distributions?: Record<string, Record<string, number>>
     leakage_warnings?: string[]
@@ -587,8 +605,26 @@ function assertProjectsResponse(value: unknown): ProjectsResponse {
       return {
         id: assertString(project.id, `projects.${index}.id`),
         display_name: assertString(project.display_name, `projects.${index}.display_name`),
+        workspace_id: typeof project.workspace_id === 'string' ? project.workspace_id : undefined,
+        workspace_name: typeof project.workspace_name === 'string' ? project.workspace_name : undefined,
       }
     }),
+    workspaces: Array.isArray(value.workspaces)
+      ? value.workspaces.map((workspace, index) => {
+        if (!isRecord(workspace)) {
+          throw new ApiError(`Invalid API response: workspaces.${index} must be an object`)
+        }
+        return {
+          workspace_id: assertString(workspace.workspace_id, `workspaces.${index}.workspace_id`),
+          display_name: assertString(workspace.display_name, `workspaces.${index}.display_name`),
+          client_type: typeof workspace.client_type === 'string' ? workspace.client_type : undefined,
+          status: typeof workspace.status === 'string' ? workspace.status : undefined,
+          default_template_ids: Array.isArray(workspace.default_template_ids) ? workspace.default_template_ids.filter((item): item is string => typeof item === 'string') : undefined,
+          allowed_extractors: Array.isArray(workspace.allowed_extractors) ? workspace.allowed_extractors.filter((item): item is string => typeof item === 'string') : undefined,
+          lifecycle_contract: typeof workspace.lifecycle_contract === 'string' ? workspace.lifecycle_contract : undefined,
+        }
+      })
+      : [],
   }
 }
 
@@ -600,6 +636,8 @@ function assertProjectSchema(value: unknown): ProjectSchema {
   return {
     project_id: assertString(value.project_id, 'schema.project_id'),
     display_name: assertString(value.display_name, 'schema.display_name'),
+    workspace_id: typeof value.workspace_id === 'string' ? value.workspace_id : undefined,
+    workspace_name: typeof value.workspace_name === 'string' ? value.workspace_name : undefined,
     description: typeof value.description === 'string' ? value.description : undefined,
     schema_version: typeof value.schema_version === 'string' ? value.schema_version : undefined,
     allow_unknown_inputs:
@@ -712,13 +750,17 @@ function normalizeError(error: unknown, fallback: string): ApiError {
   return new ApiError(fallback)
 }
 
-export async function getProjects(): Promise<ProjectSummary[]> {
+export async function getProjectsResponse(): Promise<ProjectsResponse> {
   try {
     const response = await api.get<unknown>('/projects')
-    return assertProjectsResponse(response.data).projects
+    return assertProjectsResponse(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to load projects')
   }
+}
+
+export async function getProjects(): Promise<ProjectSummary[]> {
+  return (await getProjectsResponse()).projects
 }
 
 export async function getProjectSchema(projectId: string): Promise<ProjectSchema> {
@@ -734,11 +776,16 @@ export async function createIngestionSession(
   projectName: string,
   files: File[],
   notes?: string,
+  ingestionPath: 'generic_tabular_doe' | 'fuel_cell_doe_demo' = 'generic_tabular_doe',
+  options: { workspaceName?: string; existingProjectId?: string } = {},
 ): Promise<IngestionSessionResponse> {
   try {
     const formData = new FormData()
     formData.append('project_name', projectName)
     if (notes) formData.append('notes', notes)
+    formData.append('ingestion_path', ingestionPath)
+    if (options.workspaceName) formData.append('workspace_name', options.workspaceName)
+    if (options.existingProjectId) formData.append('existing_project_id', options.existingProjectId)
     files.forEach((file) => formData.append('files', file))
     const response = await api.post<IngestionSessionResponse>('/data-intake/sessions', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

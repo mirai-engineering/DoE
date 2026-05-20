@@ -82,7 +82,7 @@ function classifyOutputTrust(metrics: Record<string, unknown>) {
   if ((r2 ?? -Infinity) >= 0.5 || (maeMean ?? Infinity) <= 30) {
     return {
       level: 'usable' as TrustLevel,
-      label: 'Usable',
+      label: 'Accurate',
       sortScore: (r2 ?? 0) * 100 - (maeMean ?? 0) + Math.max(0, improvement ?? 0) * 0.1,
       interpretation: 'This output can support recommendations, but it should not dominate the objective without expert review.',
     }
@@ -98,7 +98,12 @@ function classifyOutputTrust(metrics: Record<string, unknown>) {
 function splitMean(model: Record<string, unknown>, split: string, metric: string) {
   const splits = asRecord(model.splits)
   const splitData = asRecord(splits[split])
-  return asNumber(splitData[`mean_${metric}`])
+  const explicitMean = asNumber(splitData[`mean_${metric}`])
+  if (explicitMean !== undefined) return explicitMean
+  const values = Object.values(splitData)
+    .map((value) => asNumber(asRecord(value)[metric]))
+    .filter((value): value is number => value !== undefined)
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined
 }
 
 function uniqueStrings(rows: Array<Record<string, unknown>>, column: string) {
@@ -283,7 +288,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
     const strongCount = outputTrustData.filter((item) => item.level === 'strong').length
     const overall = weakCount === 0 && strongCount >= Math.max(1, outputTrustData.length - 1) ? 'Good' : usableCount >= Math.ceil(outputTrustData.length / 2) ? 'Medium' : weakCount > 0 ? 'Needs review' : 'Weak'
     const currentDensityUsable = outputTrustData.filter((item) => item.output.name.includes('current_density') && (item.level === 'strong' || item.level === 'usable')).length
-    const currentDensityCopy = currentDensityUsable >= 2 ? 'Current-density predictions look usable for ranking.' : 'Current-density predictions need caution.'
+    const currentDensityCopy = currentDensityUsable >= 2 ? 'Current-density predictions look accurate enough for ranking.' : 'Current-density predictions need caution.'
     return { usableCount, weakCount, best, weakest, overall, currentDensityCopy }
   }, [outputTrustData])
 
@@ -403,10 +408,10 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             <PanelHeader
               eyebrow="Grouped split summary"
               title="Cell-level partitions"
-              description="BO holdout cells are excluded from preprocessing fit, model training, validation, final test, and model selection."
+              description="Train and validation rows are available to the BO replay loop; test cells stay untouched for model-quality evaluation."
             />
-            <div className="mt-4 grid gap-3 md:grid-cols-4">
-              {['train', 'validation', 'test', 'bo_holdout'].map((split) => (
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {['train', 'validation', 'test'].map((split) => (
                 <div key={split} className="rounded-2xl bg-[#fbfaf5] p-3 text-sm font-semibold text-slate-700">
                   {split.replace('_', ' ')}
                 </div>
@@ -495,13 +500,13 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                     </span>
                   </div>
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                    {trustSummary.usableCount} of {outputTrustData.length} outputs show usable test performance. {trustSummary.currentDensityCopy}{' '}
+                    {trustSummary.usableCount} of {outputTrustData.length} outputs show accurate-enough test performance. {trustSummary.currentDensityCopy}{' '}
                     {trustSummary.weakest ? `${trustSummary.weakest.output.label} is the weakest output and should be treated with caution in optimization.` : ''}
                   </p>
                 </div>
                 <div className="grid min-w-[18rem] grid-cols-2 gap-3 text-sm">
                   <div className="rounded-2xl bg-white p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Usable outputs</div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Accurate outputs</div>
                     <div className="mt-1 text-2xl font-semibold text-[#526949]">{trustSummary.usableCount}</div>
                   </div>
                   <div className="rounded-2xl bg-white p-3">
@@ -652,9 +657,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       <option value="validation,test">Validation + test</option>
                       <option value="validation">Validation</option>
                       <option value="test">Test</option>
-                      <option value="bo_holdout">BO replay holdout</option>
                       <option value="train">Train</option>
-                      <option value="train,validation,test,bo_holdout">All splits</option>
+                      <option value="train,validation,test">All splits</option>
                     </select>
                   </label>
                   <label className="text-sm font-semibold text-slate-700">
@@ -685,12 +689,12 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Source: training-run predictions</span>
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Model: {selectedDiagnosticModel || '-'}</span>
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Splits: {diagnosticSplitLabel || '-'}</span>
-                  <span className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-800">BO holdout diagnostic-only</span>
+                  <span className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-800">BO replay: train + validation</span>
                 </div>
 
                 {isFuelCellTemplate ? (
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-                    <strong>Fuel-cell recipe:</strong> polarization curves are plotted as current density on the x-axis and voltage on the y-axis. BO replay holdout remains labeled separately and is not merged into test metrics.
+                    <strong>Fuel-cell recipe:</strong> polarization curves are plotted as current density on the x-axis and voltage on the y-axis. BO replay uses train + validation rows; test remains reserved for model-quality metrics.
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
@@ -792,7 +796,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                           hovertemplate: `<b>${outputLabel}</b><br>Cell: %{customdata[0]}<br>Split: %{customdata[1]}<br>RH: %{customdata[2]}%<br>Voltage: %{customdata[3]:.3f} V<br>Measured: %{x:.4g} ${outputUnit}<br>Predicted: %{y:.4g} ${outputUnit}<extra></extra>`,
                           type: 'scatter',
                           mode: 'markers',
-                          marker: { color: parityRows.map((row) => asString(row.split) === 'test' ? '#dc2626' : asString(row.split) === 'validation' ? '#2563eb' : asString(row.split) === 'bo_holdout' ? '#9333ea' : '#64748b'), size: 8, opacity: 0.78 },
+                          marker: { color: parityRows.map((row) => asString(row.split) === 'test' ? '#dc2626' : asString(row.split) === 'validation' ? '#2563eb' : '#64748b'), size: 8, opacity: 0.78 },
                         },
                         { name: 'Ideal prediction', x: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_true`])), y: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_true`])), type: 'scatter', mode: 'lines', line: { color: '#0f172a', dash: 'dot', width: 2 } },
                       ])}

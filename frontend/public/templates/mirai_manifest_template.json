@@ -1,9 +1,10 @@
 {
-  "manifest_version": "0.1",
+  "manifest_version": "0.2",
   "project": {
-    "project_id": "example_catalyst_surrogate",
-    "display_name": "Example Catalyst Surrogate",
-    "domain": "fuel_cell | battery | engine | materials | other",
+    "project_id": "example_generic_surrogate",
+    "display_name": "Example Generic Surrogate",
+    "domain": "generic_tabular_doe",
+    "template_id": "generic_tabular_doe",
     "owner": "company-or-team-name"
   },
   "tables": [
@@ -11,7 +12,7 @@
       "path": "model_table.csv",
       "table_type": "model_table",
       "primary_key": ["experiment_id"],
-      "description": "One row per modelable experiment/condition."
+      "description": "One row per modelable experiment, sample condition, or test point."
     }
   ],
   "columns": [
@@ -19,30 +20,73 @@
       "table": "model_table.csv",
       "name": "experiment_id",
       "role": "id",
+      "dtype": "string",
       "unit": null,
-      "description": "Unique experiment or tested-sample identifier."
+      "required": true,
+      "ui_label": "Experiment ID",
+      "description": "Unique experiment/sample/test identifier."
     },
     {
       "table": "model_table.csv",
       "name": "temperature_c",
       "role": "input",
+      "dtype": "float",
       "unit": "degC",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 120,
+      "ui_label": "Temperature",
       "description": "Controlled test temperature."
+    },
+    {
+      "table": "model_table.csv",
+      "name": "batch_id",
+      "role": "group",
+      "dtype": "string",
+      "unit": null,
+      "required": false,
+      "ui_label": "Batch",
+      "description": "Grouping variable for split/diagnostics."
     },
     {
       "table": "model_table.csv",
       "name": "performance_metric",
       "role": "output",
+      "dtype": "float",
       "unit": "domain-specific",
+      "required": true,
+      "allowed_min": null,
+      "allowed_max": null,
       "direction": "maximize",
+      "ui_label": "Performance metric",
       "description": "Target KPI to model."
     }
   ],
   "joins": [],
   "split_hints": {
-    "group_key": "experiment_id",
+    "group_key": "batch_id",
     "time_column": null,
-    "recommended_strategy": "grouped"
+    "predefined_split_column": null,
+    "recommended_strategy": "grouped",
+    "holdout_fraction": 0.15,
+    "validation_fraction": 0.15
   },
-  "notes": "Replace example columns with your package-specific data dictionary."
+  "ui_config": {
+    "test_article_label": "Sample",
+    "default_group_by": "batch_id",
+    "default_output": "performance_metric"
+  },
+  "plot_recipes": [
+    {
+      "id": "performance_by_temperature",
+      "label": "Performance by temperature",
+      "kind": "scatter_response",
+      "x": {"source": "input", "variable": "temperature_c"},
+      "y": {"source": "prediction", "variable": "performance_metric"},
+      "group_by": "batch_id",
+      "safe": true,
+      "recommended": true
+    }
+  ],
+  "notes": "Mirai contract is required. Rename variables freely, but every model input/output must have approved role, dtype, unit, bounds where applicable, and output direction."
 }

@@ -95,6 +95,8 @@ function TimeCapacityChart({ rows }: { rows: Array<Record<string, unknown>> }) {
 }
 
 export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
+  const templateId = schema.domain_metadata?.template_id
+  const businessImpactUnavailable = Boolean(templateId && templateId !== 'fuel_cell')
   const [summary, setSummary] = useState<BusinessImpactSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +108,11 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
   useEffect(() => {
     let mounted = true
     async function loadImpact() {
+      if (businessImpactUnavailable) {
+        setLoading(false)
+        setSummary(null)
+        return
+      }
       setLoading(true)
       setError(null)
       try {
@@ -121,7 +128,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
     return () => {
       mounted = false
     }
-  }, [schema.project_id])
+  }, [schema.project_id, businessImpactUnavailable])
 
   const scenario = summary?.scenario ?? {}
   const caseStudy = summary?.case_study ?? {}
@@ -147,6 +154,20 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
     if (!summary) return ''
     return `Avoid ${avoided} physical experiment builds, reclaim ~${formatNumber(savedHours)} bench-hours, and protect ${moneyCompact(low)}–${moneyCompact(high)} of scarce test capacity.`
   }, [summary, scenario, capacityRange.low, capacityRange.high])
+
+  if (businessImpactUnavailable) {
+    return (
+      <div className="space-y-6">
+        <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Business Impact</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Business-impact metadata not configured</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+            This project uses the approved schema-driven workflow, but no Mirai-approved business-impact assumptions are attached yet. Add template-specific cost, capacity, and experimental-throughput metadata before showing ROI claims.
+          </p>
+        </section>
+      </div>
+    )
+  }
 
   if (loading) {
     return <div className="rounded-[2rem] border border-white/70 bg-white/80 p-8 text-slate-600 shadow-xl">Loading impact case study...</div>

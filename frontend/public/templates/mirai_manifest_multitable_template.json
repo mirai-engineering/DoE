@@ -1,50 +1,67 @@
 {
-  "manifest_version": "0.1",
+  "manifest_version": "0.2",
   "project": {
     "project_id": "example_multitable_surrogate",
     "display_name": "Example Multi-Table Testbench Surrogate",
-    "domain": "battery | fuel_cell | engine | materials | other"
+    "domain": "generic_tabular_doe",
+    "template_id": "generic_tabular_doe",
+    "owner": "company-or-team-name"
   },
   "tables": [
     {
       "path": "experiments.csv",
       "table_type": "experiment_metadata",
       "primary_key": ["experiment_id"],
-      "description": "One row per physical sample, campaign, or test run."
+      "description": "One row per physical sample, campaign item, or test article."
     },
     {
       "path": "conditions.csv",
       "table_type": "controlled_conditions",
       "primary_key": ["experiment_id", "condition_id"],
-      "description": "Controlled settings and input variables."
-    },
-    {
-      "path": "measurements/performance_curves.csv",
-      "table_type": "measurement_long_table",
-      "primary_key": ["experiment_id", "condition_id", "measurement_index"],
-      "description": "Raw or semi-processed curve/time/cycle measurements."
+      "description": "One row per modelable test condition."
     },
     {
       "path": "results.csv",
       "table_type": "target_outputs",
       "primary_key": ["experiment_id", "condition_id"],
-      "description": "Derived KPIs or target outputs."
+      "description": "One row per test condition with derived target KPIs."
     }
   ],
   "columns": [
-    {"table": "experiments.csv", "name": "experiment_id", "role": "id", "unit": null, "description": "Join key for sample/test."},
-    {"table": "conditions.csv", "name": "temperature_c", "role": "input", "unit": "degC", "description": "Controlled operating temperature."},
-    {"table": "conditions.csv", "name": "pressure_bar", "role": "input", "unit": "bar", "description": "Controlled pressure."},
-    {"table": "measurements/performance_curves.csv", "name": "time_s", "role": "curve_axis", "unit": "s", "description": "Measurement time axis."},
-    {"table": "results.csv", "name": "efficiency_pct", "role": "output", "unit": "%", "direction": "maximize", "description": "Target efficiency KPI."}
+    {"table": "experiments.csv", "name": "experiment_id", "role": "id", "dtype": "string", "unit": null, "required": true, "ui_label": "Experiment ID"},
+    {"table": "experiments.csv", "name": "campaign_id", "role": "group", "dtype": "string", "unit": null, "required": true, "ui_label": "Campaign"},
+    {"table": "conditions.csv", "name": "condition_id", "role": "id", "dtype": "string", "unit": null, "required": true, "ui_label": "Condition ID"},
+    {"table": "conditions.csv", "name": "temperature_c", "role": "input", "dtype": "float", "unit": "degC", "required": true, "allowed_min": 0, "allowed_max": 120, "ui_label": "Temperature"},
+    {"table": "conditions.csv", "name": "pressure_bar", "role": "input", "dtype": "float", "unit": "bar", "required": false, "allowed_min": 0, "allowed_max": 20, "ui_label": "Pressure"},
+    {"table": "results.csv", "name": "efficiency_pct", "role": "output", "dtype": "float", "unit": "%", "required": true, "allowed_min": 0, "allowed_max": 100, "direction": "maximize", "ui_label": "Efficiency"}
   ],
   "joins": [
     {"left_table": "experiments.csv", "right_table": "conditions.csv", "keys": ["experiment_id"], "relationship": "one_to_many"},
     {"left_table": "conditions.csv", "right_table": "results.csv", "keys": ["experiment_id", "condition_id"], "relationship": "one_to_one"}
   ],
   "split_hints": {
-    "group_key": "experiment_id",
+    "group_key": "campaign_id",
     "time_column": null,
-    "recommended_strategy": "grouped"
-  }
+    "predefined_split_column": null,
+    "recommended_strategy": "grouped",
+    "holdout_fraction": 0.15,
+    "validation_fraction": 0.15
+  },
+  "ui_config": {
+    "test_article_label": "Experiment",
+    "default_group_by": "campaign_id",
+    "default_output": "efficiency_pct"
+  },
+  "plot_recipes": [
+    {
+      "id": "efficiency_by_temperature",
+      "label": "Efficiency by temperature",
+      "kind": "scatter_response",
+      "x": {"source": "input", "variable": "temperature_c"},
+      "y": {"source": "prediction", "variable": "efficiency_pct"},
+      "group_by": "campaign_id",
+      "safe": true,
+      "recommended": true
+    }
+  ]
 }

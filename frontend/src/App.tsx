@@ -11,8 +11,8 @@ import { DesignStudioPage } from './components/DesignStudioPage'
 import { DataIntakePage } from './components/DataIntakePage'
 import { PreprocessingReviewPage } from './components/PreprocessingReviewPage'
 import { Alert } from './components/ui'
-import type { ProjectSchema, ProjectSummary } from './lib/api'
-import { getProjectSchema, getProjects, predictExperiment, recommendExperiments } from './lib/api'
+import type { ProjectSchema, ProjectSummary, WorkspaceSummary } from './lib/api'
+import { getProjectSchema, getProjectsResponse, predictExperiment, recommendExperiments } from './lib/api'
 import {
   clampInteger,
   defaultTableTopK,
@@ -29,9 +29,10 @@ import type { ActiveTab, FixedInputConfig, RecommendationRun } from './types/doe
 import type { PredictionMap } from './lib/api'
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('model-quality')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('data-intake')
   const [batchView, setBatchView] = useState<'configure' | 'results' | 'visuals'>('configure')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [schema, setSchema] = useState<ProjectSchema | null>(null)
   const [appError, setAppError] = useState<string | null>(null)
@@ -61,9 +62,11 @@ function App() {
       setProjectsLoading(true)
       setAppError(null)
       try {
-        const projectList = await getProjects()
+        const response = await getProjectsResponse()
+        const projectList = response.projects
         if (!isMounted) return
         setProjects(projectList)
+        setWorkspaces(response.workspaces)
         const storedProjectId = window.localStorage.getItem('mirai.activeProjectId')
         const preferred = storedProjectId && projectList.some((project) => project.id === storedProjectId)
           ? storedProjectId
@@ -119,8 +122,10 @@ function App() {
     setProjectsLoading(true)
     setAppError(null)
     try {
-      const projectList = await getProjects()
+      const response = await getProjectsResponse()
+      const projectList = response.projects
       setProjects(projectList)
+      setWorkspaces(response.workspaces)
       setSelectedProjectId(projectId)
       window.localStorage.setItem('mirai.activeProjectId', projectId)
     } catch (error) {
@@ -232,6 +237,7 @@ function App() {
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
           schema={schema}
+          workspaces={workspaces}
           projectsLoading={projectsLoading}
           activeTab={activeTab}
           onProjectChange={handleProjectChange}
@@ -332,7 +338,7 @@ function App() {
               </div>
             )}
 
-            {activeTab === 'data-intake' && <DataIntakePage schema={schema} onSessionCreated={(session) => { void refreshProjectsAndSelect(session.project_id) }} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
+            {activeTab === 'data-intake' && <DataIntakePage schema={schema} projects={projects} workspaces={workspaces} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
 
             {activeTab === 'preprocessing-review' && <PreprocessingReviewPage schema={schema} onOpenModelQuality={() => setActiveTab('model-quality')} />}
 

@@ -1,8 +1,7 @@
-table,path,column_name,role,unit,dtype,description,required,allowed_min,allowed_max,direction,join_key
-experiments,experiments.csv,experiment_id,id,,string,Physical sample or test run identifier,true,,,,experiment_id
-experiments,experiments.csv,campaign_id,context,,string,Campaign/batch grouping key,true,,,,campaign_id
-conditions,conditions.csv,condition_id,id,,string,Condition identifier within experiment,true,,,,condition_id
-conditions,conditions.csv,temperature_c,input,degC,float,Controlled operating temperature,true,0,120,,
-conditions,conditions.csv,pressure_bar,input,bar,float,Controlled operating pressure,false,0,20,,
-measurements,measurements/performance_curves.csv,time_s,curve_axis,s,float,Time axis for measurement curve,false,0,,,
-results,results.csv,efficiency_pct,output,%,float,Target efficiency KPI,true,0,100,maximize,
+table,path,column_name,role,dtype,unit,required,allowed_min,allowed_max,direction,ui_label,description,join_key,split_hint,plot_role
+experiments,experiments.csv,experiment_id,id,string,,true,,,,Experiment ID,Physical sample or test run identifier,experiment_id,,
+experiments,experiments.csv,campaign_id,group,string,,true,,,,Campaign,Campaign/batch grouping key,campaign_id,group_key,color
+conditions,conditions.csv,condition_id,id,string,,true,,,,Condition ID,Condition identifier within experiment,condition_id,,
+conditions,conditions.csv,temperature_c,input,float,degC,true,0,120,,Temperature,Controlled operating temperature,,,x_axis
+conditions,conditions.csv,pressure_bar,input,float,bar,false,0,20,,Pressure,Controlled operating pressure,,,
+results,results.csv,efficiency_pct,output,float,%,true,0,100,maximize,Efficiency,Target efficiency KPI,,,y_axis

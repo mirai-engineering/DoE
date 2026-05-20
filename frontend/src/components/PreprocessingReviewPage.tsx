@@ -370,6 +370,30 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
       {error && <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
 
+      <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Workflow actions</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Run preprocessing, review evidence, then approve</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Start preprocessing from here. When it completes, the EDA evidence appears directly below this section so approval follows the natural review order.
+            </p>
+          </div>
+          <StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.stage ?? preprocessingStatus.status}</StatusPill>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button type="button" disabled={!selectedSession || Boolean(busy) || ['queued', 'running'].includes(preprocessingStatus.status)} onClick={() => selectedSession && runAction('preprocessing', async () => { setPreprocessingStatus(await startFuelCellPreprocessing(selectedSession)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{['queued', 'running'].includes(preprocessingStatus.status) ? 'Preprocessing...' : preprocessingComplete ? 'Rerun preprocessing' : 'Start preprocessing'}</button>
+          <button type="button" disabled={!selectedSession || !preprocessingComplete || preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) })} className="rounded-full bg-[#526949] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">Approve preprocessing</button>
+          <button type="button" disabled={!selectedSession || !preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">Create training request</button>
+          <button type="button" disabled={!selectedSession || !trainingRequest || Boolean(busy)} onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'training' ? 'Training...' : 'Start training'}</button>
+        </div>
+        {!preprocessingComplete && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            EDA and preprocessing evidence are created after preprocessing runs. Approval remains locked until those artifacts are ready.
+          </div>
+        )}
+      </section>
+
       {preprocessingComplete && (
         <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -405,7 +429,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <h3 className="font-semibold text-slate-950">Split plan</h3>
-              <p className="mt-1 text-sm text-slate-600">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO holdout cells: {formatNumber(edaSummary?.summary.bo_holdout_cell_count, 0)}</p>
+              <p className="mt-1 text-sm text-slate-600">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="rounded-xl bg-[#fbfaf5] px-3 py-2"><span className="font-semibold text-slate-950">{split}</span><span className="float-right text-slate-600">{formatNumber(count, 0)}</span></div>)}
               </div>
@@ -598,16 +622,6 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 <label className="text-sm font-semibold text-slate-700">Batch size<input value={String(trainingConfig.mlp.batch_size)} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, batch_size: event.target.value === 'full_batch' ? 'full_batch' : Number(event.target.value) || 'full_batch' } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
                 <label className="text-sm font-semibold text-slate-700">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
               </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Actions</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button type="button" disabled={!selectedSession || Boolean(busy) || ['queued', 'running'].includes(preprocessingStatus.status)} onClick={() => selectedSession && runAction('preprocessing', async () => { setPreprocessingStatus(await startFuelCellPreprocessing(selectedSession)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{['queued', 'running'].includes(preprocessingStatus.status) ? 'Preprocessing...' : 'Start preprocessing'}</button>
-              <button type="button" disabled={!selectedSession || !preprocessingComplete || preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) })} className="rounded-full bg-[#526949] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">Approve preprocessing</button>
-              <button type="button" disabled={!selectedSession || !preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">Create training request</button>
-              <button type="button" disabled={!selectedSession || !trainingRequest || Boolean(busy)} onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'training' ? 'Training...' : 'Start training'}</button>
             </div>
           </div>
 

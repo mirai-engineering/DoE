@@ -1,4 +1,5 @@
-table,path,column_name,role,unit,dtype,description,required,allowed_min,allowed_max,direction,join_key
-model_table,model_table.csv,experiment_id,id,,string,Unique experiment identifier,true,,,,experiment_id
-model_table,model_table.csv,temperature_c,input,degC,float,Controlled test temperature,true,0,120,,
-model_table,model_table.csv,performance_metric,output,domain-specific,float,Target KPI for surrogate modeling,true,,,maximize,
+table,path,column_name,role,dtype,unit,required,allowed_min,allowed_max,direction,ui_label,description,join_key,split_hint,plot_role
+model_table,model_table.csv,experiment_id,id,string,,true,,,,Experiment ID,Unique experiment/sample/test identifier,experiment_id,,
+model_table,model_table.csv,batch_id,group,string,,false,,,,Batch,Optional batch/campaign/sample grouping key,batch_id,group_key,color
+model_table,model_table.csv,temperature_c,input,float,degC,true,0,120,,Temperature,Controlled test temperature,,,x_axis
+model_table,model_table.csv,performance_metric,output,float,domain-specific,true,,,maximize,Performance metric,Target KPI for surrogate modeling,,,y_axis
