@@ -1,0 +1,35 @@
+{
+  "settings": {
+    "directTools": false,
+    "idleTimeout": 10
+  },
+  "mcpServers": {
+    "github": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "-e",
+        "GITHUB_TOKEN",
+        "-e",
+        "GITHUB_OWNER",
+        "-e",
+        "GITHUB_REPO",
+        "ghcr.io/github/github-mcp-server"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}",
+        "GITHUB_OWNER": "${GITHUB_OWNER}",
+        "GITHUB_REPO": "${GITHUB_REPO}"
+      },
+      "lifecycle": "lazy",
+      "idleTimeout": 5,
+      "directTools": false,
+      "debug": false
+    }
+  }
+}

@@ -42,6 +42,13 @@ backend/.mlflow-cache/
 /data/
 
 # Tooling
-.pi/
+.pi/*
+!.pi/
+!.pi/AGENTS.md
+!.pi/mcp.json
+!.pi/skills/
+.pi/skills/*
+!.pi/skills/github-mcp-workflow/
+!.pi/skills/github-mcp-workflow/SKILL.md
 # Local legacy archives moved out of runtime paths
 legacy/
