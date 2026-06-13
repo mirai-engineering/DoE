@@ -6,3 +6,5 @@ dockerfilePath = "Dockerfile.mlflow"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
+
+# Service-specific config for the mirai-mlflow Railway service.
