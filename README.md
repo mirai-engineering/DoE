@@ -8,7 +8,8 @@ The current MVP is intentionally **generic first**:
 - Customer/project meaning lives in `mirai_manifest.json` and `data_dictionary.csv`, not in customer-specific Python packages.
 - Fraunhofer/PEM fuel-cell support is a demo adapter path: `pem_cell_zip_bundle` converts a PEM ZIP bundle into the same generic Mirai contract before preprocessing/training.
 - MLflow remains the model experiment and registry layer.
-- Mutable runtime state lives under `backend/data-minio/` to mimic object-store layout.
+- Production/demo object payloads live in Railway S3-compatible buckets, with Postgres storing metadata and logical object keys.
+- Local runtime mirrors/caches live under ignored `backend/.object-storage-local/`; legacy `backend/data-minio/` data should remain ignored or archived there.
 - Immutable/reference evidence belongs under root `data/reference/` and is not part of normal app runtime state.
 
 ---
@@ -69,8 +70,8 @@ Upload package
 - Add a new dataset/session to an existing project.
 - Upload generic Mirai contract packages.
 - Upload the PEM fuel-cell demo bundle through the `pem_cell_zip_bundle` extractor.
-- Persist project/session metadata under `backend/data-minio/intake/`.
-- Persist workspace metadata under `backend/data-minio/workspaces/`.
+- Persist project/session metadata in Postgres/Railway object storage for production, or under ignored `backend/.object-storage-local/` for local development.
+- Persist tiny seed workspace metadata under `backend/seeds/object_storage/`; generated workspace state belongs in the ignored local mirror/cache.
 
 ### Preprocessing Review
 
@@ -112,7 +113,7 @@ Upload package
 ### Business Impact
 
 - Current PEM business-impact case study remains available.
-- A future plan exists to move all Business Impact reference evidence under `data/reference/` and mutable assumptions under `backend/data-minio/business_impact/`.
+- Business Impact reference evidence belongs under `data/reference/`; mutable assumptions should use Postgres/Railway object storage in production or ignored `backend/.object-storage-local/` for local development.
 
 ---
 
@@ -122,9 +123,13 @@ Upload package
 Manifest / Data Dictionary
   Defines what uploaded data means.
 
-Filesystem / backend/data-minio / future MinIO-S3
-  Stores uploaded files, canonical datasets, generated reports, training artifacts,
-  workspace metadata, and mutable app runtime state.
+Postgres + Railway S3-compatible object storage
+  Stores runtime metadata, logical object keys, uploaded files, canonical datasets,
+  generated reports, training artifacts, workspace metadata, and durable app state.
+
+Local filesystem mirror / backend/.object-storage-local
+  Optional ignored developer cache for local training and debugging. Legacy
+  `backend/data-minio` contents should be archived here, not committed.
 
 MLflow
   Tracks experiments, candidate runs, metrics, params, artifacts, registered model
@@ -139,10 +144,12 @@ React + Vite Frontend
   design exploration, optimization, and impact storytelling.
 ```
 
-A SQL-backed lifecycle layer is planned but not yet implemented. See:
+The Railway Level 2 pilot now uses a SQL-backed control plane for runtime state. See:
 
 ```text
-docs/agent-plans/to-implement/sql-backed-lifecycle-management-plan.md
+backend/db/migrations/
+backend/db/seeds/
+docs/railway-level-2-pilot.md
 ```
 
 ---
@@ -166,8 +173,9 @@ docs/agent-plans/to-implement/sql-backed-lifecycle-management-plan.md
 │   │       ├── mlflow_registry.py          # MLflow registry/cache helpers
 │   │       ├── project_registry.py         # Project/workspace discovery
 │   │       └── workspaces.py               # Persistent workspace metadata
-│   ├── data-minio/
-│   │   └── workspaces/fraunhofer/          # Seeded local workspace metadata
+│   ├── seeds/
+│   │   └── object_storage/workspaces/      # Tiny tracked object-storage seed metadata
+│   ├── .object-storage-local/              # Ignored local mirror/cache, if created
 │   ├── ml_lifecycle/
 │   │   ├── MIRAI_DATA_CONTRACT.md
 │   │   ├── MLFLOW_README.md
@@ -204,7 +212,7 @@ docs/agent-plans/to-implement/sql-backed-lifecycle-management-plan.md
 
 ## Data and Runtime State Policy
 
-Mirai currently uses a local filesystem layout that mirrors future object-store boundaries.
+Mirai production/demo runtime uses Railway Postgres plus Railway S3-compatible object storage. Local filesystem state is only an optional ignored mirror/cache for development.
 
 ### Immutable/reference data
 
@@ -216,22 +224,23 @@ Use this for packaged reference evidence, reference PEM artifacts, and local-onl
 
 ### Mutable app/object-store state
 
-```text
-backend/data-minio/
-```
-
-Use this for runtime state that would later move to MinIO/S3/GCS/Azure Blob:
+Production/demo source of truth:
 
 ```text
-backend/data-minio/
-  intake/projects/<project_id>/...
-  workspaces/<workspace_id>/workspace.json
-  bo_configs/
-  experiment_logs/
-  model_quality_reviews/
+Railway Postgres                  # workspace/project/runtime metadata and logical object keys
+Railway S3-compatible buckets     # heavy object payloads and artifacts
+Railway MLflow                    # experiment tracking server/UI
 ```
 
-Most mutable runtime subfolders are ignored. The seeded Fraunhofer workspace metadata is tracked so the demo workspace appears even before a new Fraunhofer project is uploaded.
+Local development mirror/cache:
+
+```text
+backend/.object-storage-local/
+  legacy-data-minio/              # renamed legacy local bucket/cache, if preserved
+  <bucket-name>/workspaces/<workspace_id>/projects/<project_id>/...
+```
+
+`backend/.object-storage-local/` is ignored and may contain raw uploads, generated training artifacts, BO/session state, and local caches. Do not commit these files. Tiny intentional seed metadata belongs under `backend/seeds/object_storage/`.
 
 ### MLflow runtime state
 
@@ -502,7 +511,8 @@ docs/agent-plans/to-implement/minio-data-intake-object-storage-followup-todo.md
 - Use MLflow registry when available for model lifecycle state.
 - Avoid fallback artifact buckets such as `backend/artifacts/` or `runtime-projects/`.
 - Keep test split untouched for model-quality evaluation.
-- Use `backend/data-minio/` for mutable local app state.
+- Use Railway Postgres/S3/MLflow for production/demo runtime state.
+- Use ignored `backend/.object-storage-local/` for mutable local app state and legacy bucket mirrors.
 - Use `data/reference/` for immutable reference data.
 
 ---

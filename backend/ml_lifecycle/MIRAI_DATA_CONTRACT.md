@@ -2,11 +2,12 @@
 
 This document is owned by the ML lifecycle package because it defines what the offline ingesting/preprocessing/training pipeline accepts.
 
-Runtime data and artifacts still live outside this package, for example:
+Runtime data and artifacts still live outside this package. Production/demo runtime state is split between Railway Postgres, Railway S3-compatible object storage, and Railway MLflow. Local development may use ignored mirrors/caches, for example:
 
 ```text
-backend/data-minio/intake/projects/...      # mutable upload/session/training state
-backend/mlruns/...                          # local MLflow experiments, run artifacts, and registry state
+backend/.object-storage-local/...           # local mutable upload/session/training mirror/cache
+backend/.object-storage-local/legacy-data-minio/...  # renamed legacy local bucket/cache, if preserved
+backend/mlruns/...                          # local-only MLflow file-store fallback/cache
 root data/reference/...                     # local reference/source data
 ```
 

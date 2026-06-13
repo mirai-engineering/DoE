@@ -256,8 +256,8 @@ Governance still treats `champion` as the only approved production pointer, but 
 Artifact handling differs by model flavor:
 
 - PEM/fuel-cell deployable models are ONNX artifacts.
-- Generic `generic_tabular_doe` MVP models are sklearn/joblib pipelines, with local runtime artifacts under `backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/models/` and MLflow logged artifacts named `sklearn_pipeline`.
-- Docker/offline fallback can use packaged local artifacts from `backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/` when MLflow model loading is disabled or unavailable.
+- Generic `generic_tabular_doe` MVP models are sklearn/joblib pipelines, with production artifacts in Railway S3-compatible object storage and MLflow logged artifacts named `sklearn_pipeline`.
+- Local/offline fallback can use ignored local mirror artifacts from `backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/` when MLflow model loading is disabled or unavailable.
 
 Local MLflow cache for downloaded MLflow artifacts is ignored runtime state:
 
@@ -267,16 +267,14 @@ backend/.mlflow-cache/<project_id>/<alias>/
 
 ## Model Quality UI relationship to MLflow
 
-Model Quality combines local training artifacts with MLflow metadata.
-
-Local artifacts used by Model Quality include:
+Model Quality combines training artifacts with MLflow metadata. In Railway production, artifact pointers should resolve through Postgres and Railway object storage. Local artifacts used by Model Quality may include ignored mirror/cache files such as:
 
 ```text
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/metrics_summary.json
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/candidate_comparison.csv
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/predictions.csv
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/schema.json
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/preprocessing.json
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/metrics_summary.json
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/candidate_comparison.csv
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/predictions.csv
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/schema.json
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/preprocessing.json
 ```
 
 MLflow metadata used by Model Quality includes:
@@ -304,10 +302,10 @@ Prediction diagnostics are generated from:
 training_artifacts/latest/predictions.csv
 ```
 
-and then activated into:
+and then activated into production object storage or the ignored local mirror/cache:
 
 ```text
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/predictions.csv
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/predictions.csv
 ```
 
 The UI uses these rows for fuel-cell polarization overlays, generic parity plots, residual plots, and export packages.
@@ -317,7 +315,7 @@ The UI uses these rows for fuel-cell polarization overlays, generic parity plots
 Scientist review state is stored locally as JSON:
 
 ```text
-backend/data/model_quality_reviews/{project_id}.json
+backend/.object-storage-local/model_quality_reviews/{project_id}.json
 ```
 
 This is independent of MLflow aliases. MLflow aliases are registry governance pointers; review JSON stores app/UI review workflow state.

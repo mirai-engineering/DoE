@@ -287,10 +287,11 @@ Downloaded MLflow artifacts are cached locally under ignored runtime state:
 backend/.mlflow-cache/<project_id>/<alias>/
 ```
 
-Serving resolves the MLflow alias first. If MLflow is unavailable, uploaded projects may fall back to their active session training artifacts under:
+Serving resolves the MLflow alias first. In Railway production, durable model/artifact state should come from Railway MLflow, Postgres object pointers, and Railway S3-compatible object storage. In local development only, uploaded projects may fall back to active session training artifacts under the ignored local mirror/cache:
 
 ```text
-backend/data-minio/intake/projects/<project_id>/.../training_artifacts/latest/
+backend/.object-storage-local/workspaces/<workspace_id>/intake/projects/<project_id>/.../training_artifacts/latest/
+backend/.object-storage-local/legacy-data-minio/intake/projects/<project_id>/.../training_artifacts/latest/  # archived legacy cache only
 ```
 
 Code references:

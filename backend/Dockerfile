@@ -35,25 +35,23 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy backend runtime files only
+# Copy backend runtime files only. This legacy backend-only image is for local/dev
+# use; production Railway deploys via root Dockerfile.railway and Railway S3/Postgres/MLflow.
 COPY backend/app ./app
 COPY backend/ml_lifecycle ./ml_lifecycle
-COPY backend/data-minio/intake ./data-minio/intake
-COPY backend/data-minio/workspaces ./data-minio/workspaces
-COPY backend/mlruns ./mlruns
+COPY backend/seeds ./seeds
 COPY data/reference/pem_fuel_cell_cathode_degradation/model_table.csv ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv
 COPY data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv
 COPY data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv
 COPY data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest
 COPY backend/healthcheck.py ./healthcheck.py
 
-ENV DOE_OBJECT_STORE_ROOT=/app/data-minio
+ENV OBJECT_STORAGE_BACKEND=local
+ENV LOCAL_OBJECT_STORAGE_ROOT=/app/.object-storage-local
 ENV DOE_REFERENCE_DATA_ROOT=/app/data/reference
 
-RUN test -s ./data-minio/workspaces/fraunhofer/workspace.json || \
-    (echo "ERROR: Fraunhofer workspace metadata missing" && exit 1)
-RUN test -d ./mlruns/models || \
-    (echo "ERROR: MLflow registry state missing" && exit 1)
+RUN test -s ./seeds/object_storage/workspaces/fraunhofer/workspace.json || \
+    (echo "ERROR: Fraunhofer workspace seed metadata missing" && exit 1)
 RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv && \
     test -s ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv && \
     test -s ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv || \

@@ -75,8 +75,8 @@ The manifest declares the `pem_cell_zip_bundle` raw extractor. That extractor bu
 Do not create a Python subpackage per customer. Customer separation belongs in:
 
 - manifest/project metadata
-- `backend/data-minio/intake/projects/...`
-- `backend/mlruns/...` for local MLflow experiments, run artifacts, and registry state
-- future immutable object-storage artifact URIs
+- Railway Postgres rows and workspace-scoped Railway object keys in production/demo
+- ignored `backend/.object-storage-local/...` mirrors/caches for local development
+- `backend/mlruns/...` only for local MLflow file-store fallback/cache
 
 The Python lifecycle package should stay reusable across projects.
