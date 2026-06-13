@@ -30,6 +30,16 @@
       "idleTimeout": 5,
       "directTools": false,
       "debug": false
+    },
+    "railway": {
+      "command": "railway",
+      "args": [
+        "mcp"
+      ],
+      "lifecycle": "lazy",
+      "idleTimeout": 5,
+      "directTools": false,
+      "debug": false
     }
   }
 }
