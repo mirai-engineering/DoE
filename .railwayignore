@@ -1,0 +1,73 @@
+# Keep Railway source upload small and deterministic.
+# The image only needs source code plus small packaged demo/reference artifacts.
+
+# Ignore everything by default, then re-include the Docker build inputs below.
+*
+
+# Root deployment files
+!Dockerfile.railway
+!Dockerfile.mlflow
+!railway.toml
+!.dockerignore
+
+# Backend source and package metadata
+!backend/
+backend/*
+!backend/app/
+!backend/app/**
+!backend/ml_lifecycle/
+!backend/ml_lifecycle/**
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/healthcheck.py
+
+# Tiny seed metadata required by the bootstrap/demo image
+!backend/seeds/
+!backend/seeds/**
+
+# Legacy local object-store and MLflow state must never be uploaded to Railway.
+backend/data-minio/
+backend/data-minio/**
+backend/.object-storage-local/
+backend/.object-storage-local/**
+backend/mlruns/
+backend/mlruns/**
+
+# Frontend source and build metadata, but not local dependencies/build output
+!frontend/
+frontend/*
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig.json
+!frontend/tsconfig.node.json
+!frontend/vite.config.ts
+!frontend/index.html
+!frontend/.eslintrc.cjs
+
+# Reference demo data needed by Dockerfile.railway
+!data/
+data/*
+!data/reference/
+data/reference/*
+!data/reference/pem_fuel_cell_cathode_degradation/
+!data/reference/pem_fuel_cell_cathode_degradation/**
+
+# Always exclude local/generated heavy or secret material
+.env
+.env.*
+.envrc
+**/.env
+**/.env.*
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+frontend/dist
+backend/data-minio/intake
+backend/data-minio/intake/**
+backend/.mlflow-cache
+.DS_Store

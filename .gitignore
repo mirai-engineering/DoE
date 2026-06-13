@@ -26,20 +26,30 @@ env/
 # JavaScript
 node_modules/
 
-# Backend object-store runtime state (future MinIO/S3 service)
+# Backend object-store/runtime state
+# Railway/S3 is the production source of truth. Local mirrors/caches are optional
+# developer state and must not be committed.
+backend/.object-storage-local/
 backend/data-minio/experiment_logs/
 backend/data-minio/bo_configs/
 backend/data-minio/model_quality_reviews/
 backend/data-minio/intake/
 backend/data-minio/preprocessing_reviews/
+backend/data-minio/workspaces/*/intake/
+backend/data-minio/workspaces/default-workspace/
+backend/data-minio/workspaces/mirai-engineering/
 
 # Local MLflow / MLOps runtime state
 backend/mlruns/
 backend/.mlflow-cache/
 
 # Data
-# Root-level raw/reference data is local-only.
+# Root-level raw/reference data is local-only by default.
 /data/
+
+# Runtime/local generated artifacts
+logs/
+context.md
 
 # Tooling
 .pi/*
@@ -50,5 +60,28 @@ backend/.mlflow-cache/
 .pi/skills/*
 !.pi/skills/github-mcp-workflow/
 !.pi/skills/github-mcp-workflow/SKILL.md
+!.pi/skills/clerk-backend-api/
+!.pi/skills/clerk-backend-api/**
+!.pi/skills/clerk-cli/
+!.pi/skills/clerk-cli/**
+!.pi/skills/clerk-custom-ui/
+!.pi/skills/clerk-custom-ui/**
+!.pi/skills/clerk-orgs/
+!.pi/skills/clerk-orgs/**
+!.pi/skills/clerk-react-patterns/
+!.pi/skills/clerk-react-patterns/**
+!.pi/skills/clerk-setup/
+!.pi/skills/clerk-setup/**
+!.pi/skills/clerk-testing/
+!.pi/skills/clerk-testing/**
+!.pi/skills/clerk-webhooks/
+!.pi/skills/clerk-webhooks/**
+!.pi/skills/use-railway/
+!.pi/skills/use-railway/**
 # Local legacy archives moved out of runtime paths
 legacy/
+
+.envrc
+
+# Railway demo artifacts should be packaged through explicit deployment artifacts
+# or .railwayignore includes, not broad Git unignore rules for local data/MLflow state.

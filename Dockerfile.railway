@@ -1,0 +1,68 @@
+# Railway single-container image: React SPA + FastAPI API in one process.
+
+FROM node:20-alpine AS frontend-builder
+WORKDIR /frontend
+
+ARG VITE_API_URL=
+ARG VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM python:3.11-slim AS backend-builder
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_TORCH_BACKEND=cpu
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY backend/pyproject.toml backend/uv.lock ./
+COPY backend/app ./app
+COPY backend/ml_lifecycle ./ml_lifecycle
+RUN uv pip install --system --torch-backend cpu .
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV OBJECT_STORAGE_BACKEND=s3
+ENV LOCAL_OBJECT_STORAGE_ROOT=/app/.object-storage-local
+ENV DOE_REFERENCE_DATA_ROOT=/app/data/reference
+ENV MIRAI_STATIC_DIR=/app/static
+ENV PORT=8000
+
+COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
+COPY --from=frontend-builder /frontend/dist ./static
+
+COPY backend/app ./app
+COPY backend/ml_lifecycle ./ml_lifecycle
+COPY backend/seeds ./seeds
+COPY data/reference/pem_fuel_cell_cathode_degradation/model_table.csv ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv
+COPY data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest
+COPY backend/healthcheck.py ./healthcheck.py
+
+RUN test -s ./static/index.html || (echo "ERROR: React build missing" && exit 1)
+RUN test -s ./seeds/object_storage/workspaces/fraunhofer/workspace.json || \
+    (echo "ERROR: Fraunhofer workspace seed metadata missing" && exit 1)
+RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv || \
+    (echo "ERROR: business-impact real data artifacts missing" && exit 1)
+RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing_report.json && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing.json && \
+    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/split_report.json || \
+    (echo "ERROR: model-quality preprocessing/split artifacts missing" && exit 1)
+
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
