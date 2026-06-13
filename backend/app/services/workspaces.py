@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any
 
+from .workspace_storage import local_object_storage_root, seed_object_storage_root
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-OBJECT_STORE_ROOT = Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+OBJECT_STORE_ROOT = local_object_storage_root()
 WORKSPACES_ROOT = OBJECT_STORE_ROOT / "workspaces"
+SEED_WORKSPACES_ROOT = seed_object_storage_root() / "workspaces"
 
 
 def _now() -> str:
@@ -53,13 +55,20 @@ def default_fraunhofer_workspace() -> dict[str, Any]:
     }
 
 
+def _seed_workspace_payload(workspace_id: str) -> dict[str, Any] | None:
+    path = SEED_WORKSPACES_ROOT / workspace_id_for_name(workspace_id) / "workspace.json"
+    return _read_json(path, default=None)
+
+
 def ensure_seed_workspaces() -> None:
     """Create persistent seed clients that should survive project cleanup.
 
     Mirai Engineering is intentionally not seeded here; it is created when a user
-    uploads a strict generic-contract project under that workspace.
+    uploads a strict generic-contract project under that workspace. Tiny seed
+    metadata is read from `backend/seeds/object_storage`, while generated local
+    workspace state is written under the ignored local object-storage root.
     """
-    ensure_workspace(default_fraunhofer_workspace())
+    ensure_workspace(_seed_workspace_payload("fraunhofer") or default_fraunhofer_workspace())
 
 
 def ensure_workspace(payload: dict[str, Any] | str | None) -> dict[str, Any]:

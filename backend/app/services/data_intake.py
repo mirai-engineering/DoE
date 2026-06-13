@@ -13,11 +13,12 @@ from zipfile import BadZipFile, ZipFile
 
 from fastapi import UploadFile
 
+from .workspace_storage import local_object_storage_root, workspace_scoped_path
 from .workspaces import ensure_workspace, workspace_id_for_name
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-OBJECT_STORE_ROOT = Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+OBJECT_STORE_ROOT = local_object_storage_root()
 DATA_INTAKE_ROOT = OBJECT_STORE_ROOT / "intake"
 PROJECT_METADATA_FILENAME = "project.json"
 
@@ -31,8 +32,40 @@ def _slugify(value: str) -> str:
     return slug or "uploaded_project"
 
 
-def _session_dir(project_id: str, dataset_id: str, session_id: str) -> Path:
+def _legacy_session_dir(project_id: str, dataset_id: str, session_id: str) -> Path:
     return DATA_INTAKE_ROOT / "projects" / project_id / "datasets" / dataset_id / "ingestion_sessions" / session_id
+
+
+def _project_workspace_id(project_id: str) -> str:
+    for metadata_path in OBJECT_STORE_ROOT.glob(f"workspaces/*/intake/projects/{project_id}/{PROJECT_METADATA_FILENAME}"):
+        metadata = _read_json(metadata_path, default={}) or {}
+        workspace_id = metadata.get("workspace_id")
+        if workspace_id:
+            return str(workspace_id)
+    legacy_metadata = _read_json(DATA_INTAKE_ROOT / "projects" / project_id / PROJECT_METADATA_FILENAME, default={}) or {}
+    if legacy_metadata.get("workspace_id"):
+        return str(legacy_metadata["workspace_id"])
+    lowered = project_id.lower()
+    if "pem" in lowered or "fuel_cell" in lowered or "fuel-cell" in lowered:
+        return "fraunhofer"
+    return "mirai-engineering"
+
+
+def _session_dir(project_id: str, dataset_id: str, session_id: str) -> Path:
+    scoped = workspace_scoped_path(
+        OBJECT_STORE_ROOT,
+        _project_workspace_id(project_id),
+        "intake",
+        "projects",
+        project_id,
+        "datasets",
+        dataset_id,
+        "ingestion_sessions",
+        session_id,
+    )
+    if scoped.exists() or not _legacy_session_dir(project_id, dataset_id, session_id).exists():
+        return scoped
+    return _legacy_session_dir(project_id, dataset_id, session_id)
 
 
 def session_dir(project_id: str, dataset_id: str, session_id: str) -> Path:
@@ -188,7 +221,7 @@ async def _store_upload(upload: UploadFile, raw_dir: Path) -> dict[str, Any]:
     return {
         "filename": target.name,
         "original_filename": upload.filename,
-        "relative_path": str(target.relative_to(DATA_INTAKE_ROOT)),
+        "relative_path": str(target.relative_to(OBJECT_STORE_ROOT)),
         "content_type": upload.content_type or "application/octet-stream",
         "size_bytes": size_bytes,
         "sha256": sha256.hexdigest(),
@@ -211,7 +244,7 @@ def _infer_session_status(files: list[dict[str, Any]]) -> str:
 
 
 def _project_dir(project_id: str) -> Path:
-    return DATA_INTAKE_ROOT / "projects" / project_id
+    return workspace_scoped_path(OBJECT_STORE_ROOT, _project_workspace_id(project_id), "intake", "projects", project_id)
 
 
 def project_metadata_path(project_id: str) -> Path:
@@ -308,6 +341,7 @@ async def create_ingestion_session(
         project_id = existing_project_id
     else:
         project_id = f"{_slugify(project_name)}_{uuid4().hex[:8]}"
+    upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path)
     dataset_id = f"dataset_{uuid4().hex[:10]}"
     session_id = f"ing_{uuid4().hex[:10]}"
     session_path = _session_dir(project_id, dataset_id, session_id)
@@ -355,13 +389,14 @@ def get_ingestion_session(project_id: str, dataset_id: str, session_id: str) -> 
 
 def list_ingestion_sessions() -> list[dict[str, Any]]:
     sessions: list[dict[str, Any]] = []
-    root = DATA_INTAKE_ROOT / "projects"
-    if not root.exists():
-        return []
-    for path in sorted(root.glob("*/datasets/*/ingestion_sessions/*/session.json"), reverse=True):
-        session = _read_json(path, default=None)
-        if session:
-            sessions.append(session)
+    roots = [DATA_INTAKE_ROOT / "projects", *OBJECT_STORE_ROOT.glob("workspaces/*/intake/projects")]
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*/datasets/*/ingestion_sessions/*/session.json"), reverse=True):
+            session = _read_json(path, default=None)
+            if session:
+                sessions.append(session)
     return sessions
 
 

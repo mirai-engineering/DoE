@@ -17,6 +17,10 @@ dependencies = [
     "matplotlib>=3.8.0",
     "python-multipart>=0.0.9",
     "ydata-profiling>=4.18.4",
+    "pyjwt[crypto]>=2.8.0",
+    "psycopg[binary]>=3.2.0",
+    "psycopg2-binary>=2.9.9",
+    "boto3>=1.34.0",
 ]
 
 [project.scripts]

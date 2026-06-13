@@ -11,12 +11,13 @@ import zipfile
 import pandas as pd
 
 from .data_intake import list_ingestion_sessions, session_workspace
-from .mlflow_registry import get_registered_model_metadata, tracking_uri
+from .mlflow_registry import durable_artifact_pointer_for_project, get_registered_model_metadata, tracking_uri
+from .workspace_storage import local_object_storage_root
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
-OBJECT_STORE_ROOT = Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+OBJECT_STORE_ROOT = local_object_storage_root()
 REFERENCE_DATA_ROOT = Path(os.getenv("DOE_REFERENCE_DATA_ROOT", REPO_ROOT / "data" / "reference"))
 REAL_PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
 TRAINING_ARTIFACT_DIR = REFERENCE_DATA_ROOT / "pem_fuel_cell_cathode_degradation" / "training_artifacts" / "latest"
@@ -121,6 +122,15 @@ def get_artifact_summary(project_id: str) -> dict[str, Any]:
     if not summary:
         files = sorted(_display_path(path) for path in artifact_dir.rglob("*") if path.is_file()) if artifact_dir.exists() else []
         summary = {"project_id": project_id, "artifact_dir": str(artifact_dir), "files": files}
+    durable_pointers = {}
+    for artifact_kind in ["dataset", "canonical_table", "preprocessing_output", "mlflow_artifacts", "onnx_model", "bo_state", "review_file"]:
+        try:
+            durable_pointers[artifact_kind] = durable_artifact_pointer_for_project(project_id, artifact_kind)
+        except Exception:
+            continue
+    if durable_pointers:
+        summary["durable_artifact_pointers"] = durable_pointers
+        summary["durable_state_note"] = "Railway mode should resolve durable state from Postgres artifact pointers and object storage, not from backend/mlruns copied into the image."
     predictions_path = _prediction_path(project_id)
     if predictions_path.exists():
         summary["predictions_artifact"] = str(predictions_path)

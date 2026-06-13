@@ -11,13 +11,34 @@ def tracking_uri() -> str:
     return os.getenv("MLFLOW_TRACKING_URI", MLFLOW_TRACKING_DIR.resolve().as_uri())
 
 
+def _experiment_artifact_location(experiment_name: str) -> str | None:
+    workspace_id = os.getenv("MIRAI_MLFLOW_WORKSPACE_ID") or ("fraunhofer" if experiment_name == PROJECT_ID or "fuel" in experiment_name else None)
+    if not workspace_id:
+        return os.getenv("MLFLOW_ARTIFACT_ROOT")
+    env_prefix = f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3"
+    bucket = os.getenv(f"{env_prefix}_BUCKET")
+    if not bucket:
+        return os.getenv("MLFLOW_ARTIFACT_ROOT")
+    return f"s3://{bucket}/workspaces/{workspace_id}/projects/{experiment_name}/mlflow-artifacts"
+
+
 def configure_mlflow(experiment_name: str | None = None):
     import mlflow
+    from mlflow.tracking import MlflowClient
 
     MLFLOW_TRACKING_DIR.mkdir(parents=True, exist_ok=True)
     mlflow.set_tracking_uri(tracking_uri())
     mlflow.set_registry_uri(tracking_uri())
-    mlflow.set_experiment(experiment_name or PROJECT_ID)
+    experiment = experiment_name or PROJECT_ID
+    client = MlflowClient(tracking_uri=tracking_uri(), registry_uri=tracking_uri())
+    existing = client.get_experiment_by_name(experiment)
+    if existing is not None and existing.lifecycle_stage == "deleted":
+        client.restore_experiment(existing.experiment_id)
+        existing = client.get_experiment_by_name(experiment)
+    if existing is None:
+        artifact_location = _experiment_artifact_location(experiment)
+        client.create_experiment(experiment, artifact_location=artifact_location)
+    mlflow.set_experiment(experiment)
     return mlflow
 
 

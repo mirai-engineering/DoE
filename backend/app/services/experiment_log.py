@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Any
 
 from ..schemas import BOConfig, LoggedExperiment
-from .project_registry import BACKEND_ROOT, get_project_schema
+from .project_registry import get_project_schema
+from .workspace_storage import local_object_storage_root
 
 
 def _object_store_root() -> Path:
-    return Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+    return local_object_storage_root()
 
 
 def _experiment_log_dir() -> Path:

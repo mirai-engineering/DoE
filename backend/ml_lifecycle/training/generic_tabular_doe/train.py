@@ -22,6 +22,27 @@ def _tracking_uri() -> str:
 
 def _registered_model_name_for_project(project_id: str) -> str:
     return f"doe_surrogate_{project_id}"
+
+
+def _workspace_id_for_project(project_id: str) -> str | None:
+    explicit = os.getenv("MIRAI_MLFLOW_WORKSPACE_ID")
+    if explicit:
+        return explicit
+    if project_id == "pem_fuel_cell_real_cathode_degradation" or "fuel" in project_id:
+        return "fraunhofer"
+    return None
+
+
+def _experiment_artifact_location(project_id: str) -> str | None:
+    workspace_id = _workspace_id_for_project(project_id)
+    if not workspace_id:
+        return os.getenv("MLFLOW_ARTIFACT_ROOT")
+    env_prefix = f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3"
+    bucket = os.getenv(f"{env_prefix}_BUCKET")
+    if not bucket:
+        return os.getenv("MLFLOW_ARTIFACT_ROOT")
+    return f"s3://{bucket}/workspaces/{workspace_id}/projects/{project_id}/mlflow-artifacts"
+
 from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -191,6 +212,9 @@ def _log_generic_mlflow(
         existing_experiment = client.get_experiment_by_name(project_id)
         if existing_experiment is not None and existing_experiment.lifecycle_stage == "deleted":
             client.restore_experiment(existing_experiment.experiment_id)
+            existing_experiment = client.get_experiment_by_name(project_id)
+        if existing_experiment is None:
+            client.create_experiment(project_id, artifact_location=_experiment_artifact_location(project_id))
         mlflow.set_experiment(project_id)
         registered_name = _registered_model_name_for_project(project_id)
         input_schema_hash = _stable_json_hash(schema.get("inputs", []))

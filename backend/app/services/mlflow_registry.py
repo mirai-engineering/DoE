@@ -4,12 +4,28 @@ import os
 from pathlib import Path
 import shutil
 
+from .workspace_storage import WorkspaceStorageConfig, validate_workspace_object_uri
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REAL_PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
 MLFLOW_TRACKING_DIR = BACKEND_ROOT / "mlruns"
 MODEL_CACHE_ROOT = BACKEND_ROOT / ".mlflow-cache"
 MODEL_CACHE_DIR = MODEL_CACHE_ROOT / REAL_PROJECT_ID
+
+
+PROJECT_STORAGE_METADATA = {
+    REAL_PROJECT_ID: {
+        "workspace_id": "fraunhofer",
+        "bucket": "mirai-fuel-cells-demo",
+        "prefix": f"workspaces/fraunhofer/projects/{REAL_PROJECT_ID}",
+    },
+    "battery_tabular_doe_demo": {
+        "workspace_id": "battery-demo",
+        "bucket": "mirai-batteries-demo",
+        "prefix": "workspaces/battery-demo/projects/battery_tabular_doe_demo",
+    },
+}
 
 
 def registered_model_name_for_project(project_id: str) -> str:
@@ -31,6 +47,50 @@ def configure_mlflow():
 
 def is_mlflow_project(project_id: str) -> bool:
     return bool(project_id) and "/" not in project_id and "\\" not in project_id and ".." not in project_id
+
+
+def durable_artifact_pointer_for_project(project_id: str, artifact_kind: str = "onnx_model") -> dict:
+    """Return the durable object-store pointer convention for a project artifact.
+
+    This is metadata/validation only. Runtime download still happens through MLflow
+    or local development artifacts until the object bootstrap/download path is
+    implemented. The pointer avoids assuming `backend/mlruns/` is present in a
+    Railway image and gives API/UI code a durable workspace/project-scoped target.
+    """
+
+    if project_id not in PROJECT_STORAGE_METADATA:
+        raise FileNotFoundError(f"No durable artifact pointer metadata configured for project_id={project_id}")
+    metadata = PROJECT_STORAGE_METADATA[project_id]
+    workspace_id = metadata["workspace_id"]
+    bucket = os.getenv(f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3_BUCKET", metadata["bucket"])
+    config = WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode="s3",
+        bucket=bucket,
+        prefix=f"workspaces/{workspace_id}",
+    )
+    suffix_by_kind = {
+        "dataset": "intake/dataset.csv" if project_id == "battery_tabular_doe_demo" else "intake/model_table.csv",
+        "canonical_table": "canonical/model_table.parquet",
+        "preprocessing_output": "training_artifacts/latest/preprocessing.json",
+        "mlflow_artifacts": f"mlflow-artifacts/{registered_model_name_for_project(project_id)}",
+        "onnx_model": "training_artifacts/latest/model.onnx",
+        "bo_state": "bo/state.json",
+        "review_file": "reviews/latest.json",
+    }
+    if artifact_kind not in suffix_by_kind:
+        raise ValueError(f"Unsupported durable artifact kind: {artifact_kind}")
+    object_key = f"{metadata['prefix']}/{suffix_by_kind[artifact_kind]}"
+    validate_workspace_object_uri(config, object_key)
+    return {
+        "project_id": project_id,
+        "workspace_id": workspace_id,
+        "artifact_kind": artifact_kind,
+        "bucket": bucket,
+        "object_key": object_key,
+        "object_uri": f"s3://{bucket}/{object_key}",
+        "runtime_status": "pointer_only_until_bootstrapped",
+    }
 
 
 def _download_model_uri(uri: str, dst: Path, mlflow, *, version: str | None = None) -> None:
@@ -140,7 +200,7 @@ def get_registered_model_metadata(project_id: str) -> dict:
             }
         )
     production = next((item for item in payload if item["stage"] == "Production"), None)
-    return {
+    result = {
         "project_id": project_id,
         "mlflow_enabled": True,
         "tracking_uri": tracking_uri(),
@@ -151,3 +211,9 @@ def get_registered_model_metadata(project_id: str) -> dict:
         "aliases": selected_aliases,
         "versions": payload,
     }
+    try:
+        result["durable_artifact_pointer"] = durable_artifact_pointer_for_project(project_id, "mlflow_artifacts")
+        result["durable_onnx_pointer"] = durable_artifact_pointer_for_project(project_id, "onnx_model")
+    except Exception:
+        pass
+    return result

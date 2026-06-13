@@ -4,18 +4,21 @@ import logging
 import os
 from pathlib import Path
 
+from .control_plane import list_workspace_projects
 from .data_intake import list_ingestion_sessions, read_project_metadata, read_status, session_workspace
 from .domain_metadata import apply_variable_metadata_to_schema, attach_domain_metadata, infer_template_id
 from .mlflow_registry import download_production_onnx, is_mlflow_project, registered_model_name_for_project, tracking_uri
+from .workspace_storage import local_object_storage_root
 from .workspaces import get_workspace
 
 
 logger = logging.getLogger(__name__)
 REAL_FUEL_CELL_PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
+BATTERY_DEMO_PROJECT_ID = "battery_tabular_doe_demo"
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
-OBJECT_STORE_ROOT = Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+OBJECT_STORE_ROOT = local_object_storage_root()
 REFERENCE_DATA_ROOT = Path(os.getenv("DOE_REFERENCE_DATA_ROOT", REPO_ROOT / "data" / "reference"))
 REAL_REFERENCE_ARTIFACT_DIR = REFERENCE_DATA_ROOT / "pem_fuel_cell_cathode_degradation" / "training_artifacts" / "latest"
 
@@ -60,7 +63,33 @@ def _workspace_from_payload(project_id: str, display_name: str, payload: dict | 
     return {"workspace_id": "mirai-engineering", "workspace_name": "Mirai Engineering"}
 
 
-def list_projects() -> list[dict[str, str]]:
+def _battery_placeholder_schema() -> dict:
+    return {
+        "project_id": BATTERY_DEMO_PROJECT_ID,
+        "display_name": "Battery Tabular DoE Demo",
+        "description": "Battery/generic tabular DoE demo metadata placeholder. Dataset/model bootstrap is pending an approved source dataset.",
+        "schema_version": "placeholder-v1",
+        "workspace_id": "battery-demo",
+        "workspace_name": "Battery Demo",
+        "inputs": [
+            {"name": "formation_temperature", "label": "Formation temperature", "type": "continuous", "min": 20, "max": 60, "unit": "°C"},
+            {"name": "charge_rate", "label": "Charge rate", "type": "continuous", "min": 0.1, "max": 2.0, "unit": "C"},
+            {"name": "electrolyte_additive_pct", "label": "Electrolyte additive", "type": "continuous", "min": 0.0, "max": 5.0, "unit": "%"},
+        ],
+        "outputs": [
+            {"name": "capacity_retention", "label": "Capacity retention", "direction": "maximize", "unit": "%"},
+            {"name": "impedance_growth", "label": "Impedance growth", "direction": "minimize", "unit": "%"},
+        ],
+        "metadata": {"template_id": "generic_tabular_doe", "workspace_id": "battery-demo", "workspace_name": "Battery Demo"},
+    }
+
+
+def list_projects(workspace_id: str | None = None) -> list[dict[str, str]]:
+    if workspace_id:
+        db_projects = list_workspace_projects(workspace_id)
+        if db_projects is not None:
+            return db_projects
+
     projects: list[dict[str, str]] = []
     seen: set[str] = set()
     if (REAL_REFERENCE_ARTIFACT_DIR / "schema.json").exists():
@@ -72,6 +101,18 @@ def list_projects() -> list[dict[str, str]]:
             projects.append({"id": project_id, "display_name": display_name, **_workspace_from_payload(project_id, display_name, schema)})
         except Exception as exc:  # noqa: BLE001 - malformed projects should not break discovery.
             logger.warning("Skipping invalid reference project schema at %s: %s", REAL_REFERENCE_ARTIFACT_DIR, exc)
+
+    if BATTERY_DEMO_PROJECT_ID not in seen:
+        battery_schema = _battery_placeholder_schema()
+        projects.append(
+            {
+                "id": BATTERY_DEMO_PROJECT_ID,
+                "display_name": battery_schema["display_name"],
+                "workspace_id": "battery-demo",
+                "workspace_name": "Battery Demo",
+            }
+        )
+        seen.add(BATTERY_DEMO_PROJECT_ID)
 
     for session in list_ingestion_sessions():
         project_id = str(session.get("project_id") or "")
@@ -88,6 +129,8 @@ def list_projects() -> list[dict[str, str]]:
                 **workspace,
             }
         )
+    if workspace_id:
+        return [project for project in projects if project.get("workspace_id") == workspace_id]
     return projects
 
 
@@ -152,6 +195,9 @@ def get_project_schema(project_id: str) -> dict:
         schema["workspace_name"] = schema.get("workspace_name") or workspace["workspace_name"]
         return attach_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
     except ProjectNotFoundError:
+        if project_id == BATTERY_DEMO_PROJECT_ID:
+            schema = _battery_placeholder_schema()
+            return attach_domain_metadata(schema, template_id="generic_tabular_doe", approval_status="pending_bootstrap")
         session = _latest_ingestion_project(project_id)
         if not session:
             raise

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from app.services.workspace_storage import local_object_storage_root
+
 
 PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
 PHASE_SCOPE = "all_cells_grouped"
@@ -17,7 +19,7 @@ RAW_DATA_ROOT = REPO_ROOT / "data" / "Cathode Catalyst Degradation"
 RAW_CELL_DATA_ROOT = RAW_DATA_ROOT / "01-Data"
 TESTING_OVERVIEW_XLSX = RAW_DATA_ROOT / "02-Testing_overview" / "data_overview.xlsx"
 REFERENCE_DATA_ROOT = Path(os.getenv("DOE_REFERENCE_DATA_ROOT", REPO_ROOT / "data" / "reference"))
-OBJECT_STORE_ROOT = Path(os.getenv("DOE_OBJECT_STORE_ROOT", BACKEND_ROOT / "data-minio"))
+OBJECT_STORE_ROOT = local_object_storage_root()
 OUTPUT_DIR = REFERENCE_DATA_ROOT / "pem_fuel_cell_cathode_degradation"
 TRAINING_ARTIFACT_DIR = OUTPUT_DIR / "training_artifacts"
 SCIENTIST_REVIEW_DIR = OBJECT_STORE_ROOT / "model_quality_reviews"

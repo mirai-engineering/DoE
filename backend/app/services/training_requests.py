@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
+import mimetypes
 from pathlib import Path
 import shutil
 from typing import Any
 from uuid import uuid4
 
+from .control_plane import complete_training_run, create_training_run, fail_training_run
 from .data_intake import BACKEND_ROOT, DATA_INTAKE_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
+from .db import postgres_control_plane_required
 from .mlflow_registry import registered_model_name_for_project
+from .workspace_storage import put_workspace_object, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
 from ml_lifecycle.ingesting.fuel_cell_doe_demo.schema import OUTPUT_DIR as REAL_CANONICAL_DIR, PROJECT_ID as REAL_FUEL_CELL_PROJECT_ID, TRAINING_ARTIFACT_DIR
 from ml_lifecycle.training.fuel_cell_doe_demo.train import train_models
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_TRAINING_PLAN: dict[str, Any] = {
@@ -238,6 +246,28 @@ def activate_session_artifacts_for_model_quality(project_id: str, dataset_id: st
     }
 
 
+def _upload_training_artifacts_to_s3(workspace_id: str, project_id: str, training_run_id: str, artifact_dir: Path) -> dict[str, Any]:
+    try:
+        config = workspace_s3_config_from_env(workspace_id)
+        uploaded: list[dict[str, Any]] = []
+        prefix = f"workspaces/{workspace_id}/projects/{project_id}/training_runs/{training_run_id}"
+        for path in sorted(artifact_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(artifact_dir).as_posix()
+            key = f"{prefix}/{relative}"
+            content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            with path.open("rb") as handle:
+                put_workspace_object(config, key, handle, content_type=content_type)
+            uploaded.append({"key": key, "size_bytes": path.stat().st_size})
+        return {"status": "uploaded", "count": len(uploaded), "objects": uploaded[:50], "prefix": prefix + "/"}
+    except Exception as exc:  # noqa: BLE001 - local/dev can run without S3.
+        logger.warning("Training artifact S3 upload skipped/failed for workspace_id=%s project_id=%s: %s", workspace_id, project_id, exc)
+        if postgres_control_plane_required():
+            raise
+        return {"status": "skipped", "detail": str(exc)}
+
+
 def start_training_request(project_id: str, dataset_id: str, session_id: str, training_request_id: str) -> dict[str, Any]:
     request = get_training_request(project_id, dataset_id, session_id, training_request_id)
     report = get_preprocessing_review_report(project_id, dataset_id, session_id)
@@ -261,27 +291,42 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
         "stage": "training_generic_tabular_models" if use_generic_training else "training_real_fuel_cell_models",
     }
     write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", status_payload)
+    session = get_ingestion_session(project_id, dataset_id, session_id)
+    workspace_id = str(session.get("workspace_id") or "fraunhofer" if project_id == REAL_FUEL_CELL_PROJECT_ID else session.get("workspace_id") or "mirai-engineering")
+    artifact_prefix = f"workspaces/{workspace_id}/projects/{project_id}/training_runs/{training_request_id}/"
+    create_training_run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        dataset_id=dataset_id,
+        artifact_s3_prefix=artifact_prefix,
+        created_by=str(request.get("requested_by") or "unknown"),
+    )
     request["status"] = "running"
     request["started_at"] = _now()
     _write_training_request(project_id, dataset_id, session_id, request)
 
-    if use_generic_training:
-        result = train_generic_project(project_id=project_id, data_dir=canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
-    else:
-        result = train_models(
-            project_id=REAL_FUEL_CELL_PROJECT_ID,
-            register_mlflow=True,
-            set_alias="challenger",
-            mlflow_experiment_name=project_id,
-            registered_model_name=registered_model_name_for_project(project_id),
-            dataset_id=dataset_id,
-            ingestion_session_id=session_id,
-            preprocessing_report_id=f"{session_id}:preprocessing_report",
-            training_request_id=training_request_id,
-            data_dir=canonical,
-            artifact_dir=training_latest,
-            training_config=request.get("training_config"),
-        )
+    try:
+        if use_generic_training:
+            result = train_generic_project(project_id=project_id, data_dir=canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
+        else:
+            result = train_models(
+                project_id=REAL_FUEL_CELL_PROJECT_ID,
+                register_mlflow=True,
+                set_alias="challenger",
+                mlflow_experiment_name=project_id,
+                registered_model_name=registered_model_name_for_project(project_id),
+                dataset_id=dataset_id,
+                ingestion_session_id=session_id,
+                preprocessing_report_id=f"{session_id}:preprocessing_report",
+                training_request_id=training_request_id,
+                data_dir=canonical,
+                artifact_dir=training_latest,
+                training_config=request.get("training_config"),
+            )
+    except Exception as exc:  # noqa: BLE001 - persist failed runtime row before surfacing API error.
+        fail_training_run(workspace_id=workspace_id, project_id=project_id, training_run_id=training_request_id, error_message=str(exc))
+        raise
     metadata_status = read_status(project_id, dataset_id, session_id, "domain_metadata", default={})
     schema_path = training_latest / "schema.json"
     if schema_path.exists():
@@ -290,16 +335,32 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
         schema["domain_metadata"] = approved_metadata or build_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
         _write_json(schema_path, schema)
     activation = activate_session_artifacts_for_model_quality(project_id, dataset_id, session_id)
+    s3_upload = _upload_training_artifacts_to_s3(workspace_id, project_id, training_request_id, training_latest)
     completed = {
         **status_payload,
         "status": "completed",
         "completed_at": _now(),
         "result": result,
         "activation": activation,
+        "s3_upload": s3_upload,
         "model_quality_project_id": project_id,
         "route_after_completion": f"/projects/{project_id}/model-quality",
     }
     write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", completed)
+    metrics = result.get("metrics_summary") if isinstance(result, dict) and isinstance(result.get("metrics_summary"), dict) else result if isinstance(result, dict) else {}
+    mlflow_run_ids = result.get("mlflow_run_ids") if isinstance(result, dict) else None
+    mlflow_run_id = mlflow_run_ids[0] if isinstance(mlflow_run_ids, list) and mlflow_run_ids else None
+    complete_training_run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        mlflow_run_id=mlflow_run_id,
+        best_model_type=str(result.get("best_model_name") or result.get("best_model") or "unknown") if isinstance(result, dict) else "unknown",
+        metrics=metrics if isinstance(metrics, dict) else {},
+        model_artifact_uri=f"{artifact_prefix}model.onnx",
+        preprocessing_uri=f"{artifact_prefix}preprocessing.json",
+        schema_uri=f"{artifact_prefix}schema.json",
+    )
     request["status"] = "completed"
     request["completed_at"] = completed["completed_at"]
     request["result"] = result

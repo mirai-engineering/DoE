@@ -60,11 +60,83 @@ def test_health(client):
     assert payload["models_loaded"] is True
 
 
+def test_new_ingestion_session_uses_workspace_scoped_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOE_OBJECT_STORE_ROOT", str(tmp_path))
+    from app.services import data_intake
+
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", tmp_path)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", tmp_path / "intake")
+    session = data_intake.session_workspace("client_a_project", "dataset_a", "session_a")
+
+    assert session["root"].is_relative_to(tmp_path / "workspaces" / "mirai-engineering")
+
+
 def test_projects(client):
     response = client.get("/projects")
 
     assert response.status_code == 200
     assert any(project["id"] == PROJECT_ID for project in response.json()["projects"])
+
+
+def test_auth_required_rejects_missing_token(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects")
+
+    assert response.status_code == 401
+
+
+def test_auth_required_rejects_invalid_token(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects", headers={"Authorization": "Bearer invalid-token"})
+
+    assert response.status_code == 401
+
+
+def test_auth_required_allows_test_token_and_filters_workspace(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "fraunhofer")
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(project["id"] == PROJECT_ID for project in payload["projects"])
+    assert {project["workspace_id"] for project in payload["projects"]} == {"fraunhofer"}
+    assert {workspace["workspace_id"] for workspace in payload["workspaces"]} == {"fraunhofer"}
+
+
+def test_auth_required_rejects_valid_token_without_workspace_claim(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "")
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Workspace claim required"
+
+
+def test_auth_required_rejects_cross_workspace_project_access(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "mirai-engineering")
+    with TestClient(app) as test_client:
+        response = test_client.get(f"/projects/{PROJECT_ID}/schema", headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 403
+
+
+def test_workspace_claim_uses_only_verified_top_level_custom_jwt_claim():
+    from app.auth import _workspace_from_claims
+
+    assert _workspace_from_claims({"workspace_id": "fraunhofer", "public_metadata": {"workspace_id": "battery-demo"}}) == "fraunhofer"
+    assert _workspace_from_claims({"metadata": {"workspace_id": "fraunhofer"}}) is None
+    assert _workspace_from_claims({"public_metadata": {"workspace_id": "fraunhofer"}}) is None
+    assert _workspace_from_claims({"org_id": "fraunhofer"}) is None
 
 
 def test_project_schema(client):
