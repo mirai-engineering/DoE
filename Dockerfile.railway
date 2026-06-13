@@ -43,23 +43,11 @@ COPY --from=frontend-builder /frontend/dist ./static
 COPY backend/app ./app
 COPY backend/ml_lifecycle ./ml_lifecycle
 COPY backend/seeds ./seeds
-COPY data/reference/pem_fuel_cell_cathode_degradation/model_table.csv ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv
-COPY data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv
-COPY data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv
-COPY data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest
 COPY backend/healthcheck.py ./healthcheck.py
 
 RUN test -s ./static/index.html || (echo "ERROR: React build missing" && exit 1)
 RUN test -s ./seeds/object_storage/workspaces/fraunhofer/workspace.json || \
     (echo "ERROR: Fraunhofer workspace seed metadata missing" && exit 1)
-RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/model_table.csv && \
-    test -s ./data/reference/pem_fuel_cell_cathode_degradation/cell_metadata.csv && \
-    test -s ./data/reference/pem_fuel_cell_cathode_degradation/ast_trace_manifest.csv || \
-    (echo "ERROR: business-impact real data artifacts missing" && exit 1)
-RUN test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing_report.json && \
-    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/preprocessing.json && \
-    test -s ./data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/split_report.json || \
-    (echo "ERROR: model-quality preprocessing/split artifacts missing" && exit 1)
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

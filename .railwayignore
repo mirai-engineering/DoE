@@ -48,13 +48,8 @@ frontend/*
 !frontend/index.html
 !frontend/.eslintrc.cjs
 
-# Reference demo data needed by Dockerfile.railway
-!data/
-data/*
-!data/reference/
-data/reference/*
-!data/reference/pem_fuel_cell_cathode_degradation/
-!data/reference/pem_fuel_cell_cathode_degradation/**
+# Production/demo data and model artifacts live in Railway S3/Postgres/MLflow.
+# Do not upload local data mirrors or generated artifacts with GitHub builds.
 
 # Always exclude local/generated heavy or secret material
 .env
