@@ -1,12 +1,31 @@
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const DEFAULT_API_URL = typeof window !== 'undefined' && window.location.port === '3000' ? 'http://localhost:8000' : ''
+const API_URL = import.meta.env.VITE_API_URL ?? DEFAULT_API_URL
 
 export const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+})
+
+type AuthTokenProvider = () => Promise<string | null>
+
+let authTokenProvider: AuthTokenProvider | null = null
+
+export function setAuthTokenProvider(provider: AuthTokenProvider | null) {
+  authTokenProvider = provider
+}
+
+api.interceptors.request.use(async (config) => {
+  if (!authTokenProvider) return config
+
+  const token = await authTokenProvider()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
 })
 
 export class ApiError extends Error {
@@ -123,6 +142,33 @@ export interface ProjectSchema {
   inputs: SchemaInput[]
   outputs: SchemaOutput[]
   domain_metadata?: ProjectDomainMetadata
+}
+
+export interface ArtifactPointer {
+  project_id?: string
+  workspace_id?: string
+  artifact_kind?: string
+  bucket?: string
+  object_key?: string
+  object_uri?: string
+  runtime_status?: string
+  status?: string
+  detail?: string
+}
+
+export interface ProjectArtifactStatus {
+  project_id: string
+  display_name: string
+  workspace_id?: string
+  workspace_name?: string
+  artifact_pointers: Record<string, ArtifactPointer>
+  model_quality: {
+    available: boolean
+    message: string
+    detail?: string
+    prediction_diagnostics_available?: boolean
+  }
+  durability_note: string
 }
 
 export type ExperimentInputs = Record<string, number>
@@ -769,6 +815,15 @@ export async function getProjectSchema(projectId: string): Promise<ProjectSchema
     return assertProjectSchema(response.data)
   } catch (error) {
     throw normalizeError(error, 'Unable to load project schema')
+  }
+}
+
+export async function getProjectArtifactStatus(projectId: string): Promise<ProjectArtifactStatus> {
+  try {
+    const response = await api.get<ProjectArtifactStatus>(`/projects/${projectId}/artifact-status`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load project artifact status')
   }
 }
 

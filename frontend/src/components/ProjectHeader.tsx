@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import type { ActiveTab } from '../types/doe'
-import type { ProjectSchema, ProjectSummary, WorkspaceSummary } from '../lib/api'
+import type { ProjectArtifactStatus, ProjectSchema, ProjectSummary, WorkspaceSummary } from '../lib/api'
+import { getProjectArtifactStatus } from '../lib/api'
 import { Metadata } from './ui'
 import { Tabs } from './Tabs'
 
@@ -24,6 +26,26 @@ export function ProjectHeader({
   onProjectChange: (projectId: string) => void
   onTabChange: (tab: ActiveTab) => void
 }) {
+  const [artifactStatus, setArtifactStatus] = useState<ProjectArtifactStatus | null>(null)
+  const [artifactStatusError, setArtifactStatusError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedProjectId) return
+    let isMounted = true
+    setArtifactStatus(null)
+    setArtifactStatusError(null)
+    getProjectArtifactStatus(selectedProjectId)
+      .then((status) => {
+        if (isMounted) setArtifactStatus(status)
+      })
+      .catch((error) => {
+        if (isMounted) setArtifactStatusError(error instanceof Error ? error.message : 'Artifact status unavailable')
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [selectedProjectId])
+
   function workspaceFor(project?: ProjectSummary) {
     const explicit = project?.workspace_name
     if (explicit) return explicit
@@ -33,6 +55,9 @@ export function ProjectHeader({
   const workspaceOptions = Array.from(new Set([...workspaces.map((workspace) => workspace.display_name), ...projects.map((project) => workspaceFor(project))]))
   const selectedWorkspace = selectedProject ? workspaceFor(selectedProject) : schema?.workspace_name || workspaceOptions[0] || 'Mirai Engineering'
   const visibleProjects = projects.filter((project) => workspaceFor(project) === selectedWorkspace)
+  const artifactPointers = artifactStatus?.artifact_pointers ?? {}
+  const durableBuckets = Array.from(new Set(Object.values(artifactPointers).map((pointer) => pointer.bucket).filter(Boolean)))
+  const availablePointerCount = Object.values(artifactPointers).filter((pointer) => pointer.object_key).length
 
   function handleWorkspaceChange(workspaceName: string) {
     const firstProject = projects.find((project) => workspaceFor(project) === workspaceName)
@@ -109,6 +134,30 @@ export function ProjectHeader({
           {schema?.description && (
             <p className="mt-4 text-sm leading-6 text-slate-600">{schema.description}</p>
           )}
+
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-[#f8f6ef] p-4 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Durable state
+                </div>
+                <div className="mt-1 font-semibold text-slate-800">
+                  {artifactStatus ? `${availablePointerCount} scoped pointers` : artifactStatusError ? 'Status unavailable' : 'Checking pointers...'}
+                </div>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+                {artifactStatus?.model_quality.available ? 'quality ready' : 'quality pending'}
+              </span>
+            </div>
+            <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-500">
+              {artifactStatusError || artifactStatus?.model_quality.message || 'Loading workspace/project artifact pointers.'}
+            </p>
+            {durableBuckets.length > 0 && (
+              <p className="mt-2 truncate text-xs font-medium text-slate-600">
+                Bucket: {durableBuckets.join(', ')}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </section>

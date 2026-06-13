@@ -10,6 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "axios": "^1.6.2",
     "plotly.js-dist-min": "^3.5.0",
     "react": "^18.2.0",
