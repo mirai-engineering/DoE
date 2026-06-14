@@ -524,6 +524,22 @@ def test_fixed_multitable_zip_package_materializes_model_table_via_api(client, t
     assert pre_schema.status_code == 200
     assert pre_schema.json()["inputs"][0]["name"] == "pt_c_ratio"
 
+    domain_metadata = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/domain-metadata"
+    )
+    assert domain_metadata.status_code == 200
+    variables = domain_metadata.json()["domain_metadata"]["variables"]
+    assert [item["name"] for item in variables if item["role"] == "input"] == ["x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+    assert [item["name"] for item in variables if item["role"] == "output"] == ["y1", "y2", "y3", "y4"]
+    assert variables[0]["source_name"] == "pt_c_ratio"
+
+    metadata_approval = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/domain-metadata/approval",
+        json={"approver": "test"},
+    )
+    assert metadata_approval.status_code == 200
+    assert metadata_approval.json()["approval_status"] == "approved"
+
     start = client.post(
         f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/start"
     )
@@ -546,6 +562,43 @@ def test_fixed_multitable_zip_package_materializes_model_table_via_api(client, t
     assert [item["name"] for item in schema_payload["outputs"]] == ["y1", "y2", "y3", "y4"]
     assert schema_payload["inputs"][0]["source_name"] == "pt_c_ratio"
     assert schema_payload["outputs"][0]["source_name"] == "bol_current_density"
+
+    report = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing-report"
+    )
+    assert report.status_code == 200
+    assert report.json()["canonical_artifacts"]["row_counts"]["model_table.csv"] == 8
+
+    ydata = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/ydata-report.html"
+    )
+    assert ydata.status_code == 200
+    assert "text/html" in ydata.headers["content-type"]
+
+    final_metadata = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/domain-metadata"
+    )
+    assert final_metadata.status_code == 200
+    assert final_metadata.json()["approval_status"] == "approved"
+
+    preprocessing_approval = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing-approval",
+        json={"approver": "test"},
+    )
+    assert preprocessing_approval.status_code == 200
+    assert preprocessing_approval.json()["approval"]["status"] == "approved_for_training"
+
+    training_request = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/training-requests",
+        json={"requested_by": "test", "preset": "smoke", "model_families": ["mean_baseline"]},
+    )
+    assert training_request.status_code == 200
+    request_id = training_request.json()["training_request_id"]
+    requests = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/training-requests"
+    )
+    assert requests.status_code == 200
+    assert [item["training_request_id"] for item in requests.json()["training_requests"]] == [request_id]
 
 
 def test_data_intake_can_append_missing_file_to_existing_session(client):

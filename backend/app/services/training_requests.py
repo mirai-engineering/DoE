@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from .control_plane import complete_training_run, create_training_run, fail_training_run
-from .data_intake import BACKEND_ROOT, DATA_INTAKE_ROOT, get_ingestion_session, read_status, session_workspace, write_status
+from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
 from .mlflow_registry import registered_model_name_for_project
@@ -62,7 +62,7 @@ DEFAULT_TRAINING_PLAN: dict[str, Any] = {
             "purpose": "deployable nonlinear surrogate candidate",
         },
     ],
-    "outputs": ["bol_current_density", "eol_current_density", "bol_ecsa", "ecsa_loss"],
+    "outputs": "contract-defined output variables",
     "selection": "validation weighted nRMSE chooses the challenger candidate; champion remains manual in MLflow",
 }
 
@@ -72,7 +72,7 @@ def _now() -> str:
 
 
 def _session_dir(project_id: str, dataset_id: str, session_id: str) -> Path:
-    return DATA_INTAKE_ROOT / "projects" / project_id / "datasets" / dataset_id / "ingestion_sessions" / session_id
+    return session_workspace(project_id, dataset_id, session_id)["root"]
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:

@@ -10,6 +10,7 @@ import pandas as pd
 from .data_intake import (
     BACKEND_ROOT,
     DATA_INTAKE_ROOT,
+    OBJECT_STORE_ROOT,
     ensure_session_workspace,
     get_ingestion_session,
     read_status,
@@ -18,7 +19,7 @@ from .data_intake import (
 )
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .project_registry import clear_registry_cache
-from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract
+from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract, schema_from_contract
 from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root, build_generic_preprocessing_artifacts
 
 
@@ -173,12 +174,27 @@ def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: st
         training_latest = reset_workspace_dir(workspace["training_latest"])
         preprocessing_result = build_generic_preprocessing_artifacts(raw_root=workspace["raw"], canonical_dir=canonical, artifact_dir=training_latest, project_id=project_id)
         schema = _read_json(training_latest / "schema.json", default={}) or {}
-        domain_metadata = build_domain_metadata(schema, template_id=validation.get("template_id") or "generic_tabular_doe", approval_status="needs_admin_approval")
+        existing_metadata_status = read_status(project_id, dataset_id, session_id, "domain_metadata", default={})
+        existing_domain_metadata = existing_metadata_status.get("domain_metadata") if isinstance(existing_metadata_status, dict) else None
+        if (
+            isinstance(existing_domain_metadata, dict)
+            and existing_metadata_status.get("approval_status") == "approved"
+            and not _validate_domain_metadata_for_approval(schema, existing_domain_metadata)
+        ):
+            domain_metadata = existing_domain_metadata
+            domain_metadata_status = {
+                "status": "approved",
+                "approval_status": "approved",
+                "approved_at": existing_metadata_status.get("approved_at"),
+                "approved_by": existing_metadata_status.get("approved_by"),
+            }
+        else:
+            domain_metadata = build_domain_metadata(schema, template_id=validation.get("template_id") or "generic_tabular_doe", approval_status="needs_admin_approval")
+            domain_metadata_status = {"status": "contract_loaded_needs_admin_approval", "approval_status": "needs_admin_approval"}
         schema["domain_metadata"] = domain_metadata
         _write_json(training_latest / "schema.json", schema)
         write_status(project_id, dataset_id, session_id, "domain_metadata", {
-            "status": "contract_loaded_needs_admin_approval",
-            "approval_status": "needs_admin_approval",
+            **domain_metadata_status,
             "template_id": domain_metadata["template_id"],
             "domain_metadata": domain_metadata,
         })
@@ -233,6 +249,20 @@ def get_preprocessing_status(project_id: str, dataset_id: str, session_id: str) 
     return read_status(project_id, dataset_id, session_id, "preprocessing", default={"status": "not_started"})
 
 
+def _schema_model_columns(schema: dict[str, Any], frame: pd.DataFrame) -> list[str]:
+    ordered: list[str] = []
+    for section in ("inputs", "outputs"):
+        for item in schema.get(section, []):
+            if not isinstance(item, dict):
+                continue
+            for candidate in (item.get("name"), item.get("variable_id")):
+                if isinstance(candidate, str) and candidate in frame.columns and candidate not in ordered:
+                    ordered.append(candidate)
+    if ordered:
+        return ordered
+    return [str(column) for column in frame.select_dtypes(include="number").columns]
+
+
 def ensure_ydata_html_report(project_id: str, dataset_id: str, session_id: str) -> Path:
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     model_table = workspace["canonical"] / "model_table.csv"
@@ -246,29 +276,23 @@ def ensure_ydata_html_report(project_id: str, dataset_id: str, session_id: str) 
     except Exception as exc:  # pragma: no cover - dependency is optional in older envs.
         raise ValueError("ydata-profiling is not installed in this backend environment") from exc
     frame = pd.read_csv(model_table, nrows=10000)
-    preferred_columns = [
-        "pt_c_ratio",
-        "i_c_ratio",
-        "ionomer_ew",
-        "operating_rh",
-        "operating_voltage",
-        "ast_rh",
-        "ast_upl",
-        "bol_current_density",
-        "eol_current_density",
-        "bol_ecsa",
-        "ecsa_loss",
-    ]
-    profile_frame = frame[[column for column in preferred_columns if column in frame.columns]].copy()
+    schema = _read_json(workspace["training_latest"] / "schema.json", default={}) or {}
+    preferred_columns = _schema_model_columns(schema, frame)
+    profile_frame = frame[preferred_columns].copy() if preferred_columns else frame.select_dtypes(include="number").copy()
+    if profile_frame.empty or not len(profile_frame.columns):
+        raise ValueError("Canonical model_table.csv has no profileable input/output columns")
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    title = "Mirai Canonical Model-Table EDA"
     try:
-        profile = ProfileReport(profile_frame, title="Mirai Fuel-Cell Numeric Model-Table EDA", minimal=True)
+        profile = ProfileReport(profile_frame, title=title, minimal=True)
         profile.to_file(report_path)
     except Exception:
         # ydata/wordcloud can fail on text/provenance columns in some versions.
-        # Fall back to numeric-only data, which is the relevant approval surface for this fuel-cell model table.
+        # Fall back to numeric-only data from the same schema-selected model columns.
         numeric_frame = profile_frame.select_dtypes(include="number")
-        profile = ProfileReport(numeric_frame, title="Mirai Fuel-Cell Numeric Model-Table EDA", minimal=True, explorative=False)
+        if numeric_frame.empty or not len(numeric_frame.columns):
+            raise
+        profile = ProfileReport(numeric_frame, title=title, minimal=True, explorative=False)
         profile.to_file(report_path)
     return report_path
 
@@ -323,9 +347,9 @@ def get_preprocessing_eda_summary(project_id: str, dataset_id: str, session_id: 
 
 def generate_preprocessing_report(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     session = get_ingestion_session(project_id, dataset_id, session_id)
-    session_path = _session_dir(project_id, dataset_id, session_id)
-    report_dir = session_path / "eda"
-    raw_root = DATA_INTAKE_ROOT
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    report_dir = workspace["eda"]
+    raw_root = OBJECT_STORE_ROOT
     file_profiles: list[dict[str, Any]] = []
     primary_file: Path | None = None
 
@@ -381,7 +405,8 @@ def generate_preprocessing_report(project_id: str, dataset_id: str, session_id: 
 
 
 def get_preprocessing_review_report(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    report = _read_json(_session_dir(project_id, dataset_id, session_id) / "eda" / "preprocessing_report.json")
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    report = _read_json(workspace["eda"] / "preprocessing_report.json")
     if not report:
         raise FileNotFoundError("Preprocessing report not generated yet")
     return report
@@ -392,8 +417,14 @@ def _schema_for_metadata(project_id: str, dataset_id: str, session_id: str) -> d
     schema_path = workspace["training_latest"] / "schema.json"
     if schema_path.exists():
         return _read_json(schema_path, default={}) or {}
-    from .project_registry import get_project_schema  # Local import avoids service import cycle at module load.
-    return get_project_schema(project_id)
+    try:
+        package_root, package_inventory = _prepare_package_root(workspace["raw"], workspace["inventory"])
+        _write_json(workspace["inventory"] / "package_inventory.json", package_inventory)
+        contract = load_and_validate_contract(package_root)
+        return schema_from_contract(contract, project_id=project_id)
+    except ContractValidationError:
+        from .project_registry import get_project_schema  # Local import avoids service import cycle at module load.
+        return get_project_schema(project_id)
 
 
 def get_domain_metadata_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
@@ -528,6 +559,6 @@ def approve_preprocessing(project_id: str, dataset_id: str, session_id: str, app
     if schema:
         schema["domain_metadata"] = domain_metadata
         _write_json(schema_path, schema)
-    _write_json(_session_dir(project_id, dataset_id, session_id) / "eda" / "preprocessing_report.json", report)
+    _write_json(workspace["eda"] / "preprocessing_report.json", report)
     write_status(project_id, dataset_id, session_id, "preprocessing", {**get_preprocessing_status(project_id, dataset_id, session_id), "status": "approved_for_training", "approved_at": report["approval"]["approved_at"]})
     return report
