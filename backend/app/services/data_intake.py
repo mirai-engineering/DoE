@@ -9,8 +9,6 @@ import re
 import shutil
 from typing import Any
 from uuid import uuid4
-from zipfile import BadZipFile, ZipFile
-
 from fastapi import UploadFile
 
 from .workspace_storage import local_object_storage_root, workspace_scoped_path
@@ -124,64 +122,6 @@ def _file_sha256(path: Path) -> str:
     return sha256.hexdigest()
 
 
-def _is_metadata_zip_member(name: str) -> bool:
-    parts = Path(name).parts
-    return not parts or parts[0] == "__MACOSX" or any(part == ".DS_Store" for part in parts) or Path(name).name.startswith("._")
-
-
-def _safe_zip_target(root: Path, member_name: str) -> Path:
-    normalized = Path(member_name)
-    if normalized.is_absolute() or ".." in normalized.parts:
-        raise ValueError(f"Unsafe zip member path: {member_name}")
-    target = (root / normalized).resolve()
-    root_resolved = root.resolve()
-    if root_resolved not in [target, *target.parents]:
-        raise ValueError(f"Zip member escapes extraction root: {member_name}")
-    return target
-
-
-def safe_extract_cell_zip(zip_path: Path, extract_root: Path) -> dict[str, Any]:
-    match = re.fullmatch(r"Cell_(\d{2})\.zip", zip_path.name)
-    if not match:
-        raise ValueError(f"Expected Cell_NN.zip archive, got {zip_path.name}")
-    cell_id = f"Cell_{match.group(1)}"
-    data_root = extract_root / "01-Data"
-    cell_root = data_root / cell_id
-    extracted_files: list[dict[str, Any]] = []
-    skipped_members: list[str] = []
-    try:
-        with ZipFile(zip_path) as archive:
-            for member in archive.infolist():
-                name = member.filename.replace("\\", "/")
-                if member.is_dir() or _is_metadata_zip_member(name):
-                    skipped_members.append(name)
-                    continue
-                parts = Path(name).parts
-                relative = Path(*parts) if parts and parts[0] == cell_id else Path(cell_id) / Path(name)
-                target = _safe_zip_target(data_root, str(relative))
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(member) as source, target.open("wb") as destination:
-                    shutil.copyfileobj(source, destination)
-                extracted_files.append(
-                    {
-                        "path": str(target.relative_to(extract_root)),
-                        "size_bytes": target.stat().st_size,
-                        "sha256": _file_sha256(target),
-                    }
-                )
-    except BadZipFile as exc:
-        raise ValueError(f"Invalid zip archive: {zip_path.name}") from exc
-    return {
-        "archive": zip_path.name,
-        "cell_id": cell_id,
-        "target_dir": str(cell_root.relative_to(extract_root)),
-        "file_count": len(extracted_files),
-        "files": extracted_files,
-        "skipped_member_count": len(skipped_members),
-        "skipped_members_preview": skipped_members[:20],
-    }
-
-
 def _write_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
@@ -231,14 +171,29 @@ async def _store_upload(upload: UploadFile, raw_dir: Path) -> dict[str, Any]:
 
 def _manifest_dictionary_presence(files: list[dict[str, Any]]) -> dict[str, bool]:
     names = {str(file.get("filename", "")).lower() for file in files}
-    has_manifest = any("manifest" in name and (name.endswith(".json") or name.endswith(".yml") or name.endswith(".yaml")) for name in names)
-    has_dictionary = any("data_dictionary" in name and (name.endswith(".csv") or name.endswith(".xlsx") or name.endswith(".xls")) for name in names)
-    return {"has_manifest": has_manifest, "has_data_dictionary": has_dictionary}
+    has_manifest = "mirai_manifest.json" in names
+    has_dictionary = "data_dictionary.csv" in names
+    has_model_table = "model_table.csv" in names
+    has_experiments = "experiments.csv" in names
+    has_conditions = "conditions.csv" in names
+    has_results = "results.csv" in names
+    has_fixed_source_tables = has_experiments and has_conditions and has_results
+    has_zip_package = any(name.endswith(".zip") for name in names)
+    return {
+        "has_manifest": has_manifest,
+        "has_data_dictionary": has_dictionary,
+        "has_model_table": has_model_table,
+        "has_experiments": has_experiments,
+        "has_conditions": has_conditions,
+        "has_results": has_results,
+        "has_fixed_source_tables": has_fixed_source_tables,
+        "has_zip_package": has_zip_package,
+    }
 
 
 def _infer_session_status(files: list[dict[str, Any]]) -> str:
     presence = _manifest_dictionary_presence(files)
-    if presence["has_manifest"] and presence["has_data_dictionary"]:
+    if presence["has_zip_package"] or (presence["has_manifest"] and presence["has_data_dictionary"] and (presence["has_model_table"] or presence["has_fixed_source_tables"])):
         return "ready_for_contract_review"
     return "blocked_missing_mirai_contract"
 
@@ -272,7 +227,6 @@ def upsert_project_metadata(
         "workspace_id": workspace_id,
         "workspace_name": str(workspace.get("display_name") or workspace_name or "Default workspace"),
         "template_id": existing.get("template_id") or "generic_tabular_doe",
-        "raw_extractor": existing.get("raw_extractor") or ("pem_cell_zip_bundle" if ingestion_path == "pem_cell_zip_bundle" else None),
         "lifecycle_contract": "generic_tabular_doe",
         "status": existing.get("status") or "active",
         "created_at": existing.get("created_at") or _now(),
@@ -312,10 +266,11 @@ def _build_session_payload(
         },
         "files": files,
         "notes": notes or "",
-        "ingestion_path": ingestion_path,
+        "ingestion_path": "generic_tabular_doe",
+        "lifecycle_contract": "generic_tabular_doe",
         "mapping": {
             "state": "ready_for_mirai_admin_review" if status == "ready_for_contract_review" else "blocked_missing_required_contract",
-            "message": "A Mirai manifest JSON and data_dictionary CSV/XLSX are required. Mirai admins must approve roles, dtypes, units, bounds, joins, split hints, and output directions before preprocessing.",
+            "message": "A Mirai package requires mirai_manifest.json, data_dictionary.csv, and either model_table.csv or the fixed source tables experiments.csv, conditions.csv, and results.csv (or a ZIP containing that package). Mirai admins must approve roles, dtypes, units, bounds, joins, split hints, and output directions before preprocessing.",
             "contract": _manifest_dictionary_presence(files),
         },
         "manifest_assistant": {
@@ -335,6 +290,7 @@ async def create_ingestion_session(
 ) -> dict[str, Any]:
     if not uploads:
         raise ValueError("At least one file must be uploaded")
+    ingestion_path = "generic_tabular_doe"
     if existing_project_id:
         if _slugify(existing_project_id) != existing_project_id:
             raise ValueError("existing_project_id must be a safe project identifier")
@@ -368,7 +324,7 @@ async def append_ingestion_files(project_id: str, dataset_id: str, session_id: s
     session["updated_at"] = _now()
     session["mapping"] = {
         "state": "ready_for_mirai_admin_review" if session["status"] == "ready_for_contract_review" else "blocked_missing_required_contract",
-        "message": "Files changed. A Mirai manifest JSON and data_dictionary CSV/XLSX are required, and Mirai admins must reconfirm roles, units, dtypes, joins, split hints, and target outputs before preprocessing.",
+        "message": "Files changed. A Mirai package requires mirai_manifest.json, data_dictionary.csv, and either model_table.csv or fixed source tables experiments.csv, conditions.csv, and results.csv (or a ZIP containing that package), and Mirai admins must reconfirm roles, units, dtypes, joins, split hints, and target outputs before preprocessing.",
         "contract": _manifest_dictionary_presence(files),
     }
     _write_json(session_path / "session.json", session)

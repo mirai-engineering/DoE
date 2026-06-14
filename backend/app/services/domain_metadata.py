@@ -10,9 +10,15 @@ TemplateId = Literal["fuel_cell", "generic_tabular_doe"]
 
 class VariableMetadata(TypedDict, total=False):
     name: str
+    variable_id: str
     label: str
+    ui_label: str
     unit: str
     role: VariableRole
+    source_table: str
+    source_name: str
+    description: str
+    dtype: str
     semantic_type: str
     direction: str | None
     min: float | None
@@ -52,6 +58,7 @@ class ProjectDomainMetadata(TypedDict, total=False):
     approval_status: str
     approved_by: str | None
     variables: list[VariableMetadata]
+    all_variables: list[VariableMetadata]
     ui_config: UiConfig
 
 
@@ -89,12 +96,19 @@ FUEL_CELL_UNITS = {
 
 
 def _variable_from_schema(item: dict[str, Any], role: VariableRole) -> VariableMetadata:
-    name = str(item.get("name", ""))
+    name = str(item.get("variable_id") or item.get("name", ""))
+    label = str(item.get("ui_label") or item.get("label") or FUEL_CELL_LABELS.get(name) or name.replace("_", " ").title())
     return {
         "name": name,
-        "label": str(item.get("label") or FUEL_CELL_LABELS.get(name) or name.replace("_", " ").title()),
+        "variable_id": name,
+        "label": label,
+        "ui_label": label,
         "unit": str(item.get("unit") or FUEL_CELL_UNITS.get(name) or ""),
         "role": FUEL_CELL_INPUT_ROLES.get(name, role) if role == "input" else role,
+        "source_table": str(item.get("source_table") or ""),
+        "source_name": str(item.get("source_name") or item.get("name") or name),
+        "description": str(item.get("description") or ""),
+        "dtype": str(item.get("dtype") or ""),
         "semantic_type": str(item.get("type") or "continuous"),
         "direction": item.get("direction"),
         "min": item.get("min"),
@@ -180,10 +194,14 @@ def build_domain_metadata(schema: dict[str, Any], *, template_id: TemplateId | N
     variables: list[VariableMetadata] = []
     variables.extend(_variable_from_schema(item, "input") for item in schema.get("inputs", []))
     variables.extend(_variable_from_schema(item, "output") for item in schema.get("outputs", []))
-    metadata_variables = schema.get("metadata", {}).get("variables", []) if isinstance(schema.get("metadata"), dict) else []
+    schema_metadata = schema.get("metadata", {}) if isinstance(schema.get("metadata"), dict) else {}
+    metadata_variables = schema_metadata.get("variables", []) if isinstance(schema_metadata, dict) else []
     for item in metadata_variables:
         if isinstance(item, dict):
             variables.append(_variable_from_schema(item, item.get("role") or "metadata"))
+    all_variables = [_variable_from_schema(item, item.get("role") or "metadata") for item in schema_metadata.get("all_variables", []) if isinstance(item, dict)]
+    if not all_variables:
+        all_variables = list(variables)
     if template == "fuel_cell":
         variables.append({"name": "cell_id", "label": "Cell ID", "unit": "", "role": "group", "semantic_type": "identifier", "approved": True})
         variables.append({"name": "split", "label": "Data split", "unit": "", "role": "metadata", "semantic_type": "categorical", "approved": True})
@@ -218,6 +236,7 @@ def build_domain_metadata(schema: dict[str, Any], *, template_id: TemplateId | N
         "approval_status": approval_status,
         "approved_by": "Mirai default migration" if approval_status == "approved" else None,
         "variables": variables,
+        "all_variables": all_variables,
         "ui_config": {
             "selected_plot_recipe_id": selected,
             "plot_recipes": recipes,
@@ -241,6 +260,10 @@ def apply_variable_metadata_to_schema(schema: dict[str, Any]) -> dict[str, Any]:
                 updated = dict(item)
                 if variable.get("label"):
                     updated["label"] = variable["label"]
+                    updated["ui_label"] = variable["label"]
+                if variable.get("ui_label"):
+                    updated["label"] = variable["ui_label"]
+                    updated["ui_label"] = variable["ui_label"]
                 if "unit" in variable:
                     updated["unit"] = variable.get("unit") or ""
                 if variable.get("role"):

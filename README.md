@@ -6,7 +6,7 @@ The current MVP is intentionally **generic first**:
 
 - `generic_tabular_doe` is the source-of-truth lifecycle for tabular DoE projects.
 - Customer/project meaning lives in `mirai_manifest.json` and `data_dictionary.csv`, not in customer-specific Python packages.
-- Fraunhofer/PEM fuel-cell support is a demo adapter path: `pem_cell_zip_bundle` converts a PEM ZIP bundle into the same generic Mirai contract before preprocessing/training.
+- The Fraunhofer fuel-cell demo is reshaped into the same generic Mirai package structure as every other tabular engineering project; it is not a separate upload or training path.
 - MLflow remains the model experiment and registry layer.
 - Production/demo object payloads live in Railway S3-compatible buckets, with Postgres storing metadata and logical object keys.
 - Local runtime mirrors/caches live under ignored `backend/.object-storage-local/`; legacy `backend/data-minio/` data should remain ignored or archived there.
@@ -29,10 +29,11 @@ Mirai replaces that pattern with a declarative package contract:
 my_project_upload/
   mirai_manifest.json
   data_dictionary.csv
-  experiments.csv
-  samples.csv
-  results.csv
-  optional_raw_or_reference_files...
+  model_table.csv
+  metadata/
+    runs.csv
+    samples.csv
+  raw_reference/   # optional audit/source files only
 ```
 
 The manifest/data dictionary define:
@@ -68,8 +69,8 @@ Upload package
 
 - Create a new project under a workspace/client.
 - Add a new dataset/session to an existing project.
-- Upload generic Mirai contract packages.
-- Upload the PEM fuel-cell demo bundle through the `pem_cell_zip_bundle` extractor.
+- Upload one generic Mirai Experiment Package for every domain.
+- Accept ZIP uploads only as containers for the same package structure.
 - Persist project/session metadata in Postgres/Railway object storage for production, or under ignored `backend/.object-storage-local/` for local development.
 - Persist tiny seed workspace metadata under `backend/seeds/object_storage/`; generated workspace state belongs in the ignored local mirror/cache.
 
@@ -181,11 +182,11 @@ docs/railway-level-2-pilot.md
 │   │   ├── MLFLOW_README.md
 │   │   ├── ingesting/
 │   │   │   ├── generic_tabular_doe/        # Generic contract validation/preprocessing
-│   │   │   ├── extractors/                 # PEM ZIP bundle adapter
-│   │   │   └── fuel_cell_doe_demo/         # Fuel-cell compatibility path
+│   │   │   ├── extractors/                 # Historical/offline migration helpers
+│   │   │   └── fuel_cell_doe_demo/         # Historical/offline fuel-cell reference scripts
 │   │   ├── training/
 │   │   │   ├── generic_tabular_doe/        # Generic candidate training + MLflow
-│   │   │   └── fuel_cell_doe_demo/         # Fuel-cell compatibility training
+│   │   │   └── fuel_cell_doe_demo/         # Historical/offline fuel-cell reference scripts
 │   │   └── entrypoints/                    # CLI entrypoints for lifecycle steps
 │   ├── tests/
 │   ├── pyproject.toml
@@ -262,7 +263,7 @@ Current seeded workspace:
 ```text
 Fraunhofer
 workspace_id: fraunhofer
-allowed_extractors: [pem_cell_zip_bundle]
+allowed_extractors: []
 lifecycle_contract: generic_tabular_doe
 ```
 
@@ -276,27 +277,18 @@ Use this when the upload starts a separate scientific or business context. It cr
 
 Use this for a repeat campaign, retraining package, or new dataset under the same project ID. It does not overwrite files, but future training can update that same project's challenger/session model.
 
-Ingestion paths:
+Ingestion path:
 
-### Generic Mirai Contract
+### Mirai Experiment Package
 
-Use when uploaded tables already follow the Mirai manifest/data-dictionary contract.
-
-```text
-template_id = generic_tabular_doe
-raw_extractor = null
-```
-
-### Fuell Cell DoE Demo
-
-Use for the PEM ZIP bundle demo. The extractor adapts the PEM package to the generic contract first.
+Use the same package shape for fuel cells, batteries, materials, process engineering, and all other tabular engineering projects.
 
 ```text
 template_id = generic_tabular_doe
-raw_extractor = pem_cell_zip_bundle
+lifecycle_contract = generic_tabular_doe
 ```
 
-The user-facing label intentionally remains `Fuell Cell DoE Demo`.
+The preferred MVP package includes `mirai_manifest.json`, `data_dictionary.csv`, and `model_table.csv`. Optional overview/metadata tables must be declared with deterministic joins into `model_table.csv`. ZIP uploads are generic containers for the same structure.
 
 ---
 

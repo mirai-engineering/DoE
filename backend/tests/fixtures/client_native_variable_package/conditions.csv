@@ -1,0 +1,7 @@
+condition_id,experiment_id,Split Plan,Temperature (°C)
+COND-001,EXP-001,train,60
+COND-002,EXP-002,train,65
+COND-003,EXP-003,train,70
+COND-004,EXP-004,validation,75
+COND-005,EXP-005,test,80
+COND-006,EXP-006,test,85

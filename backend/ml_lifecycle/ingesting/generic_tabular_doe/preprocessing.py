@@ -13,7 +13,6 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 
 from .contract import ContractValidationError, load_and_validate_contract, schema_from_contract
-from ml_lifecycle.ingesting.extractors.pem_cell_zip_bundle import run_pem_cell_zip_bundle
 
 
 def _now() -> str:
@@ -26,8 +25,8 @@ def _write_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _read_table(raw_root: Path, relative_path: str, generated_tables: dict[str, Path] | None = None) -> pd.DataFrame:
-    path = generated_tables.get(relative_path) if generated_tables and relative_path in generated_tables else raw_root / relative_path
+def _read_table(raw_root: Path, relative_path: str) -> pd.DataFrame:
+    path = raw_root / relative_path
     if not path.exists():
         raise ContractValidationError([f"Declared table file is missing: {relative_path}"])
     suffix = path.suffix.lower()
@@ -48,11 +47,21 @@ def _coerce_column(series: pd.Series, dtype: str) -> pd.Series:
     return series.astype("string")
 
 
-def _build_joined_table(raw_root: Path, contract: dict[str, Any], generated_tables: dict[str, Path] | None = None) -> pd.DataFrame:
-    tables = {str(table["path"]): _read_table(raw_root, str(table["path"]), generated_tables=generated_tables) for table in contract.get("tables", [])}
+def _build_joined_table(raw_root: Path, contract: dict[str, Any]) -> pd.DataFrame:
+    tables = {str(table["path"]): _read_table(raw_root, str(table["path"])) for table in contract.get("tables", [])}
+    source_errors: list[str] = []
+    for column in contract.get("columns", []):
+        table = str(column.get("source_table") or column.get("table") or "")
+        source_name = str(column.get("source_name") or column.get("name") or "")
+        if table in tables and source_name and source_name not in tables[table].columns:
+            source_errors.append(f"source_name {source_name!r} for variable_id {column.get('variable_id') or column.get('name')!r} does not exist in {table}")
+    if source_errors:
+        raise ContractValidationError(source_errors)
+    if "model_table.csv" in tables and not contract.get("materialize_model_table_from_sources"):
+        return tables["model_table.csv"].copy()
     if not contract.get("joins"):
         if len(tables) != 1:
-            raise ContractValidationError(["Multi-table contracts must declare joins. For MVP use one model_table.csv or explicit one_to_one/one_to_many joins."])
+            raise ContractValidationError(["Multi-table contracts must declare joins or use the fixed experiments.csv → conditions.csv → results.csv source contract."])
         return next(iter(tables.values())).copy()
     base_path = str(contract["joins"][0]["left_table"])
     frame = tables[base_path].copy()
@@ -174,22 +183,66 @@ def _process_raw_reference_zips(raw_root: Path, artifact_dir: Path, contract: di
 
 
 
-def _run_raw_extractors(raw_root: Path, canonical_dir: Path, artifact_dir: Path, contract: dict[str, Any]) -> tuple[dict[str, Path], dict[str, Any]]:
-    extractors = contract.get("raw_extractors") if isinstance(contract.get("raw_extractors"), list) else []
-    if not extractors:
-        return {}, {"enabled": False, "reason": "No raw_extractors declared"}
-    generated_tables: dict[str, Path] = {}
-    reports: list[dict[str, Any]] = []
-    for index, extractor in enumerate(extractors, start=1):
-        if not isinstance(extractor, dict):
-            raise ContractValidationError([f"raw_extractors[{index}] must be an object"])
-        kind = str(extractor.get("kind") or "")
-        if kind != "pem_cell_zip_bundle":
-            raise ContractValidationError([f"Unsupported raw extractor kind {kind!r}; supported: pem_cell_zip_bundle"])
-        output_table, generated_table_path, report = run_pem_cell_zip_bundle(raw_root=raw_root, canonical_dir=canonical_dir, artifact_dir=artifact_dir, extractor=extractor, index=index)
-        generated_tables[output_table] = generated_table_path
-        reports.append(report)
-    return generated_tables, {"enabled": True, "extractor_count": len(reports), "extractors": reports}
+def _safe_zip_member_target(root: Path, member_name: str) -> Path:
+    normalized = Path(member_name)
+    if normalized.is_absolute() or ".." in normalized.parts:
+        raise ContractValidationError([f"Unsafe ZIP member path: {member_name}"])
+    target = (root / normalized).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in [target, *target.parents]:
+        raise ContractValidationError([f"ZIP member escapes extraction root: {member_name}"])
+    return target
+
+
+def _has_required_package_files(root: Path) -> bool:
+    contract_files = ["mirai_manifest.json", "data_dictionary.csv"]
+    fixed_source_files = ["experiments.csv", "conditions.csv", "results.csv"]
+    return all((root / name).exists() for name in contract_files) and (
+        (root / "model_table.csv").exists() or all((root / name).exists() for name in fixed_source_files)
+    )
+
+
+def _prepare_package_root(raw_root: Path, artifact_dir: Path) -> tuple[Path, dict[str, Any]]:
+    contract_files = ["mirai_manifest.json", "data_dictionary.csv"]
+    fixed_source_files = ["experiments.csv", "conditions.csv", "results.csv"]
+    accepted_files = [*contract_files, "model_table.csv"]
+    if _has_required_package_files(raw_root):
+        mode = "direct_fixed_source_tables" if not (raw_root / "model_table.csv").exists() else "direct_folder"
+        return raw_root, {"mode": mode, "extracted": False, "accepted_files": [*accepted_files, *fixed_source_files]}
+
+    zip_paths = sorted(path for path in raw_root.iterdir() if path.is_file() and path.suffix.lower() == ".zip")
+    if not zip_paths:
+        return raw_root, {"mode": "direct_folder_incomplete", "extracted": False, "accepted_files": [*accepted_files, *fixed_source_files]}
+    if len(zip_paths) > 1:
+        raise ContractValidationError(["Upload one Mirai package ZIP or the required package files directly; multiple ZIP containers are ambiguous"])
+
+    extract_root = artifact_dir / "package_inventory" / "extracted_package"
+    if extract_root.exists():
+        import shutil
+
+        shutil.rmtree(extract_root)
+    extract_root.mkdir(parents=True, exist_ok=True)
+    members: list[dict[str, Any]] = []
+    try:
+        with ZipFile(zip_paths[0]) as archive:
+            for member in archive.infolist():
+                name = member.filename.replace("\\", "/")
+                if member.is_dir() or _is_metadata_zip_member(name):
+                    continue
+                target = _safe_zip_member_target(extract_root, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, target.open("wb") as destination:
+                    destination.write(source.read())
+                members.append({"path": str(target.relative_to(extract_root)), "size_bytes": int(member.file_size)})
+    except BadZipFile as exc:
+        raise ContractValidationError([f"Invalid ZIP package: {zip_paths[0].name}"]) from exc
+
+    candidates = [extract_root, *[path for path in extract_root.iterdir() if path.is_dir()]]
+    for candidate in candidates:
+        if _has_required_package_files(candidate):
+            mode = "zip_fixed_source_tables" if not (candidate / "model_table.csv").exists() else "zip_package"
+            return candidate, {"mode": mode, "extracted": True, "archive": zip_paths[0].name, "package_root": str(candidate), "member_count": len(members), "members_preview": members[:200], "accepted_files": [*accepted_files, *fixed_source_files]}
+    raise ContractValidationError(["ZIP package must contain mirai_manifest.json, data_dictionary.csv, and either model_table.csv or experiments.csv + conditions.csv + results.csv at its root or one top-level package folder"])
 
 
 def _assign_metadata_aware_grouped_splits(frame: pd.DataFrame, group_key: str) -> tuple[pd.Series, dict[str, Any]]:
@@ -271,30 +324,40 @@ def _profile(frame: pd.DataFrame, columns: list[str]) -> dict[str, Any]:
 
 
 def build_generic_preprocessing_artifacts(*, raw_root: Path, canonical_dir: Path, artifact_dir: Path, project_id: str) -> dict[str, Any]:
-    contract = load_and_validate_contract(raw_root)
+    package_root, package_inventory = _prepare_package_root(raw_root, artifact_dir)
+    contract = load_and_validate_contract(package_root)
     schema = schema_from_contract(contract, project_id=project_id)
-    generated_tables, raw_extractor_report = _run_raw_extractors(raw_root, canonical_dir, artifact_dir, contract)
-    raw_reference_inventory = _process_raw_reference_zips(raw_root, artifact_dir, contract)
+    raw_reference_inventory = _process_raw_reference_zips(package_root, artifact_dir, contract)
     columns = [column for column in contract.get("columns", []) if column.get("role") != "ignore"]
     required_columns = [column for column in columns if column.get("required")]
-    inputs = [column["name"] for column in columns if column.get("role") == "input"]
-    outputs = [column["name"] for column in columns if column.get("role") == "output"]
-    model_columns = [column["name"] for column in columns]
+    inputs = [column["variable_id"] or column["name"] for column in columns if column.get("role") == "input"]
+    outputs = [column["variable_id"] or column["name"] for column in columns if column.get("role") == "output"]
+    model_columns = [column["variable_id"] or column["name"] for column in columns]
 
-    frame = _build_joined_table(raw_root, contract, generated_tables=generated_tables)
-    if "row_id" not in frame.columns and any(column.get("name") == "row_id" and column.get("role") == "id" for column in columns):
-        frame.insert(0, "row_id", [f"{project_id}_row_{idx + 1:05d}" for idx in range(len(frame))])
+    frame = _build_joined_table(package_root, contract)
+    source_to_variable: dict[str, str] = {}
     validation_errors: list[str] = []
-    for column in required_columns:
-        if column["name"] not in frame.columns:
-            validation_errors.append(f"Missing required column {column['name']} from table {column['table']}")
+    for column in columns:
+        source_name = column.get("source_name") or column.get("name")
+        variable_id = column.get("variable_id") or column.get("name")
+        if source_name not in frame.columns:
+            if variable_id == "row_id" and column.get("role") == "id":
+                continue
+            if column.get("required"):
+                validation_errors.append(f"Missing required source column {source_name} for variable_id {variable_id} from table {column['table']}")
+            continue
+        source_to_variable[str(source_name)] = str(variable_id)
+    if "row_id" not in frame.columns and any((column.get("variable_id") or column.get("name")) == "row_id" and column.get("role") == "id" for column in columns):
+        frame.insert(0, "row_id", [f"{project_id}_row_{idx + 1:05d}" for idx in range(len(frame))])
+        source_to_variable["row_id"] = "row_id"
     if validation_errors:
         raise ContractValidationError(validation_errors)
 
-    working = frame[[name for name in model_columns if name in frame.columns]].copy()
+    selected_sources = [column.get("source_name") or column.get("name") for column in columns if (column.get("source_name") or column.get("name")) in frame.columns]
+    working = frame[selected_sources].copy().rename(columns=source_to_variable)
     rejected_reasons: list[dict[str, Any]] = []
     for column in columns:
-        name = column["name"]
+        name = column["variable_id"] or column["name"]
         if name not in working.columns:
             continue
         working[name] = _coerce_column(working[name], str(column.get("dtype")))
@@ -315,8 +378,6 @@ def build_generic_preprocessing_artifacts(*, raw_root: Path, canonical_dir: Path
     if accepted.empty:
         raise ContractValidationError(["No rows remain after required-value/bounds validation"])
     split_hints = dict(contract.get("split_hints") or {})
-    if any((extractor.get("kind") == "pem_cell_zip_bundle") for extractor in contract.get("raw_extractors", []) if isinstance(extractor, dict)) and split_hints.get("group_key") == "cell_id" and not split_hints.get("predefined_split_column"):
-        split_hints["recommended_strategy"] = split_hints.get("recommended_strategy") if split_hints.get("recommended_strategy") not in {None, "grouped"} else "metadata_aware_grouped_by_cell_id"
     accepted["split"], split_details = _assign_splits(accepted, split_hints)
 
     canonical_dir.mkdir(parents=True, exist_ok=True)
@@ -360,11 +421,11 @@ def build_generic_preprocessing_artifacts(*, raw_root: Path, canonical_dir: Path
     _write_json(artifact_dir / "dataset_profile.json", dataset_profile)
     _write_json(artifact_dir / "eda_report.json", eda_report)
     _write_json(artifact_dir / "raw_reference_inventory.json", raw_reference_inventory)
-    _write_json(artifact_dir / "raw_extractor_report.json", raw_extractor_report)
+    _write_json(artifact_dir / "package_inventory.json", package_inventory)
     _write_json(canonical_dir / "dataset_profile.json", dataset_profile)
     _write_json(canonical_dir / "validation_report.json", validation_report)
     _write_json(canonical_dir / "raw_reference_inventory.json", raw_reference_inventory)
-    _write_json(canonical_dir / "raw_extractor_report.json", raw_extractor_report)
+    _write_json(canonical_dir / "package_inventory.json", package_inventory)
     return {
         "project_id": project_id,
         "template_id": contract.get("project", {}).get("template_id"),
@@ -377,6 +438,6 @@ def build_generic_preprocessing_artifacts(*, raw_root: Path, canonical_dir: Path
         "dataset_profile_path": str(artifact_dir / "dataset_profile.json"),
         "validation_report_path": str(artifact_dir / "validation_report.json"),
         "raw_reference_inventory_path": str(artifact_dir / "raw_reference_inventory.json"),
-        "raw_extractor_report_path": str(artifact_dir / "raw_extractor_report.json"),
+        "package_inventory_path": str(artifact_dir / "package_inventory.json"),
         "preprocessing_report_path": str(artifact_dir / "validation_report.json"),
     }

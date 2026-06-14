@@ -1,0 +1,11 @@
+table,path,source_name,variable_id,ui_label,role,dtype,unit,required,allowed_min,allowed_max,direction,description,join_key,split_hint,plot_role
+experiments,experiments.csv,experiment_id,experiment_id,Experiment ID,id,string,,true,,,,Required Mirai experiment key,experiment_id,,
+experiments,experiments.csv,Client Batch #,client_batch,Client batch,group,string,,true,,,,Client-native batch identifier,,group_key,color
+experiments,experiments.csv,Pt/C ratio (%),x1,Pt/C ratio,input,float,%,true,0,100,,Client-native catalyst ratio with symbols,,,x_axis
+experiments,experiments.csv,Operator note,operator_note,Operator note,metadata,string,,false,,,,Operator note carried for traceability,,,
+conditions,conditions.csv,condition_id,condition_id,Condition ID,id,string,,true,,,,Required Mirai condition key,condition_id,,
+conditions,conditions.csv,Split Plan,split,Split,metadata,string,,true,,,,Client split plan,,predefined_split_column,
+conditions,conditions.csv,Temperature (°C),x2,Temperature,input,float,degC,true,0,120,,Client-native temperature name,,,x_axis
+results,results.csv,result_id,result_id,Result ID,id,string,,true,,,,Required result key,result_id,,
+results,results.csv,Yield %,y1,Yield,output,float,%,true,0,100,maximize,Primary yield KPI,,,y_axis
+results,results.csv,@Quality Score,y2,Quality score,output,float,unitless,true,0,1,maximize,Secondary quality KPI,,,y_axis

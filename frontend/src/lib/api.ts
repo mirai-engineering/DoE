@@ -59,28 +59,47 @@ export interface ProjectsResponse {
 
 export interface SchemaInput {
   name: string
+  variable_id?: string
   label: string
+  ui_label?: string
   type: 'continuous'
+  dtype?: string
   min: number
   max: number
   unit: string
+  role?: VariableRole
+  source_table?: string
+  source_name?: string
+  description?: string
 }
 
 export interface SchemaOutput {
   name: string
+  variable_id?: string
   label: string
+  ui_label?: string
   direction: 'maximize' | 'minimize'
   unit: string
+  role?: VariableRole
+  source_table?: string
+  source_name?: string
+  description?: string
 }
 
-export type VariableRole = 'input' | 'output' | 'group' | 'sweep' | 'time' | 'metadata'
+export type VariableRole = 'id' | 'input' | 'output' | 'group' | 'sweep' | 'time' | 'metadata' | 'context' | 'cycle' | 'sequence' | 'curve_axis' | 'ignore'
 export type TemplateId = 'fuel_cell' | 'generic_tabular_doe'
 
 export interface VariableMetadata {
   name: string
+  variable_id?: string
   label: string
+  ui_label?: string
   unit?: string
+  dtype?: string
   role: VariableRole
+  source_table?: string
+  source_name?: string
+  description?: string
   semantic_type?: string
   direction?: 'maximize' | 'minimize' | 'target' | null
   min?: number | null
@@ -128,7 +147,20 @@ export interface ProjectDomainMetadata {
   approval_status?: string
   approved_by?: string | null
   variables?: VariableMetadata[]
+  all_variables?: VariableMetadata[]
+  split_hints?: Record<string, unknown>
+  joins?: Array<Record<string, unknown>>
   ui_config?: UiConfig
+}
+
+export interface ProjectSchemaMetadata {
+  domain?: string
+  template_id?: TemplateId | string
+  variables?: VariableMetadata[]
+  all_variables?: VariableMetadata[]
+  split_hints?: Record<string, unknown>
+  joins?: Array<Record<string, unknown>>
+  dictionary_fields?: string[]
 }
 
 export interface ProjectSchema {
@@ -141,6 +173,7 @@ export interface ProjectSchema {
   allow_unknown_inputs?: boolean
   inputs: SchemaInput[]
   outputs: SchemaOutput[]
+  metadata?: ProjectSchemaMetadata
   domain_metadata?: ProjectDomainMetadata
 }
 
@@ -233,7 +266,8 @@ export interface IngestionSessionResponse {
   storage: Record<string, unknown>
   files: IntakeFileInventoryItem[]
   notes: string
-  ingestion_path?: 'generic_tabular_doe' | 'fuel_cell_doe_demo' | string
+  ingestion_path?: 'generic_tabular_doe' | string
+  lifecycle_contract?: 'generic_tabular_doe' | string
   mapping: Record<string, unknown>
   manifest_assistant: Record<string, unknown>
 }
@@ -242,12 +276,16 @@ export interface IntakeSessionsResponse {
   sessions: IngestionSessionResponse[]
 }
 
-export interface FuelCellPackageValidation {
+export interface MiraiContractValidation {
   valid: boolean
   errors: string[]
-  workbook?: string | null
-  cell_archive_count: number
-  cell_ids: string[]
+  template_id?: string | null
+  table_count?: number
+  column_count?: number
+  input_count?: number
+  output_count?: number
+  package_type?: string
+  deprecated_endpoint?: boolean
   message: string
 }
 
@@ -260,7 +298,7 @@ export interface PreprocessingStatus {
   report_path?: string
   canonical_dir?: string
   training_artifact_dir?: string
-  validation?: FuelCellPackageValidation
+  validation?: MiraiContractValidation
   [key: string]: unknown
 }
 
@@ -831,14 +869,13 @@ export async function createIngestionSession(
   projectName: string,
   files: File[],
   notes?: string,
-  ingestionPath: 'generic_tabular_doe' | 'fuel_cell_doe_demo' = 'generic_tabular_doe',
   options: { workspaceName?: string; existingProjectId?: string } = {},
 ): Promise<IngestionSessionResponse> {
   try {
     const formData = new FormData()
     formData.append('project_name', projectName)
     if (notes) formData.append('notes', notes)
-    formData.append('ingestion_path', ingestionPath)
+    formData.append('ingestion_path', 'generic_tabular_doe')
     if (options.workspaceName) formData.append('workspace_name', options.workspaceName)
     if (options.existingProjectId) formData.append('existing_project_id', options.existingProjectId)
     files.forEach((file) => formData.append('files', file))
@@ -877,16 +914,16 @@ export async function appendIngestionFiles(session: IngestionSessionResponse, fi
   }
 }
 
-export async function validateFuelCellPackage(session: IngestionSessionResponse): Promise<FuelCellPackageValidation> {
+export async function validateMiraiContract(session: IngestionSessionResponse): Promise<MiraiContractValidation> {
   try {
-    const response = await api.get<FuelCellPackageValidation>(`${sessionPath(session)}/fuel-cell-package/validation`)
+    const response = await api.get<MiraiContractValidation>(`${sessionPath(session)}/fuel-cell-package/validation`)
     return response.data
   } catch (error) {
-    throw normalizeError(error, 'Unable to validate fuel-cell package')
+    throw normalizeError(error, 'Unable to validate Mirai contract')
   }
 }
 
-export async function startFuelCellPreprocessing(session: IngestionSessionResponse): Promise<PreprocessingStatus> {
+export async function startMiraiPreprocessing(session: IngestionSessionResponse): Promise<PreprocessingStatus> {
   try {
     const response = await api.post<PreprocessingStatus>(`${sessionPath(session)}/preprocessing/start`)
     return response.data

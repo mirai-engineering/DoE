@@ -17,8 +17,6 @@ from .mlflow_registry import registered_model_name_for_project
 from .workspace_storage import put_workspace_object, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.schema import OUTPUT_DIR as REAL_CANONICAL_DIR, PROJECT_ID as REAL_FUEL_CELL_PROJECT_ID, TRAINING_ARTIFACT_DIR
-from ml_lifecycle.training.fuel_cell_doe_demo.train import train_models
 
 
 logger = logging.getLogger(__name__)
@@ -204,9 +202,9 @@ def _write_training_request(project_id: str, dataset_id: str, session_id: str, r
 def _copy_tree_contents(source: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     for path in source.iterdir():
-        if path.name in {"raw_reference_extracted", "raw_extractor_workspace", "01-Data"}:
-            # Raw/reference ZIPs and PEM extractor workspaces must stay out of activated
-            # project artifacts. They can contain 10k+ raw CSV files and are not needed
+        if path.name in {"raw_reference_extracted", "01-Data"}:
+            # Raw/reference ZIPs and source workspaces must stay out of activated
+            # project artifacts. They can contain many raw CSV files and are not needed
             # for serving/model-quality; only bounded inventories and canonical outputs
             # should be persisted.
             continue
@@ -229,20 +227,12 @@ def activate_session_artifacts_for_model_quality(project_id: str, dataset_id: st
         raise FileNotFoundError("Session training metrics_summary.json is missing")
     schema = _read_json(training_latest / "schema.json", default={}) or {}
     template_id = schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else None
-    if template_id in {"generic_tabular_doe"} or project_id != REAL_FUEL_CELL_PROJECT_ID:
-        return {
-            "mode": "session_artifacts_active_in_object_store",
-            "canonical_source": str(canonical.relative_to(BACKEND_ROOT)),
-            "artifact_target": str(training_latest.relative_to(BACKEND_ROOT)),
-            "professional_follow_up": "Use immutable MinIO/object-storage artifact URIs plus per-project activation records for multi-client deployments.",
-        }
-    _copy_tree_contents(canonical, REAL_CANONICAL_DIR)
-    _copy_tree_contents(training_latest, TRAINING_ARTIFACT_DIR / "latest")
     return {
-        "mode": "copied_session_artifacts_to_active_runtime_latest",
-        "canonical_target": str(REAL_CANONICAL_DIR.relative_to(BACKEND_ROOT)),
-        "training_artifact_target": str((TRAINING_ARTIFACT_DIR / "latest").relative_to(BACKEND_ROOT)),
-        "professional_follow_up": "Use immutable MinIO/object-storage artifact URIs plus per-project activation records for multi-client deployments.",
+        "mode": "session_artifacts_active_in_object_store",
+        "canonical_source": str(canonical.relative_to(BACKEND_ROOT)),
+        "artifact_target": str(training_latest.relative_to(BACKEND_ROOT)),
+        "template_id": template_id or "generic_tabular_doe",
+        "professional_follow_up": "Use immutable object-storage artifact URIs plus per-project activation records for multi-client deployments.",
     }
 
 
@@ -279,8 +269,7 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     if not (canonical / "model_table.csv").exists():
         raise FileNotFoundError("Canonical model_table.csv not found; run preprocessing first")
     schema = _read_json(training_latest / "schema.json", default={}) or {}
-    template_id = schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else None
-    use_generic_training = template_id in {"generic_tabular_doe"}
+    template_id = schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else "generic_tabular_doe"
 
     status_payload = {
         "project_id": project_id,
@@ -288,11 +277,12 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
         "ingestion_session_id": session_id,
         "training_request_id": training_request_id,
         "status": "running",
-        "stage": "training_generic_tabular_models" if use_generic_training else "training_real_fuel_cell_models",
+        "stage": "training_generic_tabular_models",
+        "template_id": template_id or "generic_tabular_doe",
     }
     write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", status_payload)
     session = get_ingestion_session(project_id, dataset_id, session_id)
-    workspace_id = str(session.get("workspace_id") or "fraunhofer" if project_id == REAL_FUEL_CELL_PROJECT_ID else session.get("workspace_id") or "mirai-engineering")
+    workspace_id = str(session.get("workspace_id") or "mirai-engineering")
     artifact_prefix = f"workspaces/{workspace_id}/projects/{project_id}/training_runs/{training_request_id}/"
     create_training_run(
         workspace_id=workspace_id,
@@ -307,23 +297,7 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     _write_training_request(project_id, dataset_id, session_id, request)
 
     try:
-        if use_generic_training:
-            result = train_generic_project(project_id=project_id, data_dir=canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
-        else:
-            result = train_models(
-                project_id=REAL_FUEL_CELL_PROJECT_ID,
-                register_mlflow=True,
-                set_alias="challenger",
-                mlflow_experiment_name=project_id,
-                registered_model_name=registered_model_name_for_project(project_id),
-                dataset_id=dataset_id,
-                ingestion_session_id=session_id,
-                preprocessing_report_id=f"{session_id}:preprocessing_report",
-                training_request_id=training_request_id,
-                data_dir=canonical,
-                artifact_dir=training_latest,
-                training_config=request.get("training_config"),
-            )
+        result = train_generic_project(project_id=project_id, data_dir=canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
     except Exception as exc:  # noqa: BLE001 - persist failed runtime row before surfacing API error.
         fail_training_run(workspace_id=workspace_id, project_id=project_id, training_run_id=training_request_id, error_message=str(exc))
         raise

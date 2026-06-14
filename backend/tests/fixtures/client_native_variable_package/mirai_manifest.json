@@ -1,0 +1,162 @@
+{
+  "manifest_version": "0.3",
+  "project": {
+    "project_id": "client_native_variable_demo",
+    "display_name": "Client Native Variable Demo",
+    "domain": "generic_tabular_doe",
+    "template_id": "generic_tabular_doe",
+    "description": "Client-native source names mapped to Mirai variable ids."
+  },
+  "tables": [
+    {
+      "path": "experiments.csv",
+      "table_type": "experiments",
+      "primary_key": [
+        "experiment_id"
+      ]
+    },
+    {
+      "path": "conditions.csv",
+      "table_type": "conditions",
+      "primary_key": [
+        "condition_id",
+        "experiment_id"
+      ]
+    },
+    {
+      "path": "results.csv",
+      "table_type": "results",
+      "primary_key": [
+        "result_id"
+      ]
+    }
+  ],
+  "columns": [
+    {
+      "table": "experiments.csv",
+      "source_name": "experiment_id",
+      "variable_id": "experiment_id",
+      "name": "experiment_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true
+    },
+    {
+      "table": "experiments.csv",
+      "source_name": "Client Batch #",
+      "variable_id": "client_batch",
+      "name": "client_batch",
+      "role": "group",
+      "dtype": "string",
+      "required": true
+    },
+    {
+      "table": "experiments.csv",
+      "source_name": "Pt/C ratio (%)",
+      "variable_id": "x1",
+      "name": "x1",
+      "role": "input",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100
+    },
+    {
+      "table": "experiments.csv",
+      "source_name": "Operator note",
+      "variable_id": "operator_note",
+      "name": "operator_note",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false
+    },
+    {
+      "table": "conditions.csv",
+      "source_name": "condition_id",
+      "variable_id": "condition_id",
+      "name": "condition_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true
+    },
+    {
+      "table": "conditions.csv",
+      "source_name": "Split Plan",
+      "variable_id": "split",
+      "name": "split",
+      "role": "metadata",
+      "dtype": "string",
+      "required": true
+    },
+    {
+      "table": "conditions.csv",
+      "source_name": "Temperature (\u00b0C)",
+      "variable_id": "x2",
+      "name": "x2",
+      "role": "input",
+      "dtype": "float",
+      "unit": "degC",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 120
+    },
+    {
+      "table": "results.csv",
+      "source_name": "result_id",
+      "variable_id": "result_id",
+      "name": "result_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true
+    },
+    {
+      "table": "results.csv",
+      "source_name": "Yield %",
+      "variable_id": "y1",
+      "name": "y1",
+      "role": "output",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "direction": "maximize"
+    },
+    {
+      "table": "results.csv",
+      "source_name": "@Quality Score",
+      "variable_id": "y2",
+      "name": "y2",
+      "role": "output",
+      "dtype": "float",
+      "unit": "unitless",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 1,
+      "direction": "maximize"
+    }
+  ],
+  "joins": [
+    {
+      "left_table": "experiments.csv",
+      "right_table": "conditions.csv",
+      "keys": [
+        "experiment_id"
+      ],
+      "relationship": "one_to_one"
+    },
+    {
+      "left_table": "conditions.csv",
+      "right_table": "results.csv",
+      "keys": [
+        "condition_id"
+      ],
+      "relationship": "one_to_one"
+    }
+  ],
+  "split_hints": {
+    "predefined_split_column": "split",
+    "recommended_strategy": "predefined_column"
+  }
+}

@@ -1,0 +1,7 @@
+experiment_id,Client Batch #,Pt/C ratio (%),Operator note
+EXP-001,Batch A,22.5,baseline
+EXP-002,Batch A,25.0,baseline
+EXP-003,Batch B,27.5,variant
+EXP-004,Batch B,30.0,variant
+EXP-005,Batch C,32.5,holdout
+EXP-006,Batch C,35.0,holdout

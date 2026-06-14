@@ -1,309 +1,134 @@
-# Mirai Data Contract for OEM/Scientist Uploads
+# Mirai Data Contract
 
-This document is owned by the ML lifecycle package because it defines what the offline ingesting/preprocessing/training pipeline accepts.
+## Decision
 
-Runtime data and artifacts still live outside this package. Production/demo runtime state is split between Railway Postgres, Railway S3-compatible object storage, and Railway MLflow. Local development may use ignored mirrors/caches, for example:
+Mirai has exactly one runtime data-intake lifecycle: `generic_tabular_doe`.
 
-```text
-backend/.object-storage-local/...           # local mutable upload/session/training mirror/cache
-backend/.object-storage-local/legacy-data-minio/...  # renamed legacy local bucket/cache, if preserved
-backend/mlruns/...                          # local-only MLflow file-store fallback/cache
-root data/reference/...                     # local reference/source data
-```
+Fuel cells, batteries, materials, process engineering, and other engineering tabular projects all enter the same path:
 
-Customer separation should remain data/metadata/artifact based. Do **not** create a Python package per customer.
+1. upload a Mirai Experiment Package;
+2. validate `mirai_manifest.json`, `data_dictionary.csv`, and the canonical fitting table;
+3. build canonical preprocessing artifacts;
+4. approve the contract/preprocessing report;
+5. train with the generic tabular training service;
+6. persist runtime pointers in Postgres and heavy artifacts in S3/MLflow.
 
-## Core rule
+The Fraunhofer fuel-cell demo is an example dataset reshaped into this generic package structure. It is not a separate user-facing upload mode, lifecycle, runtime processor, or training path.
 
-Mirai does **not** train from ambiguous uploaded columns.
+## Required MVP package shape
 
-OEMs/scientists may use their own variable names, but every generic package must include a Mirai contract that defines what each table and column means.
-
-Required contract files:
+A valid MVP package is a folder, or a ZIP containing the same folder structure:
 
 ```text
-mirai_manifest.json
-data_dictionary.csv   # preferred for MVP
-```
-
-Declared model data tables may be:
-
-```text
-.csv
-.xlsx
-```
-
-## MVP ingestion paths
-
-Mirai currently supports two user-facing ingestion paths.
-
-### 1. Generic Mirai Contract
-
-Use for normal OEM/scientist tabular DoE projects.
-
-Technical template:
-
-```text
-generic_tabular_doe
-```
-
-Expected package shape is realistic multi-table data, for example:
-
-```text
-my_project_upload/
+mirai_package/
   mirai_manifest.json
   data_dictionary.csv
-  cells.csv
-  tests.csv
-  cycle_metrics.csv
-  raw_reference/*.zip      # optional audit/reference files
+  model_table.csv
+  metadata/                  # optional, declared only when needed
+    runs.csv
+    samples.csv
+  raw_reference/             # optional audit/source files, not used for fitting
 ```
 
-The generic path:
+`model_table.csv` is the preferred and required MVP fitting surface. It has one row per ML training example and contains all selected input/output columns needed for fitting, plus any traceability IDs, split/group columns, and metadata columns declared by the manifest.
 
-- validates the manifest and data dictionary,
-- loads declared CSV/XLSX tables,
-- applies explicit constrained joins,
-- canonicalizes to `model_table.csv`,
-- validates dtypes, required values, units, bounds, and output directions,
-- assigns approved splits,
-- trains generic tabular surrogate candidates.
+ZIP uploads are package containers only. After safe extraction, the same `mirai_manifest.json`, `data_dictionary.csv`, and `model_table.csv` paths must exist. The core intake path does not infer domain semantics from archive names or folder structure.
 
-Column names may be arbitrary, but roles, units, dtypes, bounds, joins, grouping/split hints, output directions, and optional plot metadata must be explicit.
+## Manifest responsibilities
 
-### 2. Fuell Cell DoE Demo
+`mirai_manifest.json` must declare:
 
-Use for the pitch/demo PEM fuel-cell package.
+- `manifest_version`;
+- project identity/display metadata;
+- `template_id: "generic_tabular_doe"`;
+- tables, including `model_table.csv`;
+- every column used by preprocessing/training;
+- roles: `id`, `input`, `output`, `metadata`, `context`, `group`, `time`, `cycle`, `sequence`, `curve_axis`, or `ignore`;
+- dtypes;
+- units for all input/output columns, using `unitless` when dimensionless;
+- required flags;
+- numeric bounds where known;
+- output directions: `maximize`, `minimize`, or `target`;
+- split hints, including predefined split columns or group columns when required;
+- optional deterministic joins for overview/metadata tables.
 
-Visible UI label:
+Free-form folder crawling, domain-specific filename assumptions, and automatic semantic inference are not part of the runtime contract.
 
-```text
-Fuell Cell DoE Demo
-```
+## Data dictionary responsibilities
 
-Expected package shape:
+`data_dictionary.csv` is the compact review surface for variables. It must match the manifest columns and provide column-level mapping/role/dtype/unit/bounds/direction metadata. Mirai admins review and approve this semantic mapping before preprocessing/training.
 
-```text
-fuel_cell_demo_upload/
-  mirai_manifest.json
-  data_dictionary.csv
-  data_overview.xlsx
-  Cell_01.zip
-  Cell_02.zip
-  ...
-```
+Required dictionary mapping fields for new fixed source-table packages:
 
-This path uses the manifest-declared raw extractor:
+| Field | Meaning |
+| --- | --- |
+| `source_name` | Exact column name in the uploaded source CSV, including spaces/symbols/client wording. |
+| `variable_id` | Stable machine-safe Mirai internal id used in generated `model_table.csv`, schema, training, predictions, and APIs. For new fixed source-table packages, model inputs must be contiguous `x1..xN` and outputs must be contiguous `y1..yM`. Required for new packages. |
+| `ui_label` | Human-facing display label. This can be edited/approved in the app without changing `variable_id`. |
+| `role` | `id`, `input`, `output`, `metadata`, `group`, `ignore`, etc. Only `input` and `output` are model features/targets. |
+| `dtype`, `unit`, `required`, `allowed_min`, `allowed_max`, `direction`, `description`, `join_key`, `split_hint`, `plot_role` | Validation, review, plotting, and optimization metadata. |
 
-```text
-pem_cell_zip_bundle
-```
+Mirai has three naming layers:
 
-The extractor converts `data_overview.xlsx` + `Cell_NN.zip` archives into canonical PEM tables such as `model_table.csv`. The downstream Mirai contract validation/preprocessing/training flow then consumes the generated canonical table.
+1. **Source column name**: client-native raw CSV column, e.g. `Pt/C ratio (%)`.
+2. **Internal variable id**: immutable model/API column, e.g. `x1` for the first input or `y1` for the first output.
+3. **UI display label**: curated app label, e.g. `Pt/C ratio`.
 
-## Template IDs
+Training consumes internal `variable_id` columns only. Source names remain provenance. UI labels can be curated during review and persisted in schema/domain metadata. Domain names such as `Pt/C ratio` belong in `source_name`, `ui_label`, unit, and description fields — not in model input/output `variable_id`s for new fixed packages.
 
-For MVP, supported template IDs are:
+## Optional overview and metadata tables
 
-```text
-fuel_cell
-generic_tabular_doe
-```
+Engineering teams may provide the fixed Mirai source tables (`experiments.csv`, `conditions.csv`, `results.csv`) when they improve traceability. Mirai deterministically joins those tables by `experiment_id` and `condition_id`, then materializes canonical `model_table.csv` by selecting declared `source_name` columns and renaming them to `variable_id`. Metadata/group/id variables are carried for traceability but excluded from training unless their role is `input` or `output`.
 
-`custom_tabular` is intentionally not supported in the MVP.
+For MVP reliability, customer/source workbooks and large run folders should be prepared into `model_table.csv` before runtime upload. Raw source files can be stored as audit/reference material, but they are not required for upload success and are not consumed by training unless their contents are already represented in `model_table.csv`.
 
-### `generic_tabular_doe`
+## Fraunhofer fuel-cell demo as a generic package
 
-Default template for generic OEM/scientist tabular DoE packages.
+The Fraunhofer package uses normal generic variables. Example input `variable_id`s are:
 
-### `fuel_cell`
+- `x1`
+- `x2`
+- `x3`
+- `x4`
+- `x5`
+- `x6`
+- `x7`
 
-PEM-specific demo/template compatibility path. The more user-friendly upload dropdown label is `Fuell Cell DoE Demo`.
+Their UI/source metadata can still display `Pt/C ratio`, `I/C ratio`, `Operating voltage`, etc. Example output `variable_id`s are:
 
-## Allowed column roles
+- `y1`
+- `eol_current_density`
+- `bol_ecsa`
+- `ecsa_loss`
 
-Each column must have one of these roles:
+Those variables are represented in `data_dictionary.csv` and `mirai_manifest.json` exactly like any future battery/materials/process dataset variables. Fuel-cell source workbooks, ZIPs, and folders are reference/audit inputs only for runtime upload; the runtime package succeeds based on the generic contract files and canonical `model_table.csv`.
 
-```text
-id
-input
-output
-metadata
-context
-group
-time
-cycle
-sequence
-curve_axis
-ignore
-```
+## Runtime architecture
 
-| Role | Meaning | Used by model? |
-|---|---|---:|
-| `id` | Stable row/sample/test identifier | No |
-| `input` | Model feature controlled or selected by the user | Yes |
-| `output` | Supervised target predicted by the surrogate | Yes |
-| `group` | Sample/cell/batch/campaign/station grouping for splits and diagnostics | No |
-| `metadata` / `context` | Filtering, lineage, labels, diagnostics | No |
-| `time` / `cycle` / `sequence` | Ordered test/cycle/time variable | No by default |
-| `curve_axis` | Independent axis for curve-like plots | No by default |
-| `ignore` | Uploaded but explicitly excluded | No |
+Railway runtime state uses:
 
-For MVP model training, model `input` and `output` columns should normally be numeric.
+- Postgres for workspaces, projects, datasets, schema manifests, training runs, models, and artifact object pointers;
+- S3 buckets for durable heavy artifacts under workspace/project/training-run prefixes;
+- MLflow for run/model metadata and model artifacts;
+- FastAPI endpoints scoped by verified Clerk JWT `workspace_id`.
 
-## Allowed dtypes
+S3 object presence alone is not enough for UI visibility. Postgres pointers must exist and match actual S3 keys.
 
-```text
-float
-int
-integer
-number
-numeric
-string
-str
-category
-categorical
-bool
-boolean
-```
+## Canonical artifacts
 
-## Required output directions
+Generic preprocessing writes neutral artifact names such as:
 
-Every `output` must declare one of:
+- `canonical/model_table.csv`
+- `canonical/rejected_rows.csv`
+- `canonical/dataset_profile.json`
+- `canonical/validation_report.json`
+- `canonical/package_inventory.json`
+- `training_artifacts/latest/schema.json`
+- `training_artifacts/latest/preprocessing.json`
+- `training_artifacts/latest/split_report.json`
+- `training_artifacts/latest/validation_report.json`
+- `training_artifacts/latest/dataset_profile.json`
+- `training_artifacts/latest/eda_report.json`
+- `training_artifacts/latest/package_inventory.json`
 
-```text
-maximize
-minimize
-target
-```
-
-Examples:
-
-```json
-{"name": "capacity_retention_pct", "role": "output", "dtype": "float", "unit": "%", "direction": "maximize"}
-{"name": "dc_internal_resistance_mohm", "role": "output", "dtype": "float", "unit": "mOhm", "direction": "minimize"}
-{"name": "target_viscosity_cp", "role": "output", "dtype": "float", "unit": "cP", "direction": "target"}
-```
-
-## Required units and bounds
-
-- Every `input` must declare a unit. Use `unitless` if dimensionless.
-- Every `output` must declare a unit. Use `unitless` if dimensionless.
-- Numeric inputs should declare `allowed_min` and `allowed_max`.
-- Numeric outputs should declare bounds when physically meaningful.
-
-## Generic multi-table example
-
-Example files:
-
-```text
-mirai_manifest.json
-data_dictionary.csv
-cells.csv
-tests.csv
-cycle_metrics.csv
-raw_reference/BATCH_01_cycler_raw_exports.zip
-```
-
-Example join pattern:
-
-```text
-cells.csv
-  one_to_many on cell_id
-tests.csv
-  one_to_many on test_id
-cycle_metrics.csv
-```
-
-Manifest join excerpt:
-
-```json
-"joins": [
-  {"left_table": "cells.csv", "right_table": "tests.csv", "keys": ["cell_id"], "relationship": "one_to_many"},
-  {"left_table": "tests.csv", "right_table": "cycle_metrics.csv", "keys": ["test_id"], "relationship": "one_to_many"}
-]
-```
-
-Allowed relationship values:
-
-```text
-one_to_one
-one_to_many
-many_to_one
-```
-
-Not supported in MVP:
-
-- free-form relational schemas,
-- many-to-many joins,
-- undeclared join keys,
-- ambiguous table relationships.
-
-## Raw/reference ZIP files
-
-Generic packages may declare raw/reference archives, for example:
-
-```json
-"raw_reference_files": {
-  "archive_globs": ["raw_reference/*.zip"]
-}
-```
-
-For the generic path, these ZIPs are extracted/inventoried for auditability only. Generic training still consumes declared CSV/XLSX tables.
-
-For the Fuell Cell DoE Demo path, `pem_cell_zip_bundle` is different: it is an explicit raw extractor that parses `data_overview.xlsx` + `Cell_NN.zip` files and generates `model_table.csv`.
-
-## What preprocessing creates
-
-After the contract is validated and approved, generic preprocessing writes:
-
-```text
-canonical/model_table.csv
-canonical/rejected_rows.csv
-canonical/dataset_profile.json
-canonical/validation_report.json
-canonical/raw_reference_inventory.json
-canonical/raw_extractor_report.json
-training_artifacts/latest/schema.json
-training_artifacts/latest/preprocessing.json
-training_artifacts/latest/split_report.json
-training_artifacts/latest/dataset_profile.json
-training_artifacts/latest/validation_report.json
-training_artifacts/latest/eda_report.json
-training_artifacts/latest/raw_reference_inventory.json
-training_artifacts/latest/raw_extractor_report.json
-```
-
-Training consumes only approved canonical/model artifacts, especially:
-
-```text
-schema.json
-preprocessing.json
-model_table.csv
-```
-
-## Approval rule
-
-For now, contract approval is Mirai-admin-only.
-
-A project cannot proceed to training until:
-
-1. manifest and data dictionary are present,
-2. required roles/dtypes/units/bounds/directions are complete,
-3. joins and split hints are valid,
-4. Metadata & Plot Setup is approved,
-5. preprocessing artifacts are approved.
-
-## Example packages in this repo
-
-Generic battery-cycling contract demo:
-
-```text
-data/generic-battery-cycling-schema/
-```
-
-Fuell Cell DoE Demo raw-bundle contract demo:
-
-```text
-data/generic-fc-schema/
-```
+There is no separate runtime fuel-cell preprocessing or training artifact namespace for generic contract sessions.

@@ -49,9 +49,9 @@ def default_fraunhofer_workspace() -> dict[str, Any]:
         "client_type": "demo_partner",
         "status": "active",
         "default_template_ids": ["generic_tabular_doe"],
-        "allowed_extractors": ["pem_cell_zip_bundle"],
+        "allowed_extractors": [],
         "lifecycle_contract": "generic_tabular_doe",
-        "notes": "Fuel-cell hybrid demo: PEM bundle extractor adapter followed by the generic Mirai tabular DoE lifecycle.",
+        "notes": "Fraunhofer fuel-cell demo reshaped into the same generic Mirai tabular DoE lifecycle used for all projects.",
     }
 
 

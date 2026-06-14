@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { DomainMetadataStatus, FuelCellPackageValidation, IngestionSessionResponse, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
+import type { DomainMetadataStatus, MiraiContractValidation, IngestionSessionResponse, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
 import {
   appendIngestionFiles,
   approveDomainMetadata,
@@ -13,10 +13,10 @@ import {
   listIngestionSessions,
   listTrainingRequests,
   preprocessingYdataReportUrl,
-  startFuelCellPreprocessing,
+  startMiraiPreprocessing,
   startTrainingRequest,
   updateDomainMetadata,
-  validateFuelCellPackage,
+  validateMiraiContract,
 } from '../lib/api'
 
 function StatusPill({ children, tone = 'slate' }: { children: string; tone?: 'slate' | 'amber' | 'green' | 'rose' }) {
@@ -131,7 +131,7 @@ function DistributionTable({ title, rows }: { title: string; rows?: Record<strin
 export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema: ProjectSchema; onOpenModelQuality?: () => void }) {
   const [sessions, setSessions] = useState<IngestionSessionResponse[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState('')
-  const [validation, setValidation] = useState<FuelCellPackageValidation | null>(null)
+  const [validation, setValidation] = useState<MiraiContractValidation | null>(null)
   const [preprocessingStatus, setPreprocessingStatus] = useState<PreprocessingStatus>({ status: 'not_started' })
   const [report, setReport] = useState<Record<string, unknown> | null>(null)
   const [edaSummary, setEdaSummary] = useState<PreprocessingEdaSummary | null>(null)
@@ -166,7 +166,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     setError(null)
     try {
       const [nextValidation, nextStatus, nextMetadata] = await Promise.all([
-        validateFuelCellPackage(session),
+        validateMiraiContract(session),
         getPreprocessingStatus(session),
         getDomainMetadata(session),
       ])
@@ -347,13 +347,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Project</div><div className="mt-1 break-all text-slate-600">{selectedSession.project_id}</div></div>
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Dataset</div><div className="mt-1 break-all text-slate-600">{selectedSession.dataset_id}</div></div>
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Files</div><div className="mt-1 text-slate-600">{selectedSession.files.length} uploaded</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Cell zips</div><div className="mt-1 text-slate-600">{validation?.cell_archive_count ?? 0}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Contract columns</div><div className="mt-1 text-slate-600">{validation?.column_count ?? 0}</div></div>
           </div>
           <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-[#fbfaf5] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold text-slate-950">Forgot a file?</h3>
-                <p className="mt-1 text-sm text-slate-600">Append missing `Cell_NN.zip`, manifest, dictionary, or workbook files to this same ingestion session before rerunning preprocessing.</p>
+                <p className="mt-1 text-sm text-slate-600">Append missing Mirai package files to this same ingestion session before rerunning preprocessing. A package needs mirai_manifest.json, data_dictionary.csv, and model_table.csv, or a ZIP containing that same structure.</p>
               </div>
               <StatusPill tone="amber">Invalidates preprocessing</StatusPill>
             </div>
@@ -382,7 +382,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.stage ?? preprocessingStatus.status}</StatusPill>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <button type="button" disabled={!selectedSession || Boolean(busy) || ['queued', 'running'].includes(preprocessingStatus.status)} onClick={() => selectedSession && runAction('preprocessing', async () => { setPreprocessingStatus(await startFuelCellPreprocessing(selectedSession)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{['queued', 'running'].includes(preprocessingStatus.status) ? 'Preprocessing...' : preprocessingComplete ? 'Rerun preprocessing' : 'Start preprocessing'}</button>
+          <button type="button" disabled={!selectedSession || Boolean(busy) || ['queued', 'running'].includes(preprocessingStatus.status)} onClick={() => selectedSession && runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{['queued', 'running'].includes(preprocessingStatus.status) ? 'Preprocessing...' : preprocessingComplete ? 'Rerun preprocessing' : 'Start preprocessing'}</button>
           <button type="button" disabled={!selectedSession || !preprocessingComplete || preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) })} className="rounded-full bg-[#526949] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">Approve preprocessing</button>
           <button type="button" disabled={!selectedSession || !preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">Create training request</button>
           <button type="button" disabled={!selectedSession || !trainingRequest || Boolean(busy)} onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'training' ? 'Training...' : 'Start training'}</button>
@@ -486,7 +486,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Metadata & Plot Setup</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Approve what this project means</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Mirai inferred variable roles, labels, units, and safe plot options. Review or edit these before they drive Design Studio, Model Quality, and OEM-facing plots.
+                Mirai maps client-native source columns through the contract into immutable internal variable ids. Edit only the user-facing labels/units shown in the app; source columns and variable ids stay fixed for training artifacts.
               </p>
             </div>
             <StatusPill tone={metadataApproved ? 'green' : metadataStatus?.approval_status === 'draft' ? 'amber' : 'slate'}>{metadataStatus?.approval_status || 'needs review'}</StatusPill>
@@ -528,13 +528,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-[#fbfaf5] text-xs uppercase tracking-[0.14em] text-slate-500">
-                <tr><th className="px-3 py-3">Variable</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
+                <tr><th className="px-3 py-3">Internal variable id</th><th className="px-3 py-3">Source column</th><th className="px-3 py-3">UI label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {metadataVariables.map((variable, index) => (
                   <tr key={`${variable.name}-${index}`}>
-                    <td className="px-3 py-3 font-mono text-xs text-slate-600">{variable.name}</td>
-                    <td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => updateVariable(index, { label: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-600">{variable.variable_id || variable.name}</td>
+                    <td className="px-3 py-3 text-xs text-slate-600"><div className="font-medium text-slate-800">{variable.source_name || variable.name}</div><div className="font-mono text-[0.7rem] text-slate-500">{variable.source_table || 'model_table.csv'}</div></td>
+                    <td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => updateVariable(index, { label: event.target.value, ui_label: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
                     <td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => updateVariable(index, { unit: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
                     <td className="px-3 py-3">
                       <select value={variable.role} onChange={(event) => updateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="w-full rounded-xl border border-slate-200 px-3 py-2">
@@ -568,13 +569,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Readiness checklist</p>
           <div className="mt-4 space-y-3">
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
-              <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Fuel-cell package</h3><StatusPill tone={validation?.valid ? 'green' : 'amber'}>{validation?.valid ? 'Valid' : 'Needs attention'}</StatusPill></div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Requires `data_overview.xlsx` plus individual `Cell_NN.zip` files. {validation?.message}</p>
+              <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Mirai package</h3><StatusPill tone={validation?.valid ? 'green' : 'amber'}>{validation?.valid ? 'Valid' : 'Needs attention'}</StatusPill></div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Requires a Mirai Experiment Package with mirai_manifest.json, data_dictionary.csv, and model_table.csv (or a ZIP containing that structure). {validation?.message}</p>
               {!!validation?.errors.length && <ul className="mt-2 list-disc pl-5 text-sm text-amber-700">{validation.errors.map((item) => <li key={item}>{item}</li>)}</ul>}
             </div>
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
               <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Preprocessing artifacts</h3><StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.stage ?? preprocessingStatus.status}</StatusPill></div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Canonical rows: {modelRows ?? 'pending'}. Cell IDs: {preprocessingStatus.cell_ids?.length ?? validation?.cell_ids.length ?? 0}.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Canonical rows: {modelRows ?? 'pending'}. Tables: {validation?.table_count ?? 'pending'}; inputs: {validation?.input_count ?? 'pending'}; outputs: {validation?.output_count ?? 'pending'}.</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
               <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Admin approval</h3><StatusPill tone={preprocessingApproved ? 'green' : 'slate'}>{preprocessingApproved ? 'Approved' : 'Locked'}</StatusPill></div>

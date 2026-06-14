@@ -1,0 +1,5 @@
+experiment_id,campaign_id,pt_c_ratio,i_c_ratio,ionomer_ew,ast_rh,ast_upl,catalyst_type
+Cell_01,Fraunhofer_CCD,0.25,0.80,720,50,0.90,PtCo_C
+Cell_02,Fraunhofer_CCD,0.30,0.90,740,75,0.95,PtCo_C
+Cell_03,Fraunhofer_CCD,0.20,0.70,700,30,0.88,Pt_C
+Cell_04,Fraunhofer_CCD,0.35,0.85,760,90,1.00,PtCo_C

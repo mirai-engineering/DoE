@@ -10,8 +10,13 @@ from mlflow.tracking import MlflowClient
 from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract
 from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import build_generic_preprocessing_artifacts
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.schema import MODEL_COLUMNS, PAPER_INPUT_COLUMNS, PAPER_OUTPUT_COLUMNS
 from app.services.training_requests import _copy_tree_contents
+
+FUEL_CELL_INPUT_COLUMNS = ["pt_c_ratio", "i_c_ratio", "ionomer_ew", "operating_rh", "operating_voltage", "ast_rh", "ast_upl"]
+FUEL_CELL_OUTPUT_COLUMNS = ["bol_current_density", "eol_current_density", "bol_ecsa", "ecsa_loss"]
+FUEL_CELL_MODEL_COLUMNS = [*FUEL_CELL_INPUT_COLUMNS, *FUEL_CELL_OUTPUT_COLUMNS]
+FIXED_FUEL_CELL_INPUT_COLUMNS = ["x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+FIXED_FUEL_CELL_OUTPUT_COLUMNS = ["y1", "y2", "y3", "y4"]
 
 
 def _write_contract(root: Path, *, include_direction: bool = True) -> None:
@@ -30,8 +35,8 @@ def _write_contract(root: Path, *, include_direction: bool = True) -> None:
         "joins": [],
         "split_hints": {"group_key": "batch_id", "recommended_strategy": "grouped", "validation_fraction": 0.2, "holdout_fraction": 0.2},
     }
-    (root / "mirai_manifest_template.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (root / "data_dictionary_template.csv").write_text("table,path,column_name,role,dtype,unit,required\n", encoding="utf-8")
+    (root / "mirai_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (root / "data_dictionary.csv").write_text("table,path,column_name,role,dtype,unit,required\n", encoding="utf-8")
 
 
 def test_generic_contract_preprocess_and_train(tmp_path: Path) -> None:
@@ -101,7 +106,7 @@ def test_artifact_activation_skips_expanded_raw_csv_trees(tmp_path: Path) -> Non
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
-    for dirname in ["raw_reference_extracted", "raw_extractor_workspace", "01-Data"]:
+    for dirname in ["raw_reference_extracted", "01-Data"]:
         raw_dir = source / dirname / "nested"
         raw_dir.mkdir(parents=True)
         (raw_dir / "raw_generated.csv").write_text("x\n1\n", encoding="utf-8")
@@ -116,7 +121,6 @@ def test_artifact_activation_skips_expanded_raw_csv_trees(tmp_path: Path) -> Non
     assert (target / "models" / "best.joblib").exists()
     assert not list(target.rglob("raw_generated.csv"))
     assert not (target / "raw_reference_extracted").exists()
-    assert not (target / "raw_extractor_workspace").exists()
     assert not (target / "01-Data").exists()
 
 
@@ -130,37 +134,144 @@ def test_incomplete_contract_blocks_preprocessing(tmp_path: Path) -> None:
     assert "direction" in str(exc.value)
 
 
-def test_real_pem_table_can_be_forced_through_contract_with_same_split_counts(tmp_path: Path) -> None:
-    source = Path("../data/reference/pem_fuel_cell_cathode_degradation/training_artifacts/latest/model_table_preprocessed.csv")
-    if not source.exists():
-        pytest.skip("Real PEM preprocessing artifact is not available")
+def test_fuel_cell_contract_fixture_validates() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "fuel_cell_contract_package"
+    contract = load_and_validate_contract(fixture)
+    schema = contract["columns"]
+    assert contract["project"]["template_id"] == "generic_tabular_doe"
+    assert [column["name"] for column in schema if column["role"] == "input"] == FUEL_CELL_INPUT_COLUMNS
+    assert [column["name"] for column in schema if column["role"] == "output"] == FUEL_CELL_OUTPUT_COLUMNS
+
+
+def test_fixed_multitable_fuel_cell_contract_materializes_model_table(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "fuel_cell_fixed_multitable_package"
+    canonical = tmp_path / "canonical"
+    artifacts = tmp_path / "artifacts"
+
+    contract = load_and_validate_contract(fixture)
+    assert {table["path"] for table in contract["tables"]} == {"experiments.csv", "conditions.csv", "results.csv"}
+    assert [join["keys"] for join in contract["joins"]] == [["experiment_id"], ["condition_id"]]
+
+    result = build_generic_preprocessing_artifacts(raw_root=fixture, canonical_dir=canonical, artifact_dir=artifacts, project_id="pem_fuel_cell_fixed_multitable_demo")
+
+    assert result["row_count"] == 8
+    model_table = pd.read_csv(canonical / "model_table.csv")
+    assert list(model_table[FIXED_FUEL_CELL_INPUT_COLUMNS].columns) == FIXED_FUEL_CELL_INPUT_COLUMNS
+    assert list(model_table[FIXED_FUEL_CELL_OUTPUT_COLUMNS].columns) == FIXED_FUEL_CELL_OUTPUT_COLUMNS
+    assert {"experiment_id", "condition_id", "campaign_id", "split"}.issubset(model_table.columns)
+    row = model_table.loc[model_table["condition_id"] == "Cell_01_V060"].iloc[0]
+    assert row["x1"] == pytest.approx(0.25)
+    assert row["x5"] == pytest.approx(0.60)
+    assert row["y1"] == pytest.approx(1.42)
+    split_report = json.loads((artifacts / "split_report.json").read_text())
+    assert split_report["strategy"] == "predefined_column"
+    assert split_report["split_counts"] == {"train": 4, "validation": 2, "test": 2}
+
+
+def test_client_native_source_names_map_to_variable_ids_and_metadata_excluded_from_training(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "client_native_variable_package"
+    canonical = tmp_path / "canonical"
+    artifacts = tmp_path / "artifacts"
+
+    contract = load_and_validate_contract(fixture)
+    assert [column["variable_id"] for column in contract["columns"] if column["role"] == "input"] == ["x1", "x2"]
+    assert [column["variable_id"] for column in contract["columns"] if column["role"] == "output"] == ["y1", "y2"]
+
+    result = build_generic_preprocessing_artifacts(raw_root=fixture, canonical_dir=canonical, artifact_dir=artifacts, project_id="client_native_variable_demo")
+    assert result["row_count"] == 6
+    model_table = pd.read_csv(canonical / "model_table.csv")
+    assert {"x1", "x2", "y1", "y2", "operator_note", "client_batch"}.issubset(model_table.columns)
+    assert "Pt/C ratio (%)" not in model_table.columns
+    assert "@Quality Score" not in model_table.columns
+
+    preprocessing = json.loads((artifacts / "preprocessing.json").read_text())
+    assert preprocessing["input_order"] == ["x1", "x2"]
+    assert preprocessing["output_order"] == ["y1", "y2"]
+    assert "operator_note" not in preprocessing["input_order"]
+
+    schema = json.loads((artifacts / "schema.json").read_text())
+    assert [item["name"] for item in schema["inputs"]] == ["x1", "x2"]
+    assert schema["inputs"][0]["source_name"] == "Pt/C ratio (%)"
+    assert schema["inputs"][0]["label"] == "Pt/C ratio"
+    assert {item["name"] for item in schema["metadata"]["variables"]} >= {"operator_note", "client_batch"}
+    assert any(item["source_name"] == "@Quality Score" for item in schema["metadata"]["all_variables"])
+
+    metrics = train_generic_project(project_id="client_native_variable_demo", data_dir=canonical, artifact_dir=artifacts, training_config={"mlflow": {"enabled": False}})
+    assert metrics["generic_training"] is True
+    assert len(metrics["input_order"]) == 2
+    assert len(metrics["output_order"]) == 2
+
+
+def test_fixed_source_package_rejects_semantic_or_gapped_model_variable_ids(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "client_native_variable_package"
+    raw = tmp_path / "raw"
+    _copy_tree_contents(fixture, raw)
+    manifest_path = raw / "mirai_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for column in manifest["columns"]:
+        if column.get("role") == "input" and column.get("source_name") == "Pt/C ratio (%)":
+            column["variable_id"] = "pt_c_ratio"
+            column["name"] = "pt_c_ratio"
+        if column.get("role") == "output" and column.get("source_name") == "@Quality Score":
+            column["variable_id"] = "y3"
+            column["name"] = "y3"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ContractValidationError) as exc:
+        load_and_validate_contract(raw)
+    message = str(exc.value)
+    assert "put domain names in ui_label/source_name" in message
+    assert "contiguous y1..yN" in message
+
+
+def test_fuel_cell_demo_shape_uses_generic_contract_with_same_split_counts(tmp_path: Path) -> None:
     raw = tmp_path / "raw"
     canonical = tmp_path / "canonical"
     artifacts = tmp_path / "artifacts"
     raw.mkdir()
-    frame = pd.read_csv(source)
-    upload = frame[["cell_id", "split", *MODEL_COLUMNS]].copy()
+    rows = []
+    for i in range(36):
+        rows.append(
+            {
+                "cell_id": f"Cell_{i % 6:02d}",
+                "split": "test" if i % 6 == 0 else "validation" if i % 6 == 1 else "train",
+                "pt_c_ratio": 0.2 + (i % 4) * 0.05,
+                "i_c_ratio": 0.7 + (i % 3) * 0.1,
+                "ionomer_ew": 700 + (i % 5) * 25,
+                "operating_rh": 40 + (i % 4) * 20,
+                "operating_voltage": 0.55 + (i % 5) * 0.03,
+                "ast_rh": 30 + (i % 3) * 25,
+                "ast_upl": 0.85 + (i % 4) * 0.02,
+                "bol_current_density": 1.2 + i * 0.01,
+                "eol_current_density": 1.0 + i * 0.008,
+                "bol_ecsa": 60 - i * 0.2,
+                "ecsa_loss": 5 + i * 0.1,
+            }
+        )
+    upload = pd.DataFrame(rows)
     upload.to_csv(raw / "model_table.csv", index=False)
     columns = [
         {"table": "model_table.csv", "name": "cell_id", "role": "group", "dtype": "string", "unit": None, "required": True},
         {"table": "model_table.csv", "name": "split", "role": "metadata", "dtype": "string", "unit": None, "required": True},
     ]
-    columns.extend({"table": "model_table.csv", "name": name, "role": "input", "dtype": "float", "unit": "unitless", "required": True, "allowed_min": float(upload[name].min()), "allowed_max": float(upload[name].max())} for name in PAPER_INPUT_COLUMNS)
-    columns.extend({"table": "model_table.csv", "name": name, "role": "output", "dtype": "float", "unit": "unitless", "required": True, "direction": "target", "allowed_min": float(upload[name].min()), "allowed_max": float(upload[name].max())} for name in PAPER_OUTPUT_COLUMNS)
+    columns.extend({"table": "model_table.csv", "name": name, "role": "input", "dtype": "float", "unit": "unitless", "required": True, "allowed_min": -1, "allowed_max": 2000} for name in FUEL_CELL_INPUT_COLUMNS)
+    columns.extend({"table": "model_table.csv", "name": name, "role": "output", "dtype": "float", "unit": "unitless", "required": True, "direction": "target", "allowed_min": -1, "allowed_max": 2000} for name in FUEL_CELL_OUTPUT_COLUMNS)
     manifest = {
         "manifest_version": "0.2",
-        "project": {"project_id": "pem_contract_validation", "display_name": "PEM Contract Validation", "domain": "fuel_cell", "template_id": "generic_tabular_doe"},
+        "project": {"project_id": "fuel_cell_contract_validation", "display_name": "Fuel Cell Contract Validation", "domain": "fuel_cell", "template_id": "generic_tabular_doe"},
         "tables": [{"path": "model_table.csv", "table_type": "model_table", "primary_key": ["cell_id"]}],
         "columns": columns,
         "joins": [],
         "split_hints": {"predefined_split_column": "split", "recommended_strategy": "predefined_column"},
     }
-    (raw / "mirai_manifest_template.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (raw / "data_dictionary_template.csv").write_text("table,path,column_name,role,dtype,unit,required\n", encoding="utf-8")
-    result = build_generic_preprocessing_artifacts(raw_root=raw, canonical_dir=canonical, artifact_dir=artifacts, project_id="pem_contract_validation")
+    (raw / "mirai_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (raw / "data_dictionary.csv").write_text("table,path,column_name,role,dtype,unit,required\n", encoding="utf-8")
+    result = build_generic_preprocessing_artifacts(raw_root=raw, canonical_dir=canonical, artifact_dir=artifacts, project_id="fuel_cell_contract_validation")
     assert result["row_count"] == len(upload)
     split_report = json.loads((artifacts / "split_report.json").read_text())
     assert split_report["split_counts"] == {str(k): int(v) for k, v in upload["split"].value_counts().to_dict().items()}
     schema = json.loads((artifacts / "schema.json").read_text())
-    assert [item["name"] for item in schema["inputs"]] == PAPER_INPUT_COLUMNS
-    assert [item["name"] for item in schema["outputs"]] == PAPER_OUTPUT_COLUMNS
+    assert [item["name"] for item in schema["inputs"]] == FUEL_CELL_INPUT_COLUMNS
+    assert [item["name"] for item in schema["outputs"]] == FUEL_CELL_OUTPUT_COLUMNS
+    assert (artifacts / "package_inventory.json").exists()
+    assert not (artifacts / "raw_extractor_report.json").exists()

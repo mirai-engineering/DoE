@@ -1,0 +1,31 @@
+{
+  "manifest_version": "0.2",
+  "project": {
+    "project_id": "pem_fuel_cell_real_cathode_degradation",
+    "display_name": "Fraunhofer Fuel-Cell Cathode Degradation",
+    "domain": "fuel_cell",
+    "template_id": "generic_tabular_doe",
+    "description": "Fraunhofer fuel-cell demo represented as a normal generic Mirai tabular contract package."
+  },
+  "tables": [
+    {"path": "model_table.csv", "table_type": "model_table", "primary_key": ["cell_id"]}
+  ],
+  "columns": [
+    {"table": "model_table.csv", "name": "cell_id", "role": "group", "dtype": "string", "required": true},
+    {"table": "model_table.csv", "name": "split", "role": "metadata", "dtype": "string", "required": true},
+    {"table": "model_table.csv", "name": "pt_c_ratio", "role": "input", "dtype": "float", "unit": "unitless", "required": true, "allowed_min": 0, "allowed_max": 1},
+    {"table": "model_table.csv", "name": "i_c_ratio", "role": "input", "dtype": "float", "unit": "unitless", "required": true, "allowed_min": 0, "allowed_max": 2},
+    {"table": "model_table.csv", "name": "ionomer_ew", "role": "input", "dtype": "float", "unit": "g/mol", "required": true, "allowed_min": 600, "allowed_max": 1000},
+    {"table": "model_table.csv", "name": "operating_rh", "role": "input", "dtype": "float", "unit": "%", "required": true, "allowed_min": 0, "allowed_max": 100},
+    {"table": "model_table.csv", "name": "operating_voltage", "role": "input", "dtype": "float", "unit": "V", "required": true, "allowed_min": 0.4, "allowed_max": 1.0},
+    {"table": "model_table.csv", "name": "ast_rh", "role": "input", "dtype": "float", "unit": "%", "required": true, "allowed_min": 0, "allowed_max": 100},
+    {"table": "model_table.csv", "name": "ast_upl", "role": "input", "dtype": "float", "unit": "V", "required": true, "allowed_min": 0.5, "allowed_max": 1.2},
+    {"table": "model_table.csv", "name": "bol_current_density", "role": "output", "dtype": "float", "unit": "A/cm2", "required": true, "allowed_min": 0, "allowed_max": 3, "direction": "maximize"},
+    {"table": "model_table.csv", "name": "eol_current_density", "role": "output", "dtype": "float", "unit": "A/cm2", "required": true, "allowed_min": 0, "allowed_max": 3, "direction": "maximize"},
+    {"table": "model_table.csv", "name": "bol_ecsa", "role": "output", "dtype": "float", "unit": "m2/gPt", "required": true, "allowed_min": 0, "allowed_max": 150, "direction": "maximize"},
+    {"table": "model_table.csv", "name": "ecsa_loss", "role": "output", "dtype": "float", "unit": "%", "required": true, "allowed_min": 0, "allowed_max": 100, "direction": "minimize"}
+  ],
+  "joins": [],
+  "split_hints": {"predefined_split_column": "split", "recommended_strategy": "predefined_column"},
+  "raw_reference_files": {"note": "Original workbook/ZIP/folder source files are audit-only and are not required for runtime upload success."}
+}

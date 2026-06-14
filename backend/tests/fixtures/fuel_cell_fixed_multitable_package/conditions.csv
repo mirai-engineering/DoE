@@ -1,0 +1,9 @@
+condition_id,experiment_id,split,operating_rh,operating_voltage
+Cell_01_V060,Cell_01,train,60,0.60
+Cell_01_V065,Cell_01,train,60,0.65
+Cell_02_V060,Cell_02,train,80,0.60
+Cell_02_V065,Cell_02,train,80,0.65
+Cell_03_V060,Cell_03,validation,40,0.60
+Cell_03_V065,Cell_03,validation,40,0.65
+Cell_04_V060,Cell_04,test,100,0.60
+Cell_04_V065,Cell_04,test,100,0.65

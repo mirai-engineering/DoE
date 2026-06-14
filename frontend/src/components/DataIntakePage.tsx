@@ -9,7 +9,6 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
   const [projectName, setProjectName] = useState('New Mirai ML Project')
   const [notes, setNotes] = useState('')
   const [files, setFiles] = useState<File[]>([])
-  const [ingestionPath, setIngestionPath] = useState<'generic_tabular_doe' | 'fuel_cell_doe_demo'>('generic_tabular_doe')
   const [session, setSession] = useState<IngestionSessionResponse | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,7 +28,7 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
       const effectiveWorkspaceName = intakeMode === 'existing_project'
         ? workspaceFor(selectedExistingProject) || schema.workspace_name || workspaceName
         : workspaceName
-      const result = await createIngestionSession(effectiveProjectName, files, notes, ingestionPath, {
+      const result = await createIngestionSession(effectiveProjectName, files, notes, {
         workspaceName: effectiveWorkspaceName,
         existingProjectId: intakeMode === 'existing_project' ? existingProjectId : undefined,
       })
@@ -55,15 +54,15 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
   const workspaceOptions = Array.from(new Set([...workspaces.map((workspace) => workspace.display_name), ...projects.map((project) => workspaceFor(project)), workspaceName].filter(Boolean)))
 
   const packageItems = [
-    'Data tables: CSV/XLSX only for MVP, declared as a realistic multi-table package',
-    'Required manifest JSON: project, template_id, tables, columns, joins, split hints, plot hooks',
-    'Required data dictionary CSV/XLSX: role, dtype, unit, bounds, required flag, output direction',
-    'Required grouping identifiers when splits must respect sample, batch, cell, campaign, station, or test run',
+    'Required mirai_manifest.json: project, tables, columns, joins, split hints, and plot hooks',
+    'Required data_dictionary.csv: role, dtype, unit, bounds, required flag, and output direction for every column',
+    'Preferred new-package source tables: experiments.csv, conditions.csv, and results.csv with deterministic joins into model_table.csv',
+    'Transitional model_table.csv packages remain supported when already ML-ready with selected X/Y columns',
   ]
 
   const roleExamples = [
-    ['input', 'temperature_c, pressure_bar, operating_voltage'],
-    ['output', 'yield_pct, degradation_rate, eol_current_density'],
+    ['input', 'x1, x2, x3 for new fixed packages; semantic labels stay in ui_label'],
+    ['output', 'y1, y2 for new fixed packages; KPI names stay in ui_label'],
     ['group', 'batch_id, cell_id, campaign_id, station_id'],
     ['metadata', 'operator_id, material_lot, split'],
   ]
@@ -138,17 +137,8 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
                 </label>
               )}
               <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#60745c]" placeholder="Optional package notes" />
-              <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
-                Ingestion path
-                <select value={ingestionPath} onChange={(event) => setIngestionPath(event.target.value as 'generic_tabular_doe' | 'fuel_cell_doe_demo')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#60745c]">
-                  <option value="generic_tabular_doe">Generic Mirai Contract</option>
-                  <option value="fuel_cell_doe_demo">Fuell Cell DoE Demo</option>
-                </select>
-              </label>
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-xs leading-5 text-slate-600">
-                {ingestionPath === 'fuel_cell_doe_demo'
-                  ? 'For the Fuell Cell DoE Demo, upload mirai_manifest.json, data_dictionary.csv, data_overview.xlsx, and Cell_NN.zip archives. This uses the PEM bundle extractor before the generic lifecycle.'
-                  : 'For Generic Mirai Contract, upload mirai_manifest.json, data_dictionary.csv, and declared multi-table CSV/XLSX files. This path is valid for a new Fraunhofer project when the data already follows the generic contract.'}
+                Upload one Mirai Experiment Package for every domain. The package must contain <strong>mirai_manifest.json</strong>, <strong>data_dictionary.csv</strong>, and either the fixed source tables <strong>experiments.csv</strong>, <strong>conditions.csv</strong>, and <strong>results.csv</strong> or a transitional <strong>model_table.csv</strong>. ZIP uploads are accepted only as containers for the same package structure.
               </div>
               <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" />
               {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -175,11 +165,11 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Package contract</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Force structure, not one file</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            OEM/testbench exports may use their own variable names, but every package must follow the Mirai contract. That means Mirai must know exactly which columns are model inputs, outputs, grouping fields, metadata, or ignored before preprocessing starts.
+            OEM/testbench exports may use client-native column names, including spaces or units. The Mirai contract maps each source column to an immutable internal variable id for training and a user-facing UI label for review/project screens.
           </p>
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-4 text-sm text-white shadow-lg shadow-slate-950/10">
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#d8c99b]">Safest MVP shape</div>
-            <pre className="mt-3 whitespace-pre-wrap text-xs leading-5 text-white/80">{`my_project_upload/\n  mirai_manifest.json\n  data_dictionary.csv\n  experiments.csv\n  samples.csv\n  results.csv`}</pre>
+            <pre className="mt-3 whitespace-pre-wrap text-xs leading-5 text-white/80">{`my_project_upload/\n  mirai_manifest.json\n  data_dictionary.csv\n  experiments.csv\n  conditions.csv\n  results.csv\n\n# data_dictionary.csv maps:\n# source_name: \"Pt/C ratio (%)\"\n# variable_id: x1\n# ui_label: \"Pt/C ratio\"`}</pre>
           </div>
           <div className="mt-4 space-y-3">
             {packageItems.map((item) => (
@@ -203,7 +193,7 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Mirai Experiment Package</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Templates for structured uploads</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              The package contract is mandatory. It enforces semantic structure — template ID, identifiers, units, roles, dtypes, bounds, directions, split hints, plot hooks, and joins — while allowing real OEM/testbench exports to remain split across approved CSV/XLSX tables.
+              The package contract is mandatory. It enforces fixed source tables, identifiers, source-name-to-variable-id mappings, units, roles, dtypes, bounds, directions, split hints, plot hooks, and joins while allowing real OEM/testbench columns to keep client-native wording.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -217,8 +207,8 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
           <div className="rounded-[1.5rem] border border-slate-200 bg-[#fbfaf5] p-4">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#60745c]">Allowed templates</p>
             <div className="mt-3 space-y-2 text-sm text-slate-700">
-              <div><strong>generic_tabular_doe</strong> — default enforced contract for new OEM tabular DoE uploads.</div>
-              <div><strong>Fuell Cell DoE Demo</strong> — PEM demo path using the declared pem_cell_zip_bundle extractor.</div>
+              <div><strong>generic_tabular_doe</strong> — the single enforced Mirai lifecycle for fuel cells, batteries, materials, and other engineering tabular DoE uploads.</div>
+              <div>Domain examples are represented by variables and metadata inside the same package structure, not by a separate upload mode.</div>
             </div>
           </div>
           <div className="rounded-[1.5rem] border border-slate-200 bg-[#fbfaf5] p-4">
@@ -247,7 +237,7 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
           </p>
           <div className="mt-4 rounded-2xl bg-white/70 p-4 font-mono text-xs leading-5 text-slate-700">
             output column example:<br />
-            yield_pct → role=output, dtype=float, unit=%, direction=maximize
+            y1 → role=output, dtype=float, unit=%, direction=maximize, ui_label=Yield
           </div>
         </div>
         <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">

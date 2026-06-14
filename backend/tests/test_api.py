@@ -1,10 +1,10 @@
+from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.data_intake import safe_extract_cell_zip
 from app.services.domain_metadata import build_domain_metadata, infer_template_id
 from app.services.replay_mapping import load_hidden_replay_pool
 
@@ -431,10 +431,10 @@ def test_bo_rejected_suggestion_cannot_reveal(isolated_client):
     assert "cannot reveal" in reveal_response.json()["detail"]
 
 
-def test_data_intake_fuel_cell_package_validation_requires_workbook_and_cell_zip(client):
+def test_data_intake_legacy_fuel_cell_validation_endpoint_reports_mirai_contract_errors(client):
     response = client.post(
         "/data-intake/sessions",
-        data={"project_name": "Validation Gate", "notes": "missing fuel-cell workbook and cell zip"},
+        data={"project_name": "Validation Gate", "notes": "missing Mirai package files"},
         files=[("files", ("notes.txt", b"hello", "text/plain"))],
     )
     assert response.status_code == 200
@@ -447,33 +447,90 @@ def test_data_intake_fuel_cell_package_validation_requires_workbook_and_cell_zip
     assert validation.status_code == 200
     payload = validation.json()
     assert payload["valid"] is False
-    assert any("data_overview.xlsx" in error for error in payload["errors"])
-    assert any("Cell_NN.zip" in error for error in payload["errors"])
+    assert payload["package_type"] == "mirai_contract_package"
+    assert payload["deprecated_endpoint"] is True
+    assert any("mirai_manifest.json" in error for error in payload["errors"])
+    assert any("data_dictionary.csv" in error for error in payload["errors"])
 
 
-def test_safe_cell_zip_extraction_blocks_path_traversal(tmp_path):
-    archive = tmp_path / "Cell_01.zip"
+def test_generic_zip_package_blocks_path_traversal(client, tmp_path):
+    archive = tmp_path / "mirai_package.zip"
     with ZipFile(archive, "w") as zip_file:
         zip_file.writestr("../evil.txt", "nope")
 
-    with pytest.raises(ValueError, match="Unsafe zip member"):
-        safe_extract_cell_zip(archive, tmp_path / "extracted")
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Unsafe Zip"},
+        files=[("files", ("mirai_package.zip", archive.read_bytes(), "application/zip"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+
+    start = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/start"
+    )
+    assert start.status_code == 200
+    payload = start.json()
+    assert payload["status"] == "failed_validation"
+    assert any("Unsafe ZIP member" in error for error in payload["validation"]["errors"])
 
 
-def test_safe_cell_zip_extraction_skips_macos_metadata_and_hashes_files(tmp_path):
-    archive = tmp_path / "Cell_01.zip"
+def test_generic_zip_package_queues_through_contract_validation(client, tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "fuel_cell_contract_package"
+    archive = tmp_path / "mirai_package.zip"
     with ZipFile(archive, "w") as zip_file:
-        zip_file.writestr("__MACOSX/._junk", "skip")
-        zip_file.writestr("Cell_01/03-IV-curve_RH100/0cycles/IV_data.csv", "a\tb\n1\t2\n")
+        for path in fixture.iterdir():
+            zip_file.write(path, arcname=f"mirai_package/{path.name}")
 
-    result = safe_extract_cell_zip(archive, tmp_path / "extracted")
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Generic Zip"},
+        files=[("files", ("mirai_package.zip", archive.read_bytes(), "application/zip"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+    assert session["ingestion_path"] == "generic_tabular_doe"
+    assert session["status"] == "ready_for_contract_review"
 
-    assert result["cell_id"] == "Cell_01"
-    assert result["file_count"] == 1
-    assert result["skipped_member_count"] == 1
-    extracted = tmp_path / "extracted" / "01-Data" / "Cell_01" / "03-IV-curve_RH100" / "0cycles" / "IV_data.csv"
-    assert extracted.exists()
-    assert result["files"][0]["sha256"]
+    start = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/start"
+    )
+    assert start.status_code == 200
+    payload = start.json()
+    assert payload["package_type"] == "mirai_contract_package"
+    assert payload["status"] in {"queued", "preprocessing_complete_needs_approval"}
+
+
+def test_fixed_multitable_zip_package_materializes_model_table_via_api(client, tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "fuel_cell_fixed_multitable_package"
+    archive = tmp_path / "mirai_fixed_multitable_package.zip"
+    with ZipFile(archive, "w") as zip_file:
+        for path in fixture.iterdir():
+            zip_file.write(path, arcname=f"mirai_package/{path.name}")
+
+    response = client.post(
+        "/data-intake/sessions",
+        data={"project_name": "Fraunhofer Fixed Multitable"},
+        files=[("files", ("mirai_fixed_multitable_package.zip", archive.read_bytes(), "application/zip"))],
+    )
+    assert response.status_code == 200
+    session = response.json()
+    assert session["status"] == "ready_for_contract_review"
+
+    start = client.post(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/start"
+    )
+    assert start.status_code == 200
+    payload = start.json()
+    assert payload["status"] in {"queued", "preprocessing_complete_needs_approval"}
+
+    status = client.get(
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/status"
+    )
+    assert status.status_code == 200
+    final_payload = status.json()
+    assert final_payload["status"] == "preprocessing_complete_needs_approval"
+    assert final_payload["row_counts"]["model_table.csv"] == 8
 
 
 def test_data_intake_can_append_missing_file_to_existing_session(client):

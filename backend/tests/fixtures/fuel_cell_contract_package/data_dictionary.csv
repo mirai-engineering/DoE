@@ -1,0 +1,14 @@
+table,column_name,role,dtype,unit,required,allowed_min,allowed_max,direction,description
+model_table.csv,cell_id,group,string,,true,,,,Traceability group identifier
+model_table.csv,split,metadata,string,,true,,,,Predefined train/validation/test split
+model_table.csv,pt_c_ratio,input,float,unitless,true,0,1,,Pt/C ratio
+model_table.csv,i_c_ratio,input,float,unitless,true,0,2,,I/C ratio
+model_table.csv,ionomer_ew,input,float,g/mol,true,600,1000,,Ionomer equivalent weight
+model_table.csv,operating_rh,input,float,%,true,0,100,,Operating relative humidity
+model_table.csv,operating_voltage,input,float,V,true,0.4,1.0,,Operating voltage
+model_table.csv,ast_rh,input,float,%,true,0,100,,Accelerated stress test relative humidity
+model_table.csv,ast_upl,input,float,V,true,0.5,1.2,,Accelerated stress test upper potential limit
+model_table.csv,bol_current_density,output,float,A/cm2,true,0,3,maximize,Beginning-of-life current density
+model_table.csv,eol_current_density,output,float,A/cm2,true,0,3,maximize,End-of-life current density
+model_table.csv,bol_ecsa,output,float,m2/gPt,true,0,150,maximize,Beginning-of-life ECSA
+model_table.csv,ecsa_loss,output,float,%,true,0,100,minimize,ECSA loss

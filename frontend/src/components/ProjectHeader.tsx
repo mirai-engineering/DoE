@@ -58,6 +58,7 @@ export function ProjectHeader({
   const artifactPointers = artifactStatus?.artifact_pointers ?? {}
   const durableBuckets = Array.from(new Set(Object.values(artifactPointers).map((pointer) => pointer.bucket).filter(Boolean)))
   const availablePointerCount = Object.values(artifactPointers).filter((pointer) => pointer.object_key).length
+  const metadataVariables = schema?.domain_metadata?.variables?.filter((variable) => !['input', 'output'].includes(variable.role)) ?? schema?.metadata?.variables ?? []
 
   function handleWorkspaceChange(workspaceName: string) {
     const firstProject = projects.find((project) => workspaceFor(project) === workspaceName)
@@ -133,6 +134,20 @@ export function ProjectHeader({
           </div>
           {schema?.description && (
             <p className="mt-4 text-sm leading-6 text-slate-600">{schema.description}</p>
+          )}
+
+          {!!metadataVariables.length && (
+            <div className="mt-5 rounded-3xl border border-slate-200 bg-white/80 p-4 text-sm">
+              <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">Metadata variables</div>
+              <div className="mt-3 max-h-36 space-y-2 overflow-y-auto pr-1">
+                {metadataVariables.slice(0, 8).map((variable) => (
+                  <div key={variable.name} className="rounded-2xl bg-[#f8f6ef] px-3 py-2">
+                    <div className="font-semibold text-slate-800">{variable.label || variable.name}</div>
+                    <div className="mt-0.5 font-mono text-[0.68rem] text-slate-500">{variable.name}{variable.source_name ? ` ← ${variable.source_name}` : ''}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="mt-5 rounded-3xl border border-slate-200 bg-[#f8f6ef] p-4 text-sm">

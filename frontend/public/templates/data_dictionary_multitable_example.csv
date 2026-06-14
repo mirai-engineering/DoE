@@ -1,7 +1,8 @@
-table,path,column_name,role,dtype,unit,required,allowed_min,allowed_max,direction,ui_label,description,join_key,split_hint,plot_role
-experiments,experiments.csv,experiment_id,id,string,,true,,,,Experiment ID,Physical sample or test run identifier,experiment_id,,
-experiments,experiments.csv,campaign_id,group,string,,true,,,,Campaign,Campaign/batch grouping key,campaign_id,group_key,color
-conditions,conditions.csv,condition_id,id,string,,true,,,,Condition ID,Condition identifier within experiment,condition_id,,
-conditions,conditions.csv,temperature_c,input,float,degC,true,0,120,,Temperature,Controlled operating temperature,,,x_axis
-conditions,conditions.csv,pressure_bar,input,float,bar,false,0,20,,Pressure,Controlled operating pressure,,,
-results,results.csv,efficiency_pct,output,float,%,true,0,100,maximize,Efficiency,Target efficiency KPI,,,y_axis
+table,path,source_name,variable_id,ui_label,role,dtype,unit,required,allowed_min,allowed_max,direction,description,join_key,split_hint,plot_role
+experiments,experiments.csv,experiment_id,experiment_id,Experiment ID,id,string,,true,,,,Required primary key: one physical sample/test article/experiment,experiment_id,,
+experiments,experiments.csv,campaign_id,campaign_id,Campaign,group,string,,false,,,,Optional campaign/batch/workspace grouping key,campaign_id,group_key,color
+conditions,conditions.csv,condition_id,condition_id,Condition ID,id,string,,true,,,,Required primary key: one modelable condition/operating point,condition_id,,
+conditions,conditions.csv,Pt/C ratio (%),x1,Pt/C ratio,input,float,%,true,0,100,,Client-native source column mapped to generic Mirai internal input id,,,x_axis
+conditions,conditions.csv,pressure_bar,x2,Pressure,input,float,bar,false,0,20,,Controlled operating pressure,,,
+results,results.csv,result_id,result_id,Result ID,id,string,,true,,,,Required result row identifier,result_id,,
+results,results.csv,efficiency_pct,y1,Efficiency,output,float,%,true,0,100,maximize,Target efficiency KPI,,,y_axis

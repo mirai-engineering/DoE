@@ -2,22 +2,20 @@
 
 This tutorial explains the forced-schema workflow for OEM/scientist data packages.
 
-## MVP ingestion paths
+## MVP ingestion path
 
-Mirai now exposes two user-facing intake paths:
+Mirai exposes one user-facing intake path: **Mirai Experiment Package**.
 
-1. **Generic Mirai Contract** — the default OEM/scientist road using `template_id=generic_tabular_doe`, `mirai_manifest.json`, `data_dictionary.csv`, and approved multi-table CSV/XLSX data.
-2. **Fuell Cell DoE Demo** — the pitch/demo PEM road using `mirai_manifest.json`, `data_dictionary.csv`, `data_overview.xlsx`, and `Cell_NN.zip` archives through the declared `pem_cell_zip_bundle` extractor.
-
-The MVP has one generic template: `generic_tabular_doe`.
+The same `generic_tabular_doe` lifecycle is used for fuel cells, batteries, materials, process engineering, and other tabular engineering projects. Domain meaning lives in the manifest, data dictionary, and table columns; it is not selected by a separate upload mode.
 
 ## 1. Start with the Mirai contract
 
 Mirai does not train from ambiguous uploaded columns. Every upload must include:
 
-- `mirai_manifest_*.json`
-- `data_dictionary_*.csv` or XLSX
-- the declared data table files, usually multi-table CSV/XLSX for generic projects
+- `mirai_manifest.json`
+- `data_dictionary.csv`
+- fixed source tables `experiments.csv`, `conditions.csv`, and `results.csv`, from which Mirai materializes `model_table.csv`
+- transitional compatibility for packages that already include `model_table.csv`
 
 Users may name variables however they want, but they must define what each variable means.
 
@@ -31,7 +29,8 @@ Required metadata includes:
 - output direction: `maximize`, `minimize`, or `target`
 - split hints such as group key, time column, predefined split column, validation fraction, holdout fraction
 - declared joins for constrained multi-table packages
-- optional UI labels and plot recipe hooks
+- source-name-to-variable-id mappings: `source_name`, immutable `variable_id`, and editable `ui_label`; for new fixed source-table packages, input/output `variable_id`s are contiguous generic IDs (`x1..xN`, `y1..yM`)
+- optional plot recipe hooks
 
 Templates live in:
 
@@ -48,7 +47,7 @@ In the app, open **Data Intake** and upload the package.
 
 The backend stores the files under a session folder, inventories them, and checks whether the required Mirai contract files exist.
 
-If the package lacks a manifest or data dictionary, the session is blocked as:
+If the package lacks the required contract/model-table files, the session is blocked as:
 
 ```text
 blocked_missing_mirai_contract
@@ -79,9 +78,9 @@ Automated suggestions may exist later, but they are not authoritative until appr
 For MVP `template_id=generic_tabular_doe`, the generic preprocessing engine:
 
 1. Parses and validates the contract.
-2. Loads the declared CSV/XLSX tables.
+2. Loads fixed source tables or a transitional `model_table.csv` package.
 3. Applies constrained declared joins if needed.
-4. Builds canonical `model_table.csv`.
+4. Selects declared `source_name` columns and writes canonical `model_table.csv` with internal `variable_id` columns (`xN`/`yN` for model inputs/outputs in new fixed packages).
 5. Coerces dtypes.
 6. Rejects rows with missing required values or bounds violations.
 7. Assigns splits from approved split hints.
@@ -94,12 +93,14 @@ canonical/model_table.csv
 canonical/rejected_rows.csv
 canonical/dataset_profile.json
 canonical/validation_report.json
+canonical/package_inventory.json
 training_artifacts/latest/schema.json
 training_artifacts/latest/preprocessing.json
 training_artifacts/latest/split_report.json
 training_artifacts/latest/dataset_profile.json
 training_artifacts/latest/validation_report.json
 training_artifacts/latest/eda_report.json
+training_artifacts/latest/package_inventory.json
 ```
 
 ## 5. Training request

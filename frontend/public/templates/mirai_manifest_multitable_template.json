@@ -1,43 +1,133 @@
 {
-  "manifest_version": "0.2",
+  "manifest_version": "0.3",
   "project": {
-    "project_id": "example_multitable_surrogate",
-    "display_name": "Example Multi-Table Testbench Surrogate",
+    "project_id": "example_fixed_multitable_surrogate",
+    "display_name": "Example Fixed Multi-Table Surrogate",
     "domain": "generic_tabular_doe",
     "template_id": "generic_tabular_doe",
-    "owner": "company-or-team-name"
+    "owner": "company-or-team-name",
+    "description": "Fixed Mirai source-table contract. Mirai materializes model_table.csv from experiments.csv, conditions.csv, and results.csv."
   },
   "tables": [
     {
       "path": "experiments.csv",
-      "table_type": "experiment_metadata",
-      "primary_key": ["experiment_id"],
-      "description": "One row per physical sample, campaign item, or test article."
+      "table_type": "experiments",
+      "primary_key": [
+        "experiment_id"
+      ],
+      "description": "Required. One row per physical sample, test article, formulation, or experiment."
     },
     {
       "path": "conditions.csv",
-      "table_type": "controlled_conditions",
-      "primary_key": ["experiment_id", "condition_id"],
-      "description": "One row per modelable test condition."
+      "table_type": "conditions",
+      "primary_key": [
+        "condition_id",
+        "experiment_id"
+      ],
+      "description": "Required. One row per modelable condition/operating point for an experiment."
     },
     {
       "path": "results.csv",
-      "table_type": "target_outputs",
-      "primary_key": ["experiment_id", "condition_id"],
-      "description": "One row per test condition with derived target KPIs."
+      "table_type": "results",
+      "primary_key": [
+        "result_id"
+      ],
+      "description": "Required. One row per averaged/scalar result for a condition."
     }
   ],
   "columns": [
-    {"table": "experiments.csv", "name": "experiment_id", "role": "id", "dtype": "string", "unit": null, "required": true, "ui_label": "Experiment ID"},
-    {"table": "experiments.csv", "name": "campaign_id", "role": "group", "dtype": "string", "unit": null, "required": true, "ui_label": "Campaign"},
-    {"table": "conditions.csv", "name": "condition_id", "role": "id", "dtype": "string", "unit": null, "required": true, "ui_label": "Condition ID"},
-    {"table": "conditions.csv", "name": "temperature_c", "role": "input", "dtype": "float", "unit": "degC", "required": true, "allowed_min": 0, "allowed_max": 120, "ui_label": "Temperature"},
-    {"table": "conditions.csv", "name": "pressure_bar", "role": "input", "dtype": "float", "unit": "bar", "required": false, "allowed_min": 0, "allowed_max": 20, "ui_label": "Pressure"},
-    {"table": "results.csv", "name": "efficiency_pct", "role": "output", "dtype": "float", "unit": "%", "required": true, "allowed_min": 0, "allowed_max": 100, "direction": "maximize", "ui_label": "Efficiency"}
+    {
+      "table": "experiments.csv",
+      "name": "experiment_id",
+      "role": "id",
+      "dtype": "string",
+      "unit": null,
+      "required": true,
+      "ui_label": "Experiment ID",
+      "source_name": "experiment_id",
+      "variable_id": "experiment_id"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "campaign_id",
+      "role": "group",
+      "dtype": "string",
+      "unit": null,
+      "required": false,
+      "ui_label": "Campaign",
+      "source_name": "campaign_id",
+      "variable_id": "campaign_id"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "condition_id",
+      "role": "id",
+      "dtype": "string",
+      "unit": null,
+      "required": true,
+      "ui_label": "Condition ID",
+      "source_name": "condition_id",
+      "variable_id": "condition_id"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "x1",
+      "source_name": "Pt/C ratio (%)",
+      "variable_id": "x1",
+      "role": "input",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "ui_label": "Pt/C ratio",
+      "description": "Client-native source column mapped to generic Mirai internal input id."
+    },
+    {
+      "table": "conditions.csv",
+      "name": "x2",
+      "role": "input",
+      "dtype": "float",
+      "unit": "bar",
+      "required": false,
+      "allowed_min": 0,
+      "allowed_max": 20,
+      "ui_label": "Pressure",
+      "source_name": "pressure_bar",
+      "variable_id": "x2"
+    },
+    {
+      "table": "results.csv",
+      "name": "y1",
+      "role": "output",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "direction": "maximize",
+      "ui_label": "Efficiency",
+      "source_name": "efficiency_pct",
+      "variable_id": "y1"
+    }
   ],
   "joins": [
-    {"left_table": "experiments.csv", "right_table": "conditions.csv", "keys": ["experiment_id"], "relationship": "one_to_many"},
-    {"left_table": "conditions.csv", "right_table": "results.csv", "keys": ["experiment_id", "condition_id"], "relationship": "one_to_one"}
+    {
+      "left_table": "experiments.csv",
+      "right_table": "conditions.csv",
+      "keys": [
+        "experiment_id"
+      ],
+      "relationship": "one_to_many"
+    },
+    {
+      "left_table": "conditions.csv",
+      "right_table": "results.csv",
+      "keys": [
+        "condition_id"
+      ],
+      "relationship": "one_to_one"
+    }
   ],
   "split_hints": {
     "group_key": "campaign_id",
@@ -50,15 +140,21 @@
   "ui_config": {
     "test_article_label": "Experiment",
     "default_group_by": "campaign_id",
-    "default_output": "efficiency_pct"
+    "default_output": "y1"
   },
   "plot_recipes": [
     {
-      "id": "efficiency_by_temperature",
-      "label": "Efficiency by temperature",
+      "id": "efficiency_by_pt_c_ratio",
+      "label": "Efficiency by Pt/C ratio",
       "kind": "scatter_response",
-      "x": {"source": "input", "variable": "temperature_c"},
-      "y": {"source": "prediction", "variable": "efficiency_pct"},
+      "x": {
+        "source": "input",
+        "variable": "x1"
+      },
+      "y": {
+        "source": "prediction",
+        "variable": "y1"
+      },
       "group_by": "campaign_id",
       "safe": true,
       "recommended": true

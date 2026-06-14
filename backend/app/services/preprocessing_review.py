@@ -14,16 +14,12 @@ from .data_intake import (
     get_ingestion_session,
     read_status,
     reset_workspace_dir,
-    safe_extract_cell_zip,
     write_status,
 )
-from .domain_metadata import build_domain_metadata, infer_template_id
+from .domain_metadata import build_domain_metadata
 from .project_registry import clear_registry_cache
 from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract
-from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import build_generic_preprocessing_artifacts
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.ingest import BuildPaths, build_all_cells
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.preprocess import build_preprocessing_artifacts
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.schema import PROJECT_ID as REAL_FUEL_CELL_PROJECT_ID, SOURCE_PDF
+from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root, build_generic_preprocessing_artifacts
 
 
 def _now() -> str:
@@ -46,43 +42,19 @@ def _read_json(path: Path, default: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _fuel_cell_upload_files(session: dict[str, Any]) -> tuple[Path | None, list[Path], list[str]]:
-    workbook: Path | None = None
-    cell_zips: list[Path] = []
-    errors: list[str] = []
-    for item in session.get("files", []):
-        filename = str(item.get("filename", ""))
-        path = DATA_INTAKE_ROOT / str(item.get("relative_path", ""))
-        lower = filename.lower()
-        if lower == "data_overview.xlsx":
-            workbook = path
-        elif filename.startswith("Cell_") and lower.endswith(".zip"):
-            cell_zips.append(path)
-    if workbook is None:
-        errors.append("Missing required data_overview.xlsx workbook.")
-    if not cell_zips:
-        errors.append("Missing required Cell_NN.zip archive; upload at least one Cell_*.zip file.")
-    ambiguous = [str(item.get("filename", "")) for item in session.get("files", []) if str(item.get("filename", "")).lower().endswith(".zip") and not str(item.get("filename", "")).startswith("Cell_")]
-    if ambiguous:
-        errors.append(f"Unsupported zip archive(s) for fuel-cell preprocessing: {', '.join(ambiguous[:5])}. Upload individual Cell_NN.zip files for this MVP.")
-    return workbook, sorted(cell_zips), errors
-
-
 def validate_fuel_cell_package(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    session = get_ingestion_session(project_id, dataset_id, session_id)
-    workbook, cell_zips, errors = _fuel_cell_upload_files(session)
-    cell_ids = [path.stem for path in cell_zips]
-    duplicate_cells = sorted({cell_id for cell_id in cell_ids if cell_ids.count(cell_id) > 1})
-    if duplicate_cells:
-        errors.append(f"Duplicate cell archive(s): {', '.join(duplicate_cells)}")
+    """Deprecated compatibility wrapper for older clients.
+
+    Runtime intake no longer validates a separate fuel-cell package shape. This
+    endpoint reports the generic Mirai contract validation result so legacy
+    sessions/clients can read safely without reviving a second intake path.
+    """
+    validation = _validate_generic_contract(project_id, dataset_id, session_id)
     return {
-        "valid": not errors,
-        "errors": errors,
-        "workbook": str(workbook.relative_to(DATA_INTAKE_ROOT)) if workbook else None,
-        "cell_archive_count": len(cell_zips),
-        "cell_ids": sorted(set(cell_ids)),
-        "requires_full_all_cell_upload_for_comparable_training": True,
-        "message": "Fuel-cell package recognized." if not errors else "Fuel-cell package needs attention before preprocessing.",
+        **validation,
+        "package_type": "mirai_contract_package",
+        "deprecated_endpoint": True,
+        "message": validation.get("message") or ("Mirai contract is valid." if validation.get("valid") else "Mirai contract blocks preprocessing."),
     }
 
 
@@ -143,7 +115,9 @@ def _try_ydata_profile(primary_file: Path, report_dir: Path) -> dict[str, Any]:
 def _validate_generic_contract(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     try:
-        contract = load_and_validate_contract(workspace["raw"])
+        package_root, package_inventory = _prepare_package_root(workspace["raw"], workspace["inventory"])
+        _write_json(workspace["inventory"] / "package_inventory.json", package_inventory)
+        contract = load_and_validate_contract(package_root)
         return {
             "valid": True,
             "errors": [],
@@ -167,68 +141,25 @@ def queue_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: 
     current = get_preprocessing_status(project_id, dataset_id, session_id)
     if current.get("status") in {"queued", "running"}:
         return current
-    session = get_ingestion_session(project_id, dataset_id, session_id)
-    ingestion_path = session.get("ingestion_path") or "generic_tabular_doe"
-    generic_validation = _validate_generic_contract(project_id, dataset_id, session_id)
-
-    if ingestion_path == "generic_tabular_doe" and not generic_validation.get("valid"):
-        return write_status(project_id, dataset_id, session_id, "preprocessing", {
-            "project_id": project_id,
-            "dataset_id": dataset_id,
-            "ingestion_session_id": session_id,
-            "package_type": "mirai_generic_contract",
-            "status": "failed_validation",
-            "stage": "contract_validation_failed",
-            "validation": generic_validation,
-        })
-
-    if ingestion_path == "fuel_cell_doe_demo" and not generic_validation.get("valid"):
-        fuel_validation = validate_fuel_cell_package(project_id, dataset_id, session_id)
-        return write_status(project_id, dataset_id, session_id, "preprocessing", {
-            "project_id": project_id,
-            "dataset_id": dataset_id,
-            "ingestion_session_id": session_id,
-            "package_type": "fuel_cell_doe_demo",
-            "status": "failed_validation",
-            "stage": "contract_validation_failed",
-            "validation": {**fuel_validation, "mirai_contract_validation": generic_validation},
-        })
-
-    if generic_validation.get("valid") and generic_validation.get("template_id") in {"generic_tabular_doe"}:
-        status = {
-            "project_id": project_id,
-            "dataset_id": dataset_id,
-            "ingestion_session_id": session_id,
-            "package_type": "fuel_cell_doe_demo" if ingestion_path == "fuel_cell_doe_demo" else "mirai_generic_contract",
-            "status": "queued",
-            "stage": "waiting_to_start",
-            "validation": generic_validation,
-        }
-        return write_status(project_id, dataset_id, session_id, "preprocessing", status)
-
-    validation = validate_fuel_cell_package(project_id, dataset_id, session_id)
-    if generic_validation.get("errors"):
-        validation = {**validation, "mirai_contract_validation": generic_validation}
+    validation = _validate_generic_contract(project_id, dataset_id, session_id)
     status = {
         "project_id": project_id,
         "dataset_id": dataset_id,
         "ingestion_session_id": session_id,
-        "package_type": "fuel_cell_cathode_degradation",
+        "package_type": "mirai_contract_package",
         "status": "queued" if validation.get("valid") else "failed_validation",
-        "stage": "waiting_to_start" if validation.get("valid") else "validation_failed",
+        "stage": "waiting_to_start" if validation.get("valid") else "contract_validation_failed",
         "validation": validation,
     }
     return write_status(project_id, dataset_id, session_id, "preprocessing", status)
 
 
 def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    session = get_ingestion_session(project_id, dataset_id, session_id)
-    ingestion_path = session.get("ingestion_path") or "generic_tabular_doe"
     status_base = {
         "project_id": project_id,
         "dataset_id": dataset_id,
         "ingestion_session_id": session_id,
-        "package_type": "fuel_cell_doe_demo" if ingestion_path == "fuel_cell_doe_demo" else "mirai_generic_contract",
+        "package_type": "mirai_contract_package",
     }
     try:
         validation = _validate_generic_contract(project_id, dataset_id, session_id)
@@ -292,128 +223,8 @@ def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: st
 
 
 def start_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    if _should_use_generic_contract(project_id, dataset_id, session_id):
-        return start_generic_preprocessing(project_id, dataset_id, session_id)
-    status_base = {
-        "project_id": project_id,
-        "dataset_id": dataset_id,
-        "ingestion_session_id": session_id,
-        "package_type": "fuel_cell_cathode_degradation",
-    }
-    try:
-        session = get_ingestion_session(project_id, dataset_id, session_id)
-        validation = validate_fuel_cell_package(project_id, dataset_id, session_id)
-        workspace = ensure_session_workspace(project_id, dataset_id, session_id)
-        if not validation["valid"]:
-            return write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "failed_validation", "stage": "validation_failed", "validation": validation})
-
-        write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "running", "stage": "extracting_archives", "validation": validation})
-        extracted = reset_workspace_dir(workspace["extracted"])
-        canonical = reset_workspace_dir(workspace["canonical"])
-        training_latest = reset_workspace_dir(workspace["training_latest"])
-
-        workbook, cell_zips, _errors = _fuel_cell_upload_files(session)
-        if workbook is None:
-            raise ValueError("Missing required data_overview.xlsx workbook")
-        overview_dir = extracted / "02-Testing_overview"
-        overview_dir.mkdir(parents=True, exist_ok=True)
-        workbook_target = overview_dir / "data_overview.xlsx"
-        workbook_target.write_bytes(workbook.read_bytes())
-
-        extraction_results = [safe_extract_cell_zip(zip_path, extracted) for zip_path in cell_zips]
-        cell_ids = sorted({result["cell_id"] for result in extraction_results})
-        _write_json(workspace["inventory"] / "extracted_file_inventory.json", {"generated_at": _now(), "archives": extraction_results})
-
-        write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "running", "stage": "building_canonical_tables", "cell_ids": cell_ids})
-        build_paths = BuildPaths(
-            source_root=extracted,
-            cell_data_root=extracted / "01-Data",
-            workbook_path=workbook_target,
-            output_dir=canonical,
-            source_pdf=SOURCE_PDF,
-        )
-        build_result = build_all_cells(build_paths, dry_run=False, cell_ids=cell_ids)
-
-        write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "running", "stage": "building_training_artifacts", "row_counts": build_result.row_counts})
-        preprocessing_result = build_preprocessing_artifacts(
-            project_id=REAL_FUEL_CELL_PROJECT_ID,
-            data_dir=canonical,
-            artifact_dir=training_latest,
-        )
-
-        schema_path = training_latest / "schema.json"
-        schema = _read_json(schema_path, default={}) or {}
-        domain_metadata = build_domain_metadata(schema, template_id=infer_template_id(schema, ["cell_id", "operating_rh", "operating_voltage"]), approval_status="needs_admin_approval")
-        write_status(project_id, dataset_id, session_id, "domain_metadata", {
-            "status": "inferred_needs_admin_approval",
-            "approval_status": "needs_admin_approval",
-            "template_id": domain_metadata["template_id"],
-            "domain_metadata": domain_metadata,
-        })
-        if schema:
-            schema["domain_metadata"] = domain_metadata
-            _write_json(schema_path, schema)
-
-        report_path = Path(preprocessing_result["preprocessing_report_path"])
-        generated_report = _read_json(report_path, default={}) or {}
-        report = {
-            **generated_report,
-            "project_id": project_id,
-            "runtime_project_id": REAL_FUEL_CELL_PROJECT_ID,
-            "dataset_id": dataset_id,
-            "ingestion_session_id": session_id,
-            "generated_at": _now(),
-            "status": "preprocessing_complete_needs_approval",
-            "package_validation": validation,
-            "extraction_summary": {
-                "cell_archive_count": len(extraction_results),
-                "cell_ids": cell_ids,
-                "extracted_file_count": sum(int(result.get("file_count", 0)) for result in extraction_results),
-            },
-            "canonical_artifacts": {
-                "canonical_dir": str(canonical.relative_to(BACKEND_ROOT)),
-                "training_artifact_dir": str(training_latest.relative_to(BACKEND_ROOT)),
-                "files": sorted(str(path.relative_to(BACKEND_ROOT)) for path in canonical.glob("*")),
-                "row_counts": build_result.row_counts,
-            },
-            "preprocessing_artifacts": {key: value for key, value in preprocessing_result.items() if key.endswith("_path") or key in {"artifact_dir", "row_count"}},
-            "approval": {
-                "status": "not_approved",
-                "approver_role": "mirai_admin",
-                "approved_at": None,
-            },
-            "domain_metadata_review": {
-                "status": "needs_admin_approval",
-                "template_id": domain_metadata["template_id"],
-                "plot_recipe_count": len(domain_metadata.get("ui_config", {}).get("plot_recipes", [])),
-                "message": "Mirai inferred project semantics, variable roles, and safe plot options. A Mirai admin must approve them before they drive downstream UI.",
-            },
-            "mvp_activation_policy": {
-                "mode": "session_artifacts_then_active_runtime_copy_after_training",
-                "message": "MVP keeps session-scoped artifacts and copies the trained active artifact set into the existing Model Quality runtime location after training. Long-term MinIO/project isolation is tracked in the object-storage TODO.",
-            },
-        }
-        _write_json(workspace["eda"] / "preprocessing_report.json", report)
-        _write_json(training_latest / "upload_preprocessing_report.json", report)
-        return write_status(
-            project_id,
-            dataset_id,
-            session_id,
-            "preprocessing",
-            {
-                **status_base,
-                "status": "preprocessing_complete_needs_approval",
-                "stage": "complete_needs_approval",
-                "cell_ids": cell_ids,
-                "row_counts": build_result.row_counts,
-                "report_path": str((workspace["eda"] / "preprocessing_report.json").relative_to(BACKEND_ROOT)),
-                "canonical_dir": str(canonical.relative_to(BACKEND_ROOT)),
-                "training_artifact_dir": str(training_latest.relative_to(BACKEND_ROOT)),
-            },
-        )
-    except Exception as exc:
-        write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "failed", "stage": "error", "error": str(exc)})
-        raise
+    """Deprecated compatibility name; all runtime preprocessing is generic."""
+    return start_generic_preprocessing(project_id, dataset_id, session_id)
 
 
 def get_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
@@ -623,6 +434,12 @@ def _validate_domain_metadata_for_approval(schema: dict[str, Any], domain_metada
         if not variable:
             errors.append(f"Input {name} is missing metadata approval row")
             continue
+        if variable.get("variable_id", name) != name:
+            errors.append(f"Input {name} cannot change immutable variable_id")
+        if item.get("source_name") and variable.get("source_name") and variable.get("source_name") != item.get("source_name"):
+            errors.append(f"Input {name} cannot change source_name provenance")
+        if item.get("source_table") and variable.get("source_table") and variable.get("source_table") != item.get("source_table"):
+            errors.append(f"Input {name} cannot change source_table provenance")
         if variable.get("role") not in {"input", "sweep", "group"}:
             errors.append(f"Input {name} must have input-compatible role")
         if not variable.get("unit"):
@@ -637,6 +454,12 @@ def _validate_domain_metadata_for_approval(schema: dict[str, Any], domain_metada
         if not variable:
             errors.append(f"Output {name} is missing metadata approval row")
             continue
+        if variable.get("variable_id", name) != name:
+            errors.append(f"Output {name} cannot change immutable variable_id")
+        if item.get("source_name") and variable.get("source_name") and variable.get("source_name") != item.get("source_name"):
+            errors.append(f"Output {name} cannot change source_name provenance")
+        if item.get("source_table") and variable.get("source_table") and variable.get("source_table") != item.get("source_table"):
+            errors.append(f"Output {name} cannot change source_table provenance")
         if variable.get("role") != "output":
             errors.append(f"Output {name} must have role=output")
         if not variable.get("unit"):

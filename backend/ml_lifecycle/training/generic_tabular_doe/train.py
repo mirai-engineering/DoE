@@ -625,8 +625,10 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
             "selection_metric": candidate["validation"].get("weighted_normalized_rmse"),
             "splits": candidate_splits,
         }
-        validation_mean_r2 = np.nanmean([m.get("r2", np.nan) for m in candidate_splits.get("validation", {}).values()]) if candidate_splits.get("validation") else np.nan
-        test_mean_r2 = np.nanmean([m.get("r2", np.nan) for m in candidate_splits.get("test", {}).values()]) if candidate_splits.get("test") else np.nan
+        validation_r2_values = [np.nan if m.get("r2") is None else m.get("r2", np.nan) for m in candidate_splits.get("validation", {}).values()]
+        test_r2_values = [np.nan if m.get("r2") is None else m.get("r2", np.nan) for m in candidate_splits.get("test", {}).values()]
+        validation_mean_r2 = np.nanmean(validation_r2_values) if validation_r2_values and not np.all(np.isnan(validation_r2_values)) else np.nan
+        test_mean_r2 = np.nanmean(test_r2_values) if test_r2_values and not np.all(np.isnan(test_r2_values)) else np.nan
         candidate["split_metrics"] = candidate_flat_splits
         comparison_rows.append(
             {

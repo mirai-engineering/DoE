@@ -1,0 +1,4 @@
+result_id,condition_id,Capacity retention after 100 cycles (%),DCIR growth after 100 cycles (%),Energy density (Wh/kg)
+BAT-RES-001,BAT-COND-001,94.8,12.5,248
+BAT-RES-002,BAT-COND-002,91.2,18.3,251
+BAT-RES-003,BAT-COND-003,96.1,9.7,182

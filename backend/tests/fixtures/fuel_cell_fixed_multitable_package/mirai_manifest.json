@@ -1,0 +1,243 @@
+{
+  "manifest_version": "0.3",
+  "project": {
+    "project_id": "pem_fuel_cell_fixed_multitable_demo",
+    "display_name": "Fraunhofer Fuel-Cell Fixed Multi-table Demo",
+    "domain": "fuel_cell",
+    "template_id": "generic_tabular_doe",
+    "description": "Fraunhofer-shaped data using the fixed Mirai source-table contract."
+  },
+  "tables": [
+    {
+      "path": "experiments.csv",
+      "table_type": "experiments",
+      "primary_key": [
+        "experiment_id"
+      ],
+      "description": "One row per tested Cell_NN sample."
+    },
+    {
+      "path": "conditions.csv",
+      "table_type": "conditions",
+      "primary_key": [
+        "condition_id",
+        "experiment_id"
+      ],
+      "description": "One row per modelable operating condition."
+    },
+    {
+      "path": "results.csv",
+      "table_type": "results",
+      "primary_key": [
+        "result_id"
+      ],
+      "description": "One row per averaged KPI result."
+    }
+  ],
+  "columns": [
+    {
+      "table": "experiments.csv",
+      "name": "experiment_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "source_name": "experiment_id",
+      "variable_id": "experiment_id"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "campaign_id",
+      "role": "group",
+      "dtype": "string",
+      "required": true,
+      "source_name": "campaign_id",
+      "variable_id": "campaign_id"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "condition_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "source_name": "condition_id",
+      "variable_id": "condition_id"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "split",
+      "role": "metadata",
+      "dtype": "string",
+      "required": true,
+      "source_name": "split",
+      "variable_id": "split"
+    },
+    {
+      "table": "results.csv",
+      "name": "result_id",
+      "source_name": "result_id",
+      "variable_id": "result_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Result ID"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "x1",
+      "role": "input",
+      "dtype": "float",
+      "unit": "unitless",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 1,
+      "source_name": "pt_c_ratio",
+      "variable_id": "x1"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "x2",
+      "role": "input",
+      "dtype": "float",
+      "unit": "unitless",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 2,
+      "source_name": "i_c_ratio",
+      "variable_id": "x2"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "x3",
+      "role": "input",
+      "dtype": "float",
+      "unit": "g/mol",
+      "required": true,
+      "allowed_min": 600,
+      "allowed_max": 1000,
+      "source_name": "ionomer_ew",
+      "variable_id": "x3"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "x4",
+      "role": "input",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "source_name": "operating_rh",
+      "variable_id": "x4"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "x5",
+      "role": "input",
+      "dtype": "float",
+      "unit": "V",
+      "required": true,
+      "allowed_min": 0.4,
+      "allowed_max": 1.0,
+      "source_name": "operating_voltage",
+      "variable_id": "x5"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "x6",
+      "role": "input",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "source_name": "ast_rh",
+      "variable_id": "x6"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "x7",
+      "role": "input",
+      "dtype": "float",
+      "unit": "V",
+      "required": true,
+      "allowed_min": 0.5,
+      "allowed_max": 1.2,
+      "source_name": "ast_upl",
+      "variable_id": "x7"
+    },
+    {
+      "table": "results.csv",
+      "name": "y1",
+      "role": "output",
+      "dtype": "float",
+      "unit": "A/cm2",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 3,
+      "direction": "maximize",
+      "source_name": "bol_current_density",
+      "variable_id": "y1"
+    },
+    {
+      "table": "results.csv",
+      "name": "y2",
+      "role": "output",
+      "dtype": "float",
+      "unit": "A/cm2",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 3,
+      "direction": "maximize",
+      "source_name": "eol_current_density",
+      "variable_id": "y2"
+    },
+    {
+      "table": "results.csv",
+      "name": "y3",
+      "role": "output",
+      "dtype": "float",
+      "unit": "m2/gPt",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 150,
+      "direction": "maximize",
+      "source_name": "bol_ecsa",
+      "variable_id": "y3"
+    },
+    {
+      "table": "results.csv",
+      "name": "y4",
+      "role": "output",
+      "dtype": "float",
+      "unit": "%",
+      "required": true,
+      "allowed_min": 0,
+      "allowed_max": 100,
+      "direction": "minimize",
+      "source_name": "ecsa_loss",
+      "variable_id": "y4"
+    }
+  ],
+  "joins": [
+    {
+      "left_table": "experiments.csv",
+      "right_table": "conditions.csv",
+      "keys": [
+        "experiment_id"
+      ],
+      "relationship": "one_to_many"
+    },
+    {
+      "left_table": "conditions.csv",
+      "right_table": "results.csv",
+      "keys": [
+        "condition_id"
+      ],
+      "relationship": "one_to_one"
+    }
+  ],
+  "split_hints": {
+    "predefined_split_column": "split",
+    "recommended_strategy": "predefined_column"
+  }
+}
