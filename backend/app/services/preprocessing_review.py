@@ -16,7 +16,7 @@ from .data_intake import (
     reset_workspace_dir,
     write_status,
 )
-from .domain_metadata import build_domain_metadata
+from .domain_metadata import build_domain_metadata, infer_template_id
 from .project_registry import clear_registry_cache
 from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract
 from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root, build_generic_preprocessing_artifacts

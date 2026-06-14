@@ -1,0 +1,486 @@
+{
+  "manifest_version": "0.3",
+  "project": {
+    "project_id": "fraunhofer2miraicontract_cell_01",
+    "display_name": "Fraunhofer Cell 01 Mirai Contract Smoke Package",
+    "domain": "fuel_cell",
+    "template_id": "generic_tabular_doe",
+    "description": "Cell_01 smoke package recomputed from raw Fraunhofer cathode catalyst degradation files and mapped to the Mirai fixed source-table contract.",
+    "source_pdf": "data/PEM Fuel Cell Catalyst Optimization.pdf",
+    "parity_notes": {
+      "paper_inputs": "7 features: Pt/C ratio, I/C ratio, ionomer EW, operating RH, voltage, AST RH, AST UPL",
+      "paper_outputs": "4 targets: BoL current density, EoL current density, BoL ECSA, ECSA loss",
+      "reported_model": "ANN, hidden layers 7/14/8, ReLU, Adam, MSE, min-max scaling, 80/20 split, 8-fold CV, L2 alpha 0.0015",
+      "reported_unseen_metrics": "R-squared 0.9856 BoL and 0.9774 EoL; MSE 0.25"
+    }
+  },
+  "tables": [
+    {
+      "path": "experiments.csv",
+      "table_type": "experiments",
+      "primary_key": [
+        "experiment_id"
+      ],
+      "description": "One row for the Cell_01 material/AST experiment."
+    },
+    {
+      "path": "conditions.csv",
+      "table_type": "conditions",
+      "primary_key": [
+        "condition_id",
+        "experiment_id"
+      ],
+      "description": "One row per operating RH/voltage point."
+    },
+    {
+      "path": "results.csv",
+      "table_type": "results",
+      "primary_key": [
+        "result_id"
+      ],
+      "description": "One row per output vector for each condition."
+    }
+  ],
+  "columns": [
+    {
+      "table": "experiments.csv",
+      "name": "experiment_id",
+      "source_name": "experiment_id",
+      "variable_id": "experiment_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Experiment ID",
+      "description": "Required Mirai experiment key"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "campaign_id",
+      "source_name": "campaign_id",
+      "variable_id": "campaign_id",
+      "role": "group",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Campaign",
+      "description": "Fraunhofer cathode catalyst degradation campaign"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "condition_id",
+      "source_name": "condition_id",
+      "variable_id": "condition_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Condition ID",
+      "description": "Required Mirai condition key"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "split",
+      "source_name": "split",
+      "variable_id": "split",
+      "role": "metadata",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Split",
+      "description": "Predefined smoke-test split for upload validation"
+    },
+    {
+      "table": "results.csv",
+      "name": "result_id",
+      "source_name": "result_id",
+      "variable_id": "result_id",
+      "role": "id",
+      "dtype": "string",
+      "required": true,
+      "ui_label": "Result ID",
+      "description": "Required Mirai result key"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "pt_c_ratio",
+      "source_name": "pt_c_ratio",
+      "variable_id": "x1",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "Pt/C ratio",
+      "unit": "fraction",
+      "allowed_min": 0.0,
+      "allowed_max": 1.0,
+      "description": "Catalyst platinum-to-carbon ratio"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "i_c_ratio",
+      "source_name": "i_c_ratio",
+      "variable_id": "x2",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "I/C ratio",
+      "unit": "ratio",
+      "allowed_min": 0.0,
+      "allowed_max": 2.0,
+      "description": "Ionomer-to-carbon ratio"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "ionomer_ew",
+      "source_name": "ionomer_ew",
+      "variable_id": "x3",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "Ionomer EW",
+      "unit": "g/mol",
+      "allowed_min": 600.0,
+      "allowed_max": 1000.0,
+      "description": "Ionomer equivalent weight"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "operating_rh",
+      "source_name": "operating_rh",
+      "variable_id": "x4",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "Operating RH",
+      "unit": "%",
+      "allowed_min": 0.0,
+      "allowed_max": 100.0,
+      "description": "Operating relative humidity"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "operating_voltage",
+      "source_name": "operating_voltage",
+      "variable_id": "x5",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "Operating voltage",
+      "unit": "V",
+      "allowed_min": 0.0,
+      "allowed_max": 1.0,
+      "description": "Measured BoL operating voltage point aligned to EoL interpolation"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "ast_rh",
+      "source_name": "ast_rh",
+      "variable_id": "x6",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "AST RH",
+      "unit": "%",
+      "allowed_min": 0.0,
+      "allowed_max": 100.0,
+      "description": "Accelerated stress test humidity"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "ast_upl",
+      "source_name": "ast_upl",
+      "variable_id": "x7",
+      "role": "input",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "AST UPL",
+      "unit": "V",
+      "allowed_min": 0.5,
+      "allowed_max": 1.2,
+      "description": "Accelerated stress test upper potential limit"
+    },
+    {
+      "table": "results.csv",
+      "name": "bol_current_density",
+      "source_name": "bol_current_density",
+      "variable_id": "y1",
+      "role": "output",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "BoL current density",
+      "unit": "A/cm2",
+      "allowed_min": 0.0,
+      "allowed_max": 4.0,
+      "direction": "maximize",
+      "description": "Beginning-of-life current density"
+    },
+    {
+      "table": "results.csv",
+      "name": "eol_current_density",
+      "source_name": "eol_current_density",
+      "variable_id": "y2",
+      "role": "output",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "EoL current density",
+      "unit": "A/cm2",
+      "allowed_min": 0.0,
+      "allowed_max": 4.0,
+      "direction": "maximize",
+      "description": "End-of-life current density interpolated at BoL voltage"
+    },
+    {
+      "table": "results.csv",
+      "name": "bol_ecsa",
+      "source_name": "bol_ecsa",
+      "variable_id": "y3",
+      "role": "output",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "BoL ECSA",
+      "unit": "cm2/cm2",
+      "allowed_min": 0.0,
+      "allowed_max": 200.0,
+      "direction": "maximize",
+      "description": "Beginning-of-life electrochemical surface area from CV scalar output"
+    },
+    {
+      "table": "results.csv",
+      "name": "ecsa_loss",
+      "source_name": "ecsa_loss",
+      "variable_id": "y4",
+      "role": "output",
+      "dtype": "float",
+      "required": true,
+      "ui_label": "ECSA loss",
+      "unit": "fraction",
+      "allowed_min": 0.0,
+      "allowed_max": 1.0,
+      "direction": "minimize",
+      "description": "Fractional ECSA loss from BoL to EoL"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "cell_id",
+      "source_name": "cell_id",
+      "variable_id": "cell_id",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Cell ID",
+      "description": "Fraunhofer provenance field: Cell ID"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "test_no",
+      "source_name": "test_no",
+      "variable_id": "test_no",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Test number",
+      "description": "Fraunhofer provenance field: Test number"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "pt_loading_mg_cm2",
+      "source_name": "pt_loading_mg_cm2",
+      "variable_id": "pt_loading_mg_cm2",
+      "role": "metadata",
+      "dtype": "float",
+      "required": false,
+      "ui_label": "Pt loading",
+      "description": "Fraunhofer provenance field: Pt loading"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "pt_c_ratio_percent",
+      "source_name": "pt_c_ratio_percent",
+      "variable_id": "pt_c_ratio_percent",
+      "role": "metadata",
+      "dtype": "float",
+      "required": false,
+      "ui_label": "Pt/C ratio percent",
+      "description": "Fraunhofer provenance field: Pt/C ratio percent"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "catalyst_type",
+      "source_name": "catalyst_type",
+      "variable_id": "catalyst_type",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Catalyst type",
+      "description": "Fraunhofer provenance field: Catalyst type"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "support_type",
+      "source_name": "support_type",
+      "variable_id": "support_type",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Support type",
+      "description": "Fraunhofer provenance field: Support type"
+    },
+    {
+      "table": "experiments.csv",
+      "name": "phase_scope",
+      "source_name": "phase_scope",
+      "variable_id": "phase_scope",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Phase scope",
+      "description": "Fraunhofer provenance field: Phase scope"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "curve_variant",
+      "source_name": "curve_variant",
+      "variable_id": "curve_variant",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Curve variant",
+      "description": "Fraunhofer provenance field: Curve variant"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "voltage_alignment_method",
+      "source_name": "voltage_alignment_method",
+      "variable_id": "voltage_alignment_method",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Voltage alignment method",
+      "description": "Fraunhofer provenance field: Voltage alignment method"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "bol_source_file",
+      "source_name": "bol_source_file",
+      "variable_id": "bol_source_file",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "BoL source file",
+      "description": "Fraunhofer provenance field: BoL source file"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "bol_source_row",
+      "source_name": "bol_source_row",
+      "variable_id": "bol_source_row",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "BoL source row",
+      "description": "Fraunhofer provenance field: BoL source row"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "eol_source_file",
+      "source_name": "eol_source_file",
+      "variable_id": "eol_source_file",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "EoL source file",
+      "description": "Fraunhofer provenance field: EoL source file"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "eol_interpolation_left_source_row",
+      "source_name": "eol_interpolation_left_source_row",
+      "variable_id": "eol_interpolation_left_source_row",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "EoL interpolation left source row",
+      "description": "Fraunhofer provenance field: EoL interpolation left source row"
+    },
+    {
+      "table": "conditions.csv",
+      "name": "eol_interpolation_right_source_row",
+      "source_name": "eol_interpolation_right_source_row",
+      "variable_id": "eol_interpolation_right_source_row",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "EoL interpolation right source row",
+      "description": "Fraunhofer provenance field: EoL interpolation right source row"
+    },
+    {
+      "table": "results.csv",
+      "name": "ecsa_bol_source_file",
+      "source_name": "ecsa_bol_source_file",
+      "variable_id": "ecsa_bol_source_file",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "ECSA BoL source file",
+      "description": "Fraunhofer provenance field: ECSA BoL source file"
+    },
+    {
+      "table": "results.csv",
+      "name": "ecsa_eol_source_file",
+      "source_name": "ecsa_eol_source_file",
+      "variable_id": "ecsa_eol_source_file",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "ECSA EoL source file",
+      "description": "Fraunhofer provenance field: ECSA EoL source file"
+    },
+    {
+      "table": "results.csv",
+      "name": "schema_source",
+      "source_name": "schema_source",
+      "variable_id": "schema_source",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Schema source",
+      "description": "Fraunhofer provenance field: Schema source"
+    },
+    {
+      "table": "results.csv",
+      "name": "paper_labels_json",
+      "source_name": "paper_labels_json",
+      "variable_id": "paper_labels_json",
+      "role": "metadata",
+      "dtype": "string",
+      "required": false,
+      "ui_label": "Paper labels JSON",
+      "description": "Fraunhofer provenance field: Paper labels JSON"
+    }
+  ],
+  "joins": [
+    {
+      "left_table": "experiments.csv",
+      "right_table": "conditions.csv",
+      "keys": [
+        "experiment_id"
+      ],
+      "relationship": "one_to_many"
+    },
+    {
+      "left_table": "conditions.csv",
+      "right_table": "results.csv",
+      "keys": [
+        "condition_id"
+      ],
+      "relationship": "one_to_one"
+    }
+  ],
+  "split_hints": {
+    "predefined_split_column": "split",
+    "recommended_strategy": "predefined_column"
+  },
+  "provenance": {
+    "source_builder_output": "/tmp/fraunhofer-cell01-builder/model_table.csv",
+    "source_raw_cell_dir": "data/Cathode Catalyst Degradation/01-Data/Cell_01",
+    "builder_valid_rows": 57,
+    "builder_sha256": "e7e1bc98f063a1b1e587fc0c8431d21c8f4d64a775016879ff3555c8c75e205b",
+    "raw_data_policy": "raw traces excluded from upload package; provenance source paths retained as metadata"
+  }
+}

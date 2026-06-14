@@ -1,0 +1,2 @@
+experiment_id,campaign_id,pt_c_ratio,i_c_ratio,ionomer_ew,ast_rh,ast_upl,cell_id,test_no,pt_loading_mg_cm2,pt_c_ratio_percent,catalyst_type,support_type,phase_scope
+Cell_01,Fraunhofer_Cathode_Catalyst_Degradation,0.5,0.5,790,100,0.95,Cell_01,1,0.3839,50,Pt (SUP1),HSA,all_cells_grouped
