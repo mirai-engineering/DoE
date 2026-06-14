@@ -13,4 +13,4 @@ This is an AI-powered Design of Experiments platform for industrial R&D teams. I
 # Before implementation, run an agent chain and use the scout agent whenever possible:
 Start with a scout/read-only discovery step to bootstrap-script state before editing. Use the scout output to confirm the implementation tasks are still valid and to avoid duplicating existing utilities. Then run focused implementation/review steps or the current task at hand. If an agent runner is available, first list configured agents/chains and choose the available scout-style agent/chain; do not invent an agent name if none is configured.
 # Skill mapping for plans
-Whenever creating a plan, check all skills available and map the skills meaningfully to each task to maximize efficiency
+Whenever creating a plan, first read this `AGENTS.md`, list or inspect the available skills, and add an explicit **Agent and skill mapping** section to the plan. Map the configured agents and relevant skills to concrete tasks in the plan rather than mentioning skills generically. This requirement applies before submitting any plan for review.
