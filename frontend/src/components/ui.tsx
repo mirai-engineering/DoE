@@ -1,5 +1,52 @@
+import { ReactNode, useState } from 'react'
 import type { ProjectSchema } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
+
+export type LifecycleStep = {
+  id: string
+  label: string
+  status: 'done' | 'current' | 'locked'
+}
+
+export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
+  return (
+    <div className="rounded-[1.5rem] border border-slate-200 bg-white/80 p-3">
+      <div className="grid gap-2 md:grid-cols-5">
+        {steps.map((step, index) => {
+          const isDone = step.status === 'done'
+          const isCurrent = step.status === 'current'
+          return (
+            <div key={step.id} className={`rounded-2xl px-3 py-3 ${isCurrent ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/15' : isDone ? 'bg-[#eef0ea] text-slate-900' : 'bg-slate-50 text-slate-400'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${isCurrent ? 'bg-white/15 text-white' : isDone ? 'bg-[#526949] text-white' : 'bg-slate-200 text-slate-500'}`}>
+                  {isDone ? '✓' : index + 1}
+                </span>
+                <span className="text-sm font-semibold">{step.label}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function SectionCard({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <section className={`rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5 ${className}`}>{children}</section>
+}
+
+export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+        {title}
+        <span className={`grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-slate-500 transition ${open ? 'rotate-180' : ''}`}>⌄</span>
+      </button>
+      {open && <div className="border-t border-slate-100 px-4 py-4">{children}</div>}
+    </div>
+  )
+}
 
 export function Metadata({ label, value }: { label: string; value: string }) {
   return (

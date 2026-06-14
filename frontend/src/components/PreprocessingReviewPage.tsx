@@ -18,6 +18,7 @@ import {
   updateDomainMetadata,
   validateMiraiContract,
 } from '../lib/api'
+import { DisclosurePanel, LifecycleStepper, SectionCard } from './ui'
 
 function StatusPill({ children, tone = 'slate' }: { children: string; tone?: 'slate' | 'amber' | 'green' | 'rose' }) {
   const classes = tone === 'green'
@@ -313,133 +314,202 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
+  const lifecycleSteps = [
+    { id: 'upload', label: 'Create project', status: 'done' as const },
+    { id: 'metadata', label: 'Review metadata', status: metadataApproved ? 'done' as const : 'current' as const },
+    { id: 'preprocess', label: 'Preprocess', status: preprocessingComplete ? 'done' as const : metadataApproved ? 'current' as const : 'locked' as const },
+    { id: 'train', label: 'Train', status: trainingCompleted ? 'done' as const : preprocessingApproved ? 'current' as const : 'locked' as const },
+    { id: 'quality', label: 'Quality', status: trainingCompleted ? 'current' as const : 'locked' as const },
+  ]
+
+  const metadataSummary = [
+    ['Inputs', inputOrSweepVariables.length],
+    ['Outputs', outputVariables.length],
+    ['Other fields', metadataVariables.length - inputOrSweepVariables.length - outputVariables.length],
+  ]
+
+  const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
+  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
+
+  const nextAction = (() => {
+    if (!selectedSession) return { label: 'Select a session', disabled: true, run: undefined as (() => void) | undefined }
+    if (!metadataApproved) return { label: busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata', disabled: !metadataDraft || Boolean(busy), run: approveMetadataDraft }
+    if (!preprocessingComplete) return { label: busy === 'preprocessing' ? 'Preprocessing...' : 'Run preprocessing', disabled: !canRunPreprocessing || Boolean(busy), run: () => runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) }) }
+    if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
+    if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
+    if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
+    return { label: 'Open model quality', disabled: false, run: onOpenModelQuality }
+  })()
+
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <LifecycleStepper steps={lifecycleSteps} />
+
+      <SectionCard>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#60745c]">Preprocessing Review</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Approve fuel-cell preprocessing before training</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Select the uploaded fuel-cell package, unpack Cell archives, generate canonical model tables, approve preprocessing, then start synchronous training.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#60745c]">Lifecycle</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Prepare this project for training</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Confirm the metadata, run preprocessing, then start the recommended training path.</p>
           </div>
-          <StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.status || 'not_started'}</StatusPill>
+          <StatusPill tone={trainingCompleted ? 'green' : actionTone(preprocessingStatus.status)}>{trainingCompleted ? 'training complete' : preprocessingStatus.status || 'not started'}</StatusPill>
         </div>
-      </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-[18rem] flex-1">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Uploaded session</p>
+        <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+          <label className="text-sm font-semibold text-slate-700">
+            Session
             <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#60745c]">
-              <option value="">No ingestion sessions found</option>
+              <option value="">No sessions found</option>
               {sessions.map((session) => (
                 <option key={session.ingestion_session_id} value={session.ingestion_session_id}>{session.project_name} · {session.ingestion_session_id}</option>
               ))}
             </select>
-          </div>
+          </label>
           <button type="button" onClick={() => refreshSessionState()} disabled={!selectedSession || Boolean(busy)} className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">Refresh</button>
         </div>
+
         {selectedSession && (
-          <>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Project</div><div className="mt-1 break-all text-slate-600">{selectedSession.project_id}</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Dataset</div><div className="mt-1 break-all text-slate-600">{selectedSession.dataset_id}</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Files</div><div className="mt-1 text-slate-600">{selectedSession.files.length} uploaded</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Contract columns</div><div className="mt-1 text-slate-600">{validation?.column_count ?? 0}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Project</div><div className="mt-1 truncate font-semibold text-slate-950">{selectedSession.project_name}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Files</div><div className="mt-1 font-semibold text-slate-950">{selectedSession.files.length}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Columns</div><div className="mt-1 font-semibold text-slate-950">{validation?.column_count ?? '—'}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Rows</div><div className="mt-1 font-semibold text-slate-950">{modelRows ?? 'Pending'}</div></div>
           </div>
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-[#fbfaf5] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-semibold text-slate-950">Forgot a file?</h3>
-                <p className="mt-1 text-sm text-slate-600">Append missing Mirai package files to this same ingestion session before rerunning preprocessing. A package needs mirai_manifest.json, data_dictionary.csv, and model_table.csv, or a ZIP containing that same structure.</p>
-              </div>
-              <StatusPill tone="amber">Invalidates preprocessing</StatusPill>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-3">
-              <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" />
-              <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
-                {busy === 'append-files' ? 'Appending...' : 'Append files'}
-              </button>
-            </div>
-          </div>
-          </>
         )}
-      </section>
+      </SectionCard>
 
       {error && <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <SectionCard>
+        <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Workflow actions</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Run preprocessing, review evidence, then approve</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Start preprocessing from here. When it completes, the EDA evidence appears directly below this section so approval follows the natural review order.
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Next step</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{nextAction.label}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {trainingCompleted
+                ? 'Training artifacts are ready for review.'
+                : !metadataApproved
+                  ? 'Review the variable summary, then approve metadata.'
+                  : !preprocessingComplete
+                    ? 'Generate the canonical model table and evidence.'
+                    : !preprocessingApproved
+                      ? 'Review evidence, then approve training readiness.'
+                      : !trainingRequest
+                        ? 'Use the recommended training configuration.'
+                        : 'Run the approved training request.'}
             </p>
           </div>
-          <StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.stage ?? preprocessingStatus.status}</StatusPill>
+          <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+            {nextAction.label}
+          </button>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <button type="button" disabled={!selectedSession || Boolean(busy) || ['queued', 'running'].includes(preprocessingStatus.status)} onClick={() => selectedSession && runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{['queued', 'running'].includes(preprocessingStatus.status) ? 'Preprocessing...' : preprocessingComplete ? 'Rerun preprocessing' : 'Start preprocessing'}</button>
-          <button type="button" disabled={!selectedSession || !preprocessingComplete || preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) })} className="rounded-full bg-[#526949] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">Approve preprocessing</button>
-          <button type="button" disabled={!selectedSession || !preprocessingApproved || Boolean(busy)} onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">Create training request</button>
-          <button type="button" disabled={!selectedSession || !trainingRequest || Boolean(busy)} onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'training' ? 'Training...' : 'Start training'}</button>
-        </div>
-        {!preprocessingComplete && (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-            EDA and preprocessing evidence are created after preprocessing runs. Approval remains locked until those artifacts are ready.
-          </div>
-        )}
-      </section>
+      </SectionCard>
 
-      {preprocessingComplete && (
-        <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+      {metadataDraft && (
+        <SectionCard className="bg-[#fffdf7] border-[#d8c99b]/50">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">EDA before approval</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Preprocessing evidence</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review row counts, rejected rows, missingness, split strategy, and variable ranges before approving training. This evidence is generated from the canonical model table.</p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Metadata</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Variable summary</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Confirm labels and roles before preprocessing. Internal IDs stay fixed for training.</p>
             </div>
-            <StatusPill tone={edaSummary ? 'green' : 'amber'}>{edaSummary ? 'Generated' : 'Refresh evidence'}</StatusPill>
+            <StatusPill tone={metadataApproved ? 'green' : metadataStatus?.approval_status === 'draft' ? 'amber' : 'slate'}>{metadataStatus?.approval_status || 'needs review'}</StatusPill>
           </div>
 
-          {!edaSummary && (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-              Preprocessing completed, but the EDA summary is not loaded in this browser state yet. Click <strong>Refresh</strong>; approval should be based on this evidence, not just the readiness checklist.
-            </div>
-          )}
-
-          <div className="mt-5 grid gap-3 md:grid-cols-5">
-            {[
-              ['Cells succeeded', edaSummary?.summary.cells_succeeded ?? rowCounts.cells_succeeded],
-              ['Cells failed', edaSummary?.summary.cells_failed ?? rowCounts.cells_failed],
-              ['Extracted files', edaSummary?.summary.extracted_file_count],
-              ['Model rows', edaSummary?.summary.model_rows ?? modelRows],
-              ['Rejected rows', edaSummary?.summary.rejected_rows?.count ?? rowCounts['rejected_rows.csv']],
-            ].map(([label, value]) => (
-              <div key={label as string} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {metadataSummary.map(([label, value]) => (
+              <div key={label as string} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{label}</div>
-                <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{formatNumber(value, 0)}</div>
+                <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{value}</div>
               </div>
             ))}
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="font-semibold text-slate-950">Split plan</h3>
-              <p className="mt-1 text-sm text-slate-600">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="rounded-xl bg-[#fbfaf5] px-3 py-2"><span className="font-semibold text-slate-950">{split}</span><span className="float-right text-slate-600">{formatNumber(count, 0)}</span></div>)}
+              <div className="font-semibold text-slate-950">Inputs</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {inputOrSweepVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-full bg-[#eef0ea] px-3 py-1 text-xs font-semibold text-slate-700">{variable.label || variable.name}</span>)}
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="font-semibold text-slate-950">Rejected-row reasons</h3>
-              <div className="mt-3 space-y-2 text-sm">
-                {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="rounded-xl bg-[#fbfaf5] px-3 py-2"><span className="font-semibold text-slate-950">{reason}</span><span className="float-right text-slate-600">{formatNumber(count, 0)}</span></div>)}
+              <div className="font-semibold text-slate-950">Outputs</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {outputVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-full bg-[#fff8e8] px-3 py-1 text-xs font-semibold text-slate-700">{variable.label || variable.name}</span>)}
               </div>
             </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            <DisclosurePanel title="Edit labels/details">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-semibold text-slate-700">
+                  X variable
+                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Y variable
+                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-[#fbfaf5] text-xs uppercase tracking-[0.14em] text-slate-500">
+                    <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {metadataVariables.map((variable, index) => (
+                      <tr key={`${variable.name}-${index}`}>
+                        <td className="px-3 py-3 font-mono text-xs text-slate-600">{variable.variable_id || variable.name}</td>
+                        <td className="px-3 py-3 text-xs text-slate-600"><div className="font-medium text-slate-800">{variable.source_name || variable.name}</div></td>
+                        <td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => updateVariable(index, { label: event.target.value, ui_label: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
+                        <td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => updateVariable(index, { unit: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
+                        <td className="px-3 py-3">
+                          <select value={variable.role} onChange={(event) => updateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="w-full rounded-xl border border-slate-200 px-3 py-2">
+                            <option value="input">input</option><option value="output">output</option><option value="group">group</option><option value="sweep">sweep</option><option value="time">time</option><option value="metadata">metadata</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex flex-wrap justify-end gap-3">
+                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={saveMetadataDraft} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">{busy === 'metadata-save' ? 'Saving...' : 'Save draft'}</button>
+                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata'}</button>
+              </div>
+            </DisclosurePanel>
+          </div>
+        </SectionCard>
+      )}
+
+      {preprocessingComplete && (
+        <SectionCard>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Evidence</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Preprocessing results</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Canonical data is ready for review.</p>
+            </div>
+            <StatusPill tone={edaSummary ? 'green' : 'amber'}>{edaSummary ? 'ready' : 'loading'}</StatusPill>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            {[
+              ['Model rows', edaSummary?.summary.model_rows ?? modelRows],
+              ['Rejected rows', edaSummary?.summary.rejected_rows?.count ?? rowCounts['rejected_rows.csv']],
+              ['Inputs', validation?.input_count],
+              ['Outputs', validation?.output_count],
+            ].map(([label, value]) => (
+              <div key={label as string} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+                <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+                <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{formatNumber(value, 0)}</div>
+              </div>
+            ))}
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -456,206 +526,105 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           )}
 
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-xs text-slate-600">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="font-semibold text-slate-950">Artifacts</div>
-              {selectedSession && (
-                <a
-                  href={preprocessingYdataReportUrl(selectedSession)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20"
-                >
-                  Open ydata HTML EDA ↗
-                </a>
-              )}
-            </div>
-            <div className="mt-2 text-slate-500">The HTML report is generated from the canonical model table on first click using ydata-profiling, then cached in the session EDA folder.</div>
-            <div className="mt-1 break-all">ydata HTML: {edaSummary?.artifacts.ydata_html_endpoint ?? 'available after refresh'}</div>
-            <div className="mt-1 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
-            <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
-            <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>
+          <div className="mt-5 space-y-3">
+            <DisclosurePanel title="Diagnostics and artifact links">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-semibold text-slate-950">Split plan</h3>
+                  <p className="mt-1 text-sm text-slate-600">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="rounded-xl bg-[#fbfaf5] px-3 py-2"><span className="font-semibold text-slate-950">{split}</span><span className="float-right text-slate-600">{formatNumber(count, 0)}</span></div>)}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-semibold text-slate-950">Rejected-row reasons</h3>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="rounded-xl bg-[#fbfaf5] px-3 py-2"><span className="font-semibold text-slate-950">{reason}</span><span className="float-right text-slate-600">{formatNumber(count, 0)}</span></div>)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-xs text-slate-600">
+                {selectedSession && <a href={preprocessingYdataReportUrl(selectedSession)} target="_blank" rel="noopener noreferrer" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20">Open HTML EDA ↗</a>}
+                <div className="mt-3 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
+                <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
+                <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>
+              </div>
+            </DisclosurePanel>
           </div>
-        </section>
+        </SectionCard>
       )}
 
-      {metadataDraft && (
-        <section className="rounded-[2rem] border border-[#d8c99b]/50 bg-[#fffdf7] p-6 shadow-lg shadow-slate-900/5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Metadata & Plot Setup</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Approve what this project means</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Mirai maps client-native source columns through the contract into immutable internal variable ids. Edit only the user-facing labels/units shown in the app; source columns and variable ids stay fixed for training artifacts.
-              </p>
-            </div>
-            <StatusPill tone={metadataApproved ? 'green' : metadataStatus?.approval_status === 'draft' ? 'amber' : 'slate'}>{metadataStatus?.approval_status || 'needs review'}</StatusPill>
+      <SectionCard>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Training</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Recommended training</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Use the default Mirai training path unless this project needs a custom sweep.</p>
           </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-[0.35fr_0.65fr]">
-            <label className="text-sm font-semibold text-slate-700">
-              Template
-              <select
-                value={metadataDraft.template_id}
-                onChange={(event) => updateMetadataDraft((draft) => { draft.template_id = event.target.value; draft.label = event.target.value === 'fuel_cell' ? 'Fuel cell' : 'Generic tabular DoE' })}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="fuel_cell">Fuel cell</option>
-                <option value="generic_tabular_doe">Generic tabular DoE</option>
-              </select>
-            </label>
-            <div className="rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
-              <strong className="text-slate-900">Current primary plot:</strong> {selectedRecipe?.label || 'No plot recipe selected'}
-              <div className="text-slate-500">{selectedRecipe?.description || 'Choose X and Y variables below to create a safe recommended plot.'}</div>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="text-sm font-semibold text-slate-700">
-              X variable
-              <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
-              </select>
-            </label>
-            <label className="text-sm font-semibold text-slate-700">
-              Y variable
-              <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
-              </select>
-            </label>
-          </div>
-
-          <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-[#fbfaf5] text-xs uppercase tracking-[0.14em] text-slate-500">
-                <tr><th className="px-3 py-3">Internal variable id</th><th className="px-3 py-3">Source column</th><th className="px-3 py-3">UI label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {metadataVariables.map((variable, index) => (
-                  <tr key={`${variable.name}-${index}`}>
-                    <td className="px-3 py-3 font-mono text-xs text-slate-600">{variable.variable_id || variable.name}</td>
-                    <td className="px-3 py-3 text-xs text-slate-600"><div className="font-medium text-slate-800">{variable.source_name || variable.name}</div><div className="font-mono text-[0.7rem] text-slate-500">{variable.source_table || 'model_table.csv'}</div></td>
-                    <td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => updateVariable(index, { label: event.target.value, ui_label: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
-                    <td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => updateVariable(index, { unit: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
-                    <td className="px-3 py-3">
-                      <select value={variable.role} onChange={(event) => updateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="w-full rounded-xl border border-slate-200 px-3 py-2">
-                        <option value="input">input</option>
-                        <option value="output">output</option>
-                        <option value="group">group</option>
-                        <option value="sweep">sweep</option>
-                        <option value="time">time</option>
-                        <option value="metadata">metadata</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-5 flex flex-wrap justify-end gap-3">
-            <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={saveMetadataDraft} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">
-              {busy === 'metadata-save' ? 'Saving...' : 'Save metadata draft'}
-            </button>
-            <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">
-              {busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata & plot setup'}
-            </button>
-          </div>
-        </section>
-      )}
-
-      <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Readiness checklist</p>
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
-              <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Mirai package</h3><StatusPill tone={validation?.valid ? 'green' : 'amber'}>{validation?.valid ? 'Valid' : 'Needs attention'}</StatusPill></div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Requires a Mirai Experiment Package with mirai_manifest.json, data_dictionary.csv, and model_table.csv (or a ZIP containing that structure). {validation?.message}</p>
-              {!!validation?.errors.length && <ul className="mt-2 list-disc pl-5 text-sm text-amber-700">{validation.errors.map((item) => <li key={item}>{item}</li>)}</ul>}
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
-              <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Preprocessing artifacts</h3><StatusPill tone={actionTone(preprocessingStatus.status)}>{preprocessingStatus.stage ?? preprocessingStatus.status}</StatusPill></div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Canonical rows: {modelRows ?? 'pending'}. Tables: {validation?.table_count ?? 'pending'}; inputs: {validation?.input_count ?? 'pending'}; outputs: {validation?.output_count ?? 'pending'}.</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
-              <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">Admin approval</h3><StatusPill tone={preprocessingApproved ? 'green' : 'slate'}>{preprocessingApproved ? 'Approved' : 'Locked'}</StatusPill></div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Approval unlocks training. Training remains disabled until preprocessing is complete and explicitly approved.</p>
-            </div>
-          </div>
+          <StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{trainingCompleted ? 'complete' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
         </div>
 
-        <div className="space-y-5">
-          <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Training Configuration</p>
-            <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Advanced model sweep</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Edit MVLR/Ridge/MLP hyperparameters before creating the training request. MLflow will register the best validation candidate as challenger; champion remains manual.</p>
-              </div>
-              <StatusPill tone="amber">{trainingConfig.search.mode}</StatusPill>
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {trainingRequest && (
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <div className="font-semibold">Training request ready</div>
+            <div className="mt-1">Preset: {trainingRequest.preset}</div>
+            <div className="mt-1">Models: {trainingRequest.model_families.join(', ')}</div>
+          </div>
+        )}
+        {trainingCompleted && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <div className="font-semibold">Training completed</div>
+            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? '—')}</div>
+          </div>
+        )}
+
+        <div className="mt-5">
+          <DisclosurePanel title="Advanced settings">
+            <div className="grid gap-3 md:grid-cols-3">
               <label className="text-sm font-semibold text-slate-700">Search mode<select value={trainingConfig.search.mode} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, mode: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="single_config">single_config</option><option value="small_sweep_1h">small_sweep_1h</option><option value="balanced_sweep_2h">balanced_sweep_2h</option></select></label>
               <label className="text-sm font-semibold text-slate-700">Budget minutes<input type="number" value={trainingConfig.search.wall_clock_budget_minutes} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, wall_clock_budget_minutes: Number(event.target.value) || 60 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
               <label className="text-sm font-semibold text-slate-700">Seeds<input value={trainingConfig.mlp.seeds.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
             </div>
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
-              <h3 className="font-semibold text-slate-950">Linear baselines</h3>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={trainingConfig.linear.include_mvlr} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include MVLR</label>
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={trainingConfig.linear.include_ridge} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_ridge: event.target.checked } }))} /> Include Ridge</label>
-                <label className="text-sm font-semibold text-slate-700 md:col-span-2">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+                <h3 className="font-semibold text-slate-950">Linear baselines</h3>
+                <div className="mt-3 grid gap-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={trainingConfig.linear.include_mvlr} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include MVLR</label>
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={trainingConfig.linear.include_ridge} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_ridge: event.target.checked } }))} /> Include Ridge</label>
+                  <label className="text-sm font-semibold text-slate-700">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <h3 className="font-semibold text-slate-950">MLP</h3>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="text-sm font-semibold text-slate-700">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
+                  <label className="text-sm font-semibold text-slate-700">Hidden layers<input value={trainingConfig.mlp.hidden_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-700">Learning rate<input type="number" step="0.0001" value={trainingConfig.mlp.learning_rate} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-700">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                </div>
               </div>
             </div>
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="font-semibold text-slate-950">MLP hyperparameters</h3>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="text-sm font-semibold text-slate-700">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
-                <label className="text-sm font-semibold text-slate-700">Hidden layers<input value={trainingConfig.mlp.hidden_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Trunk layers<input value={trainingConfig.mlp.trunk_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, trunk_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Head layers<input value={trainingConfig.mlp.head_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, head_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Activation<select value={trainingConfig.mlp.activation} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, activation: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option>SiLU</option><option>GELU</option><option>ReLU</option><option>Tanh</option></select></label>
-                <label className="text-sm font-semibold text-slate-700">Normalization<select value={trainingConfig.mlp.normalization} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, normalization: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="layer_norm">layer_norm</option><option value="batch_norm">batch_norm</option><option value="none">none</option></select></label>
-                <label className="text-sm font-semibold text-slate-700">Dropout<input type="number" step="0.01" value={trainingConfig.mlp.dropout} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, dropout: Number(event.target.value) || 0 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Learning rate<input type="number" step="0.0001" value={trainingConfig.mlp.learning_rate} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Weight decay<input type="number" step="0.00001" value={trainingConfig.mlp.weight_decay} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, weight_decay: Number(event.target.value) || 0 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Loss<select value={trainingConfig.mlp.loss} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, loss: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="mse">mse</option><option value="smooth_l1">smooth_l1</option><option value="weighted_mse">weighted_mse</option><option value="weighted_smooth_l1">weighted_smooth_l1</option></select></label>
-                <label className="text-sm font-semibold text-slate-700">Batch size<input value={String(trainingConfig.mlp.batch_size)} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, batch_size: event.target.value === 'full_batch' ? 'full_batch' : Number(event.target.value) || 'full_batch' } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                <label className="text-sm font-semibold text-slate-700">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Training request</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{trainingRequest ? trainingRequest.training_request_id : 'Locked until approved'}</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Mean baseline, MVLR, and MLP are staged after approval using the default plan above. Training is synchronous for this MVP and activates the latest artifacts for Model Quality.</p>
-            {trainingRequest && (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                <div className="font-semibold">Request staged</div>
-                <div className="mt-1">Preset: {trainingRequest.preset}</div>
-                <div className="mt-1">Models: {trainingRequest.model_families.join(', ')}</div>
-                <div className="mt-1 break-all">Dataset: {trainingRequest.dataset_id}</div>
-                <div className="mt-1 break-all">Session: {trainingRequest.ingestion_session_id}</div>
-                <div className="mt-1 break-all">MLflow experiment/model: {trainingRequest.project_id}</div>
-              </div>
-            )}
-            {trainingCompleted && (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                <div className="font-semibold">Training completed</div>
-                <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? '—')}</div>
-                <div className="mt-1 break-all">MLflow experiment/model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.mlflow_registered_model_name ?? trainingRequest?.project_id ?? '—')}</div>
-                <div className="mt-1 break-all">Challenger alias: {String(((trainingStatus?.result as Record<string, unknown> | undefined)?.alias_model as Record<string, unknown> | undefined)?.version ?? '—')}</div>
-              </div>
-            )}
-            {trainingCompleted && <button type="button" onClick={onOpenModelQuality} className="mt-4 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Open Model Quality</button>}
-          </div>
+          </DisclosurePanel>
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="rounded-[1.75rem] border border-slate-200 bg-white/85 p-5 text-sm text-slate-600">
-        Active context: <span className="font-semibold text-slate-950">{schema.project_id}</span>{selectedSession && selectedSession.project_id !== schema.project_id ? <> · selected session project: <span className="font-semibold text-slate-950">{selectedSession.project_id}</span></> : null}. Uploaded projects keep their own raw, canonical, training, MLflow experiment, and registered-model identity.
-      </section>
+      <div className="space-y-3">
+        <DisclosurePanel title="Session tools">
+          {selectedSession ? (
+            <div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Project ID</div><div className="mt-1 break-all text-slate-600">{selectedSession.project_id}</div></div>
+                <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Dataset</div><div className="mt-1 break-all text-slate-600">{selectedSession.dataset_id}</div></div>
+                <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="font-semibold text-slate-950">Session</div><div className="mt-1 break-all text-slate-600">{selectedSession.ingestion_session_id}</div></div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" />
+                <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'append-files' ? 'Appending...' : 'Append files'}</button>
+              </div>
+            </div>
+          ) : <div className="text-sm text-slate-500">Select a session first.</div>}
+        </DisclosurePanel>
+      </div>
     </div>
   )
 }

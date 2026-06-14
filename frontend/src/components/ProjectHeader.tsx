@@ -39,7 +39,7 @@ export function ProjectHeader({
         if (isMounted) setArtifactStatus(status)
       })
       .catch((error) => {
-        if (isMounted) setArtifactStatusError(error instanceof Error ? error.message : 'Artifact status unavailable')
+        if (isMounted) setArtifactStatusError(error instanceof Error ? error.message : 'Status unavailable')
       })
     return () => {
       isMounted = false
@@ -55,10 +55,6 @@ export function ProjectHeader({
   const workspaceOptions = Array.from(new Set([...workspaces.map((workspace) => workspace.display_name), ...projects.map((project) => workspaceFor(project))]))
   const selectedWorkspace = selectedProject ? workspaceFor(selectedProject) : schema?.workspace_name || workspaceOptions[0] || 'Mirai Engineering'
   const visibleProjects = projects.filter((project) => workspaceFor(project) === selectedWorkspace)
-  const artifactPointers = artifactStatus?.artifact_pointers ?? {}
-  const durableBuckets = Array.from(new Set(Object.values(artifactPointers).map((pointer) => pointer.bucket).filter(Boolean)))
-  const availablePointerCount = Object.values(artifactPointers).filter((pointer) => pointer.object_key).length
-  const metadataVariables = schema?.domain_metadata?.variables?.filter((variable) => !['input', 'output'].includes(variable.role)) ?? schema?.metadata?.variables ?? []
 
   function handleWorkspaceChange(workspaceName: string) {
     const firstProject = projects.find((project) => workspaceFor(project) === workspaceName)
@@ -67,111 +63,49 @@ export function ProjectHeader({
 
   return (
     <section className="relative z-[80] overflow-visible rounded-[2rem] border border-white/70 bg-[#f8f6ef]/95 shadow-2xl shadow-slate-900/10 backdrop-blur">
-      <div className="grid gap-8 p-6 md:grid-cols-[1.35fr_0.65fr] md:p-8">
-        <div>
-          <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-slate-900/10 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600">
-            ML-guided DoE platform
-          </div>
-          <div className="flex items-center gap-5">
-            <img
-              src="/assets/doe_logo.png"
-              alt="Mirai DoE"
-              className="h-48 w-48 shrink-0 rounded-2xl border border-slate-200 object-contain shadow-sm"
-            />
-            <h1 className="max-w-3xl text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-6xl">
-              Mirai DoE Engine
-            </h1>
-          </div>
-          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            Abstract ML engineering for test teams: trust tailored models, design better experiments, and quantify saved test effort.
-          </p>
-
-          <Tabs activeTab={activeTab} onTabChange={onTabChange} />
-        </div>
-
-        <div className="rounded-3xl border border-slate-900/10 bg-white/75 p-5 shadow-inner shadow-white">
-          <div className="grid gap-4">
-            <label htmlFor="workspace" className="text-sm font-semibold text-slate-700">
-              Workspace / Client
-              <select
-                id="workspace"
-                value={selectedWorkspace}
-                onChange={(event) => handleWorkspaceChange(event.target.value)}
-                disabled={projectsLoading || workspaceOptions.length === 0}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20"
-              >
-                {workspaceOptions.map((workspace) => (
-                  <option key={workspace} value={workspace}>{workspace}</option>
-                ))}
-              </select>
-            </label>
-
-            <label htmlFor="project" className="text-sm font-semibold text-slate-700">
-              Project
-              <select
-                id="project"
-                value={selectedProjectId}
-                onChange={(event) => onProjectChange(event.target.value)}
-                disabled={projectsLoading || projects.length === 0}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20"
-              >
-                {visibleProjects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.display_name} · {project.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-            <Metadata label="Workspace" value={selectedWorkspace} />
-            <Metadata label="Display name" value={schema?.display_name ?? selectedProject?.display_name ?? 'Loading'} />
-            <Metadata label="Project ID" value={selectedProject?.id ?? 'Loading'} />
-            <Metadata label="Schema version" value={schema?.schema_version ?? '-'} />
-            <Metadata label="Inputs" value={schema ? String(schema.inputs.length) : '-'} />
-            <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
-          </div>
-          {schema?.description && (
-            <p className="mt-4 text-sm leading-6 text-slate-600">{schema.description}</p>
-          )}
-
-          {!!metadataVariables.length && (
-            <div className="mt-5 rounded-3xl border border-slate-200 bg-white/80 p-4 text-sm">
-              <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">Metadata variables</div>
-              <div className="mt-3 max-h-36 space-y-2 overflow-y-auto pr-1">
-                {metadataVariables.slice(0, 8).map((variable) => (
-                  <div key={variable.name} className="rounded-2xl bg-[#f8f6ef] px-3 py-2">
-                    <div className="font-semibold text-slate-800">{variable.label || variable.name}</div>
-                    <div className="mt-0.5 font-mono text-[0.68rem] text-slate-500">{variable.name}{variable.source_name ? ` ← ${variable.source_name}` : ''}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-5 rounded-3xl border border-slate-200 bg-[#f8f6ef] p-4 text-sm">
-            <div className="flex items-start justify-between gap-3">
+      <div className="p-5 md:p-6">
+        <div className="grid gap-5 lg:grid-cols-[1fr_24rem] lg:items-start">
+          <div>
+            <div className="flex items-center gap-4">
+              <img src="/assets/doe_logo.png" alt="Mirai DoE" className="h-20 w-20 shrink-0 rounded-2xl border border-slate-200 bg-white object-contain shadow-sm" />
               <div>
-                <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Durable state
-                </div>
-                <div className="mt-1 font-semibold text-slate-800">
-                  {artifactStatus ? `${availablePointerCount} scoped pointers` : artifactStatusError ? 'Status unavailable' : 'Checking pointers...'}
-                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">Mirai DoE</p>
+                <h1 className="mt-1 text-3xl font-semibold tracking-[-0.055em] text-slate-950 sm:text-4xl">ML-guided experiments</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Create models, choose better experiments, and review impact.</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
-                {artifactStatus?.model_quality.available ? 'quality ready' : 'quality pending'}
-              </span>
             </div>
-            <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-500">
-              {artifactStatusError || artifactStatus?.model_quality.message || 'Loading workspace/project artifact pointers.'}
-            </p>
-            {durableBuckets.length > 0 && (
-              <p className="mt-2 truncate text-xs font-medium text-slate-600">
-                Bucket: {durableBuckets.join(', ')}
-              </p>
-            )}
+            <Tabs activeTab={activeTab} onTabChange={onTabChange} />
+          </div>
+
+          <div className="rounded-3xl border border-slate-900/10 bg-white/75 p-4 shadow-inner shadow-white">
+            <div className="grid gap-3">
+              <label htmlFor="workspace" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+                Workspace
+                <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
+                  {workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>)}
+                </select>
+              </label>
+
+              <label htmlFor="project" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+                Project
+                <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
+                  {visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <Metadata label="Inputs" value={schema ? String(schema.inputs.length) : '-'} />
+              <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-[#f8f6ef] px-4 py-3 text-sm">
+              <div>
+                <div className="font-semibold text-slate-800">Model quality</div>
+                <div className="mt-0.5 text-xs text-slate-500">{artifactStatusError || artifactStatus?.model_quality.message || 'Checking status'}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
+            </div>
           </div>
         </div>
       </div>

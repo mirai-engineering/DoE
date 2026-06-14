@@ -15,56 +15,28 @@ const tabGroups: Array<{
   items: NavItem[]
 }> = [
   {
-    title: 'Tailored ML Model',
-    subtitle: 'Trust and train',
+    title: 'Model setup',
+    subtitle: 'Prepare',
     items: [
-      {
-        id: 'data-intake',
-        label: 'Data Intake',
-        description: 'Create a project from a Mirai Experiment Package, upload raw data, and inventory files.',
-      },
-      {
-        id: 'preprocessing-review',
-        label: 'Preprocessing Review',
-        description: 'Review EDA, mapping status, preprocessing choices, and approve training readiness.',
-      },
-      {
-        id: 'model-quality',
-        label: 'Model Quality',
-        description: 'Review validation evidence, prediction diagnostics, model version, and trust labels.',
-      },
+      { id: 'data-intake', label: 'Data Intake', description: 'Upload data and create a project.' },
+      { id: 'preprocessing-review', label: 'Preprocessing', description: 'Approve metadata, evidence, and training.' },
+      { id: 'model-quality', label: 'Model Quality', description: 'Review model performance.' },
     ],
   },
   {
-    title: 'ML-Guided Design',
-    subtitle: 'Choose better tests',
+    title: 'Design',
+    subtitle: 'Use model',
     items: [
-      {
-        id: 'design-studio',
-        label: 'Design Studio',
-        description: 'Interactively tune variables and inspect dynamic response curves from the served model.',
-      },
-      {
-        id: 'batch',
-        label: 'Batch Search',
-        description: 'Screen thousands of virtual candidates, rank them, and inspect batch visuals.',
-      },
-      {
-        id: 'optimization',
-        label: 'Explore & Exploit Tests',
-        description: 'Simulate sequential learning: explore uncertain regions and exploit promising designs.',
-      },
+      { id: 'design-studio', label: 'Design Studio', description: 'Explore predictions interactively.' },
+      { id: 'batch', label: 'Batch Search', description: 'Rank virtual candidates.' },
+      { id: 'optimization', label: 'Explore & Exploit', description: 'Plan sequential experiments.' },
     ],
   },
   {
-    title: 'Business Impact',
-    subtitle: 'Quantify savings',
+    title: 'Impact',
+    subtitle: 'Value',
     items: [
-      {
-        id: 'impact',
-        label: 'Business Impact',
-        description: 'Translate avoided experiments, reclaimed bench time, and campaign assumptions into ROI.',
-      },
+      { id: 'impact', label: 'Business Impact', description: 'Estimate time and cost savings.' },
     ],
   },
 ]
@@ -84,16 +56,9 @@ export function Tabs({
   )
 
   return (
-    <nav className="relative z-[90] mt-8" aria-label="Primary product navigation">
-      {openGroup && (
-        <button
-          type="button"
-          aria-label="Close navigation menu"
-          className="fixed inset-0 z-[85] cursor-default bg-transparent"
-          onClick={() => setOpenGroup(null)}
-        />
-      )}
-      <div className="relative z-[90] flex flex-wrap items-center gap-3 rounded-[1.75rem] border border-white/80 bg-white/65 p-2 shadow-inner shadow-white/70 backdrop-blur-xl">
+    <nav className="relative z-[90] mt-6" aria-label="Primary product navigation">
+      {openGroup && <button type="button" aria-label="Close navigation menu" className="fixed inset-0 z-[85] cursor-default bg-transparent" onClick={() => setOpenGroup(null)} />}
+      <div className="relative z-[90] flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-white/80 bg-white/65 p-2 shadow-inner shadow-white/70 backdrop-blur-xl">
         {tabGroups.map((group) => {
           const groupActive = group.title === activeGroup?.title
           const activeItem = group.items.find((item) => item.id === activeTab)
@@ -103,30 +68,21 @@ export function Tabs({
               <button
                 type="button"
                 onClick={() => setOpenGroup(isOpen ? null : group.title)}
-                className={`flex min-w-[13rem] items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left transition ${
-                  groupActive ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/25 ring-1 ring-white/20' : 'bg-white/80 text-slate-800 shadow-sm shadow-slate-900/5 hover:bg-white'
+                className={`flex min-w-[10rem] items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition ${
+                  groupActive ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/20 ring-1 ring-white/20' : 'bg-white/80 text-slate-800 shadow-sm shadow-slate-900/5 hover:bg-white'
                 }`}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
               >
                 <span>
                   <span className="block text-sm font-semibold">{group.title}</span>
-                  <span className={`mt-0.5 block text-xs ${groupActive ? 'text-white/60' : 'text-slate-500'}`}>
-                    {activeItem?.label ?? group.subtitle}
-                  </span>
+                  <span className={`mt-0.5 block text-xs ${groupActive ? 'text-white/60' : 'text-slate-500'}`}>{activeItem?.label ?? group.subtitle}</span>
                 </span>
-                <span className={`grid h-7 w-7 place-items-center rounded-full text-sm transition ${groupActive ? 'bg-white/10' : 'bg-slate-100'} ${isOpen ? 'rotate-180' : ''}`}>⌄</span>
+                <span className={`grid h-6 w-6 place-items-center rounded-full text-sm transition ${groupActive ? 'bg-white/10' : 'bg-slate-100'} ${isOpen ? 'rotate-180' : ''}`}>⌄</span>
               </button>
 
               {isOpen && (
-                <div
-                  role="menu"
-                  className="absolute left-0 z-[95] mt-3 w-[26rem] overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-950/25 ring-1 ring-white/80"
-                >
-                  <div className="border-b border-slate-100 bg-gradient-to-br from-[#fbfaf5] to-[#eef0ea] px-5 py-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#60745c]">{group.subtitle}</div>
-                    <div className="mt-1 text-base font-semibold text-slate-950">{group.title}</div>
-                  </div>
+                <div role="menu" className="absolute left-0 z-[95] mt-3 w-[20rem] overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-950/25 ring-1 ring-white/80">
                   <div className="p-2">
                     {group.items.map((item) => {
                       const itemActive = item.id === activeTab
@@ -149,13 +105,8 @@ export function Tabs({
                                 : 'text-slate-700 hover:bg-[#fbfaf5]'
                           }`}
                         >
-                          <span className="flex items-center justify-between gap-3">
-                            <span className="font-semibold">{item.label}</span>
-                            {item.note && <span className="rounded-full bg-slate-100 px-2 py-1 text-[0.62rem] font-bold uppercase tracking-[0.14em] text-slate-400">{item.note}</span>}
-                          </span>
-                          <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/65' : 'text-slate-500'}`}>
-                            {item.description}
-                          </span>
+                          <span className="font-semibold">{item.label}</span>
+                          <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/65' : 'text-slate-500'}`}>{item.description}</span>
                         </button>
                       )
                     })}
