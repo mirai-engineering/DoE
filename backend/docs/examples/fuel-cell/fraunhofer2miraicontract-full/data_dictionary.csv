@@ -1,0 +1,35 @@
+table,path,source_name,variable_id,ui_label,role,dtype,unit,required,allowed_min,allowed_max,direction,description,join_key,split_hint,plot_role
+experiments,experiments.csv,experiment_id,experiment_id,Experiment ID,id,string,,true,,,,Required Mirai experiment key,experiment_id,,
+experiments,experiments.csv,campaign_id,campaign_id,Campaign,group,string,,true,,,,Fraunhofer cathode catalyst degradation campaign,,group_key,color
+conditions,conditions.csv,condition_id,condition_id,Condition ID,id,string,,true,,,,Required Mirai condition key,condition_id,,
+conditions,conditions.csv,split,split,Split,metadata,string,,true,,,,Predefined smoke-test split for upload validation,,predefined_split_column,
+results,results.csv,result_id,result_id,Result ID,id,string,,true,,,,Required Mirai result key,result_id,,
+experiments,experiments.csv,pt_c_ratio,x1,Pt/C ratio,input,float,fraction,true,0,1,,Catalyst platinum-to-carbon ratio,,,x_axis
+experiments,experiments.csv,i_c_ratio,x2,I/C ratio,input,float,ratio,true,0,2,,Ionomer-to-carbon ratio,,,
+experiments,experiments.csv,ionomer_ew,x3,Ionomer EW,input,float,g/mol,true,600,1000,,Ionomer equivalent weight,,,
+conditions,conditions.csv,operating_rh,x4,Operating RH,input,float,%,true,0,100,,Operating relative humidity,,,
+conditions,conditions.csv,operating_voltage,x5,Operating voltage,input,float,V,true,0,1.1,,Measured BoL operating voltage point aligned to EoL interpolation; widened for full-cell raw range.,,,x_axis
+experiments,experiments.csv,ast_rh,x6,AST RH,input,float,%,true,0,100,,Accelerated stress test humidity,,,
+experiments,experiments.csv,ast_upl,x7,AST UPL,input,float,V,true,0.5,1.2,,Accelerated stress test upper potential limit,,,
+results,results.csv,bol_current_density,y1,BoL current density,output,float,A/cm2,true,0,5.0,maximize,Beginning-of-life current density; widened for full-cell raw range.,,,y_axis
+results,results.csv,eol_current_density,y2,EoL current density,output,float,A/cm2,true,0,4,maximize,End-of-life current density interpolated at BoL voltage,,,y_axis
+results,results.csv,bol_ecsa,y3,BoL ECSA,output,float,cm2/cm2,true,0,200,maximize,Beginning-of-life electrochemical surface area from CV scalar output,,,y_axis
+results,results.csv,ecsa_loss,y4,ECSA loss,output,float,fraction,true,0,1,minimize,Fractional ECSA loss from BoL to EoL,,,y_axis
+experiments,experiments.csv,cell_id,cell_id,Cell ID,metadata,string,,false,,,,Fraunhofer provenance field: Cell ID,,,
+experiments,experiments.csv,test_no,test_no,Test number,metadata,string,,false,,,,Fraunhofer provenance field: Test number,,,
+experiments,experiments.csv,pt_loading_mg_cm2,pt_loading_mg_cm2,Pt loading,metadata,float,,false,,,,Fraunhofer provenance field: Pt loading,,,
+experiments,experiments.csv,pt_c_ratio_percent,pt_c_ratio_percent,Pt/C ratio percent,metadata,float,,false,,,,Fraunhofer provenance field: Pt/C ratio percent,,,
+experiments,experiments.csv,catalyst_type,catalyst_type,Catalyst type,metadata,string,,false,,,,Fraunhofer provenance field: Catalyst type,,,
+experiments,experiments.csv,support_type,support_type,Support type,metadata,string,,false,,,,Fraunhofer provenance field: Support type,,,
+experiments,experiments.csv,phase_scope,phase_scope,Phase scope,metadata,string,,false,,,,Fraunhofer provenance field: Phase scope,,,
+conditions,conditions.csv,curve_variant,curve_variant,Curve variant,metadata,string,,false,,,,Fraunhofer provenance field: Curve variant,,,
+conditions,conditions.csv,voltage_alignment_method,voltage_alignment_method,Voltage alignment method,metadata,string,,false,,,,Fraunhofer provenance field: Voltage alignment method,,,
+conditions,conditions.csv,bol_source_file,bol_source_file,BoL source file,metadata,string,,false,,,,Fraunhofer provenance field: BoL source file,,,
+conditions,conditions.csv,bol_source_row,bol_source_row,BoL source row,metadata,string,,false,,,,Fraunhofer provenance field: BoL source row,,,
+conditions,conditions.csv,eol_source_file,eol_source_file,EoL source file,metadata,string,,false,,,,Fraunhofer provenance field: EoL source file,,,
+conditions,conditions.csv,eol_interpolation_left_source_row,eol_interpolation_left_source_row,EoL interpolation left source row,metadata,string,,false,,,,Fraunhofer provenance field: EoL interpolation left source row,,,
+conditions,conditions.csv,eol_interpolation_right_source_row,eol_interpolation_right_source_row,EoL interpolation right source row,metadata,string,,false,,,,Fraunhofer provenance field: EoL interpolation right source row,,,
+results,results.csv,ecsa_bol_source_file,ecsa_bol_source_file,ECSA BoL source file,metadata,string,,false,,,,Fraunhofer provenance field: ECSA BoL source file,,,
+results,results.csv,ecsa_eol_source_file,ecsa_eol_source_file,ECSA EoL source file,metadata,string,,false,,,,Fraunhofer provenance field: ECSA EoL source file,,,
+results,results.csv,schema_source,schema_source,Schema source,metadata,string,,false,,,,Fraunhofer provenance field: Schema source,,,
+results,results.csv,paper_labels_json,paper_labels_json,Paper labels JSON,metadata,string,,false,,,,Fraunhofer provenance field: Paper labels JSON,,,
