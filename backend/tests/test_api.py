@@ -517,6 +517,13 @@ def test_fixed_multitable_zip_package_materializes_model_table_via_api(client, t
     session = response.json()
     assert session["status"] == "ready_for_contract_review"
 
+    # Exercise the pre-preprocessing fallback schema path first; preprocessing
+    # must invalidate that cached fallback so project detail refreshes to the
+    # generated contract schema after canonical artifacts are materialized.
+    pre_schema = client.get(f"/projects/{session['project_id']}/schema")
+    assert pre_schema.status_code == 200
+    assert pre_schema.json()["inputs"][0]["name"] == "pt_c_ratio"
+
     start = client.post(
         f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/preprocessing/start"
     )
@@ -531,6 +538,14 @@ def test_fixed_multitable_zip_package_materializes_model_table_via_api(client, t
     final_payload = status.json()
     assert final_payload["status"] == "preprocessing_complete_needs_approval"
     assert final_payload["row_counts"]["model_table.csv"] == 8
+
+    schema = client.get(f"/projects/{session['project_id']}/schema")
+    assert schema.status_code == 200
+    schema_payload = schema.json()
+    assert [item["name"] for item in schema_payload["inputs"]] == ["x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+    assert [item["name"] for item in schema_payload["outputs"]] == ["y1", "y2", "y3", "y4"]
+    assert schema_payload["inputs"][0]["source_name"] == "pt_c_ratio"
+    assert schema_payload["outputs"][0]["source_name"] == "bol_current_density"
 
 
 def test_data_intake_can_append_missing_file_to_existing_session(client):

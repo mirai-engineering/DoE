@@ -208,7 +208,7 @@ def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: st
         }
         _write_json(workspace["eda"] / "preprocessing_report.json", report)
         _write_json(training_latest / "upload_preprocessing_report.json", report)
-        return write_status(project_id, dataset_id, session_id, "preprocessing", {
+        status = write_status(project_id, dataset_id, session_id, "preprocessing", {
             **status_base,
             "status": "preprocessing_complete_needs_approval",
             "stage": "complete_needs_approval",
@@ -217,6 +217,8 @@ def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: st
             "canonical_dir": str(canonical.relative_to(BACKEND_ROOT)),
             "training_artifact_dir": str(training_latest.relative_to(BACKEND_ROOT)),
         })
+        clear_registry_cache()
+        return status
     except Exception as exc:
         write_status(project_id, dataset_id, session_id, "preprocessing", {**status_base, "status": "failed", "stage": "error", "error": str(exc)})
         raise
