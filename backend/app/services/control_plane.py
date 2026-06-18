@@ -315,7 +315,5 @@ def log_audit(
             """,
             (workspace_id, user_id, action, resource_type, resource_id, ip_address or "", jsonb(metadata or {})),
         )
-    except Exception as exc:  # noqa: BLE001 - audit should not break user flows unless required.
+    except Exception as exc:  # noqa: BLE001 - audit must not break user flows.
         logger.warning("Audit log write failed for action=%s workspace_id=%s: %s", action, workspace_id, exc)
-        if _should_raise():
-            raise
