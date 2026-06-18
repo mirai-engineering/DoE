@@ -484,7 +484,7 @@ def project_schema(project_id: str, request: Request):
             resource_id=project_id,
             ip_address=request.client.host if request.client else None,
         )
-        return get_project_schema(project_id)
+        return get_project_schema(project_id, workspace_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         _raise_api_error(exc)
 
@@ -492,8 +492,9 @@ def project_schema(project_id: str, request: Request):
 @app.get("/projects/{project_id}/artifact-status")
 def project_artifact_status(project_id: str, request: Request):
     try:
-        schema = get_project_schema(project_id)
-        workspace_id = _authorized_workspace_id(request) or schema.get("workspace_id")
+        authorized_workspace_id = _authorized_workspace_id(request)
+        schema = get_project_schema(project_id, authorized_workspace_id)
+        workspace_id = authorized_workspace_id or schema.get("workspace_id")
         runtime_state = get_project_runtime_state(workspace_id, project_id) if workspace_id else None
         log_audit(
             workspace_id=workspace_id,

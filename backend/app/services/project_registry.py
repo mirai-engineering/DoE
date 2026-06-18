@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-from .control_plane import list_workspace_projects
+from .control_plane import get_project_runtime_state, list_workspace_projects
 from .data_intake import list_ingestion_sessions, read_project_metadata, read_status, session_workspace
 from .domain_metadata import apply_variable_metadata_to_schema, attach_domain_metadata, infer_template_id
 from .mlflow_registry import download_production_onnx, is_mlflow_project, registered_model_name_for_project, tracking_uri
@@ -184,8 +184,70 @@ def _mlflow_alias_model_name(project_id: str, alias: str = "challenger") -> str 
     return None
 
 
-@lru_cache(maxsize=32)
-def get_project_schema(project_id: str) -> dict:
+def _humanize_column_name(name: str) -> str:
+    return name.replace("_", " ").strip().title() or name
+
+
+def _runtime_variable(name: str, *, role: str, unit_map: dict) -> dict:
+    payload = {
+        "name": name,
+        "label": _humanize_column_name(name),
+        "ui_label": _humanize_column_name(name),
+        "unit": str(unit_map.get(name) or ""),
+        "role": role,
+    }
+    if role == "input":
+        payload.update({"type": "continuous", "min": 0, "max": 1})
+    if role == "output":
+        payload.update({"direction": "maximize"})
+    return payload
+
+
+def _schema_from_runtime_state(workspace_id: str, project_id: str) -> dict | None:
+    runtime_state = get_project_runtime_state(workspace_id, project_id)
+    if not runtime_state:
+        return None
+    project = runtime_state.get("project") or {}
+    schema_manifest = runtime_state.get("schema_manifest") or {}
+    schema_json = schema_manifest.get("schema_json") if isinstance(schema_manifest.get("schema_json"), dict) else {}
+    if schema_json.get("inputs") and schema_json.get("outputs"):
+        schema = dict(schema_json)
+    else:
+        input_columns = schema_manifest.get("input_columns") or []
+        output_columns = schema_manifest.get("output_columns") or []
+        unit_map = schema_manifest.get("unit_map") or {}
+        schema = {
+            "project_id": project_id,
+            "display_name": project.get("display_name") or project_id,
+            "description": "Runtime project loaded from Railway/Postgres control-plane metadata.",
+            "schema_version": project.get("schema_version") or schema_manifest.get("schema_id") or "runtime-control-plane",
+            "allow_unknown_inputs": False,
+            "inputs": [_runtime_variable(str(name), role="input", unit_map=unit_map) for name in input_columns],
+            "outputs": [_runtime_variable(str(name), role="output", unit_map=unit_map) for name in output_columns],
+            "metadata": {
+                "template_id": project.get("lifecycle_contract") or "generic_tabular_doe",
+                "runtime_source": "postgres_control_plane",
+                "schema_manifest_id": schema_manifest.get("schema_id"),
+            },
+        }
+    schema["project_id"] = project_id
+    schema["display_name"] = schema.get("display_name") or project.get("display_name") or project_id
+    schema["workspace_id"] = workspace_id
+    schema["workspace_name"] = project.get("workspace_name") or workspace_id
+    schema["schema_version"] = schema.get("schema_version") or project.get("schema_version") or "runtime-control-plane"
+    schema.setdefault("metadata", {})
+    if isinstance(schema["metadata"], dict):
+        schema["metadata"].setdefault("template_id", project.get("lifecycle_contract") or "generic_tabular_doe")
+        schema["metadata"].setdefault("runtime_source", "postgres_control_plane")
+    return attach_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
+
+
+@lru_cache(maxsize=64)
+def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict:
+    if workspace_id:
+        runtime_schema = _schema_from_runtime_state(workspace_id, project_id)
+        if runtime_schema is not None:
+            return runtime_schema
     try:
         project_dir = _reference_project_dir(project_id)
         schema_path = project_dir / "schema.json"
