@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from .db import execute, fetch_all, fetch_one, jsonb, postgres_control_plane_enabled, postgres_control_plane_required
+from .workspace_storage import WorkspaceStorageConfig
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,8 @@ def list_workspace_projects(workspace_id: str) -> list[dict[str, Any]] | None:
                    w.display_name AS workspace_name,
                    p.lifecycle_contract,
                    p.schema_version,
-                   p.metadata
+                   p.metadata,
+                   p.storage
             FROM projects p
             JOIN workspaces w ON w.workspace_id = p.workspace_id
             WHERE p.workspace_id = %s
@@ -54,6 +56,7 @@ def list_workspace_projects(workspace_id: str) -> list[dict[str, Any]] | None:
             "lifecycle_contract": row.get("lifecycle_contract"),
             "schema_version": row.get("schema_version"),
             "metadata": row.get("metadata") or {},
+            "storage": row.get("storage") or {},
         }
         for row in rows
     ]
@@ -66,6 +69,40 @@ def get_workspace_project(workspace_id: str, project_id: str) -> dict[str, Any] 
     return next((project for project in projects if project["id"] == project_id), None)
 
 
+def _storage_config_from_project(project: dict[str, Any]) -> WorkspaceStorageConfig:
+    workspace_id = str(project["workspace_id"])
+    project_id = str(project["project_id"])
+    metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
+    storage = project.get("storage") if isinstance(project.get("storage"), dict) else {}
+    mode = str(storage.get("mode") or metadata.get("storage_mode") or ("s3" if storage.get("bucket") or metadata.get("bucket") else "local"))
+    bucket = storage.get("bucket") or metadata.get("bucket")
+    prefix = storage.get("prefix") or metadata.get("prefix") or f"workspaces/{workspace_id}/projects/{project_id}"
+    return WorkspaceStorageConfig(workspace_id=workspace_id, mode=mode, bucket=bucket, prefix=prefix)
+
+
+def get_project_storage_config(workspace_id: str, project_id: str) -> WorkspaceStorageConfig | None:
+    if not postgres_control_plane_enabled():
+        return None
+    try:
+        project = fetch_one(
+            workspace_id,
+            """
+            SELECT project_id, workspace_id, metadata, storage
+            FROM projects
+            WHERE workspace_id = %s AND project_id = %s
+            """,
+            (workspace_id, project_id),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Postgres project storage lookup failed for workspace_id=%s project_id=%s: %s", workspace_id, project_id, exc)
+        if _should_raise():
+            raise
+        return None
+    if not project:
+        return None
+    return _storage_config_from_project(project)
+
+
 def get_project_runtime_state(workspace_id: str, project_id: str) -> dict[str, Any] | None:
     if not postgres_control_plane_enabled():
         return None
@@ -74,7 +111,7 @@ def get_project_runtime_state(workspace_id: str, project_id: str) -> dict[str, A
             workspace_id,
             """
             SELECT p.project_id, p.workspace_id, p.display_name, p.lifecycle_contract, p.schema_version, p.metadata,
-                   w.display_name AS workspace_name, w.storage
+                   p.storage, w.display_name AS workspace_name, w.storage AS workspace_storage
             FROM projects p
             JOIN workspaces w ON w.workspace_id = p.workspace_id
             WHERE p.workspace_id = %s AND p.project_id = %s

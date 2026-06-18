@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS projects (
     lifecycle_contract text NOT NULL DEFAULT 'generic_tabular_doe',
     schema_version text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    storage jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );

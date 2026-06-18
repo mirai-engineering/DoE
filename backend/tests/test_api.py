@@ -109,15 +109,53 @@ def test_auth_required_allows_test_token_and_filters_workspace(monkeypatch):
     assert {workspace["workspace_id"] for workspace in payload["workspaces"]} == {"fraunhofer"}
 
 
-def test_auth_required_rejects_valid_token_without_workspace_claim(monkeypatch):
+def test_auth_required_derives_workspace_from_verified_clerk_subject(monkeypatch):
     monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
     monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
-    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "fraunhofer")
+    monkeypatch.delenv("CLERK_AUTH_TEST_WORKSPACE_ID", raising=False)
     with TestClient(app) as test_client:
         response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Workspace claim required"
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(project["id"] == PROJECT_ID for project in payload["projects"])
+    assert {project["workspace_id"] for project in payload["projects"]} == {"fraunhofer"}
+
+
+def test_auth_required_valid_user_without_workspace_row_lists_no_projects(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "user_without_workspace")
+    monkeypatch.delenv("CLERK_AUTH_TEST_WORKSPACE_ID", raising=False)
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 200
+    assert response.json()["projects"] == []
+
+
+def test_auth_required_lists_multiple_projects_for_one_clerk_workspace(monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "user_multi_project")
+    monkeypatch.delenv("CLERK_AUTH_TEST_WORKSPACE_ID", raising=False)
+
+    def fake_list_projects(workspace_id=None):
+        assert workspace_id == "user_multi_project"
+        return [
+            {"id": "project_a", "display_name": "Project A", "workspace_id": workspace_id, "workspace_name": "Client User"},
+            {"id": "project_b", "display_name": "Project B", "workspace_id": workspace_id, "workspace_name": "Client User"},
+        ]
+
+    monkeypatch.setattr(main_module, "list_projects", fake_list_projects)
+    with TestClient(app) as test_client:
+        response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 200
+    assert [project["id"] for project in response.json()["projects"]] == ["project_a", "project_b"]
 
 
 def test_auth_required_rejects_cross_workspace_project_access(monkeypatch):
@@ -130,13 +168,36 @@ def test_auth_required_rejects_cross_workspace_project_access(monkeypatch):
     assert response.status_code == 403
 
 
-def test_workspace_claim_uses_only_verified_top_level_custom_jwt_claim():
+def test_workspace_uses_verified_clerk_subject_not_custom_workspace_claim(monkeypatch):
     from app.auth import _workspace_from_claims
 
-    assert _workspace_from_claims({"workspace_id": "fraunhofer", "public_metadata": {"workspace_id": "battery-demo"}}) == "fraunhofer"
-    assert _workspace_from_claims({"metadata": {"workspace_id": "fraunhofer"}}) is None
-    assert _workspace_from_claims({"public_metadata": {"workspace_id": "fraunhofer"}}) is None
-    assert _workspace_from_claims({"org_id": "fraunhofer"}) is None
+    monkeypatch.delenv("CLERK_WORKSPACE_ID_MODE", raising=False)
+    assert _workspace_from_claims({"sub": "user_123", "workspace_id": "fraunhofer", "public_metadata": {"workspace_id": "battery-demo"}}) == "user_123"
+    assert _workspace_from_claims({"sub": "user_123", "metadata": {"workspace_id": "fraunhofer"}}) == "user_123"
+    assert _workspace_from_claims({"sub": "user_123", "org_id": "fraunhofer"}) == "user_123"
+    assert _workspace_from_claims({"workspace_id": "fraunhofer"}) is None
+
+
+def test_workspace_subject_can_use_stable_clerk_prefix(monkeypatch):
+    from app.auth import _workspace_from_claims
+
+    monkeypatch.setenv("CLERK_WORKSPACE_ID_MODE", "clerk_prefixed")
+    assert _workspace_from_claims({"sub": "user_123"}) == "clerk_user_123"
+
+
+def test_authorized_party_validation_rejects_untrusted_origin(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.auth import _verify_authorized_party
+
+    monkeypatch.setenv("CLERK_AUTHORIZED_PARTIES", "https://app.example.com,http://localhost:5173")
+    _verify_authorized_party({"azp": "https://app.example.com"})
+    try:
+        _verify_authorized_party({"azp": "https://evil.example.com"})
+    except HTTPException as exc:
+        assert exc.status_code == 401
+    else:  # pragma: no cover - defensive
+        raise AssertionError("Expected unauthorized azp to be rejected")
 
 
 def test_project_schema(client):

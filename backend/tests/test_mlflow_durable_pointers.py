@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.mlflow_registry import durable_artifact_pointer_for_project, get_registered_model_metadata
+from app.services.workspace_storage import WorkspaceStorageConfig
 from app.services.model_quality import get_artifact_summary
 
 
@@ -25,6 +26,30 @@ def test_durable_onnx_pointers_are_workspace_project_scoped():
 
     assert "backend/mlruns" not in fuel["object_uri"]
     assert "backend/mlruns" not in battery["object_uri"]
+
+
+def test_runtime_project_storage_metadata_routes_two_projects_to_distinct_buckets(monkeypatch):
+    from app.services import mlflow_registry
+
+    def fake_project_storage_config(workspace_id: str, project_id: str):
+        return WorkspaceStorageConfig(
+            workspace_id=workspace_id,
+            mode="s3",
+            bucket=f"bucket-for-{project_id}",
+            prefix=f"workspaces/{workspace_id}/projects/{project_id}",
+        )
+
+    monkeypatch.setattr(mlflow_registry, "get_project_storage_config", fake_project_storage_config)
+
+    project_a = durable_artifact_pointer_for_project("project_a", "onnx_model", "client_user_123")
+    project_b = durable_artifact_pointer_for_project("project_b", "onnx_model", "client_user_123")
+
+    assert project_a["workspace_id"] == "client_user_123"
+    assert project_b["workspace_id"] == "client_user_123"
+    assert project_a["bucket"] == "bucket-for-project_a"
+    assert project_b["bucket"] == "bucket-for-project_b"
+    assert project_a["object_key"] == "workspaces/client_user_123/projects/project_a/training_artifacts/latest/model.onnx"
+    assert project_b["object_key"] == "workspaces/client_user_123/projects/project_b/training_artifacts/latest/model.onnx"
 
 
 def test_registered_model_metadata_exposes_durable_pointers_without_requiring_local_image_paths(monkeypatch):

@@ -13,6 +13,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from app.services.control_plane import get_project_storage_config
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 MLFLOW_TRACKING_DIR = BACKEND_ROOT / "mlruns"
@@ -70,6 +72,9 @@ def _experiment_artifact_location(project_id: str) -> str | None:
     workspace_id = _workspace_id_for_project(project_id)
     if not workspace_id:
         return os.getenv("MLFLOW_ARTIFACT_ROOT")
+    project_config = get_project_storage_config(workspace_id, project_id)
+    if project_config is not None and project_config.mode == "s3" and project_config.bucket:
+        return f"s3://{project_config.bucket}/{project_config.normalized_prefix}/mlflow-artifacts"
     env_prefix = f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3"
     bucket = os.getenv(f"{env_prefix}_BUCKET")
     if not bucket:

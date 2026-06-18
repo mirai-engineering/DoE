@@ -11,7 +11,7 @@ For this phase, migrations are simple SQL scripts applied by an operator command
 - `seeds/001_seed_demo_control_plane.sql` is the earlier broad demo seed.
 - `seeds/002_seed_fraunhofer_fuel_cell_runtime.sql` is the current runtime seed/backfill and intentionally seeds only Fraunhofer fuel-cell rows. Battery remains deferred for a later implementation.
 
-Raw datasets, canonical tables, model blobs, MLflow artifacts, BO artifacts, and review artifacts must not be stored in SQL. Store them in object/file storage under workspace-scoped prefixes such as:
+Raw datasets, canonical tables, model blobs, MLflow artifacts, BO artifacts, and review artifacts must not be stored in SQL. Bucket names and object prefixes are routing metadata, not credentials; access keys, secret keys, and endpoints remain in Railway/env and must never be printed or committed. Store objects under workspace/project-scoped prefixes such as:
 
 - `workspaces/<workspace_id>/uploads/...`
 - `workspaces/<workspace_id>/canonical/...`
@@ -29,6 +29,7 @@ Apply in order after confirming `DATABASE_URL` points to the intended Railway Po
 ```bash
 psql "$DATABASE_URL" -f backend/db/migrations/001_workspace_control_plane.sql
 psql "$DATABASE_URL" -f backend/db/migrations/002_runtime_control_plane.sql
+psql "$DATABASE_URL" -f backend/db/migrations/003_project_storage_metadata.sql
 psql "$DATABASE_URL" -f backend/db/seeds/002_seed_fraunhofer_fuel_cell_runtime.sql
 ```
 

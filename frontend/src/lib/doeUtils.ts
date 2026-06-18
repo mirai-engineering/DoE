@@ -1,7 +1,7 @@
 import type { ProjectSchema, ProjectSummary, PredictionMap } from './api'
 import type { FixedInputConfig } from '../types/doe'
 
-export const preferredProjectId = 'fraunhofer_demo_39e89ec9'
+export const preferredProjectId = ''
 export const defaultTableTopK = 5
 export const defaultVisualizationTopK = 75
 export const maxVisualizationTopK = 100
@@ -16,7 +16,7 @@ const defaultObjectiveWeights: Record<string, number> = {
 }
 
 export function selectDefaultProject(projects: ProjectSummary[]) {
-  return projects.find((project) => project.id === preferredProjectId) ?? projects[0]
+  return preferredProjectId ? projects.find((project) => project.id === preferredProjectId) ?? projects[0] : projects[0]
 }
 
 export function midpoint(minimum: number, maximum: number) {

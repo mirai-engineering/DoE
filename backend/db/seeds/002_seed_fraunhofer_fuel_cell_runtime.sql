@@ -16,14 +16,15 @@ SET display_name = EXCLUDED.display_name,
     storage = EXCLUDED.storage,
     updated_at = now();
 
-INSERT INTO projects (project_id, workspace_id, display_name, lifecycle_contract, schema_version, metadata)
+INSERT INTO projects (project_id, workspace_id, display_name, lifecycle_contract, schema_version, metadata, storage)
 VALUES (
     'pem_fuel_cell_real_cathode_degradation',
     'fraunhofer',
     'PEM Fuel Cell Cathode Degradation',
     'generic_tabular_doe',
     'railway-runtime-v1',
-    '{"source":"pem_adapter","domain":"pem_fuel_cell","raw_blobs_in_sql":false,"bucket":"mirai-fuel-cells-demo","prefix":"workspaces/fraunhofer/projects/pem_fuel_cell_real_cathode_degradation"}'::jsonb
+    '{"source":"pem_adapter","domain":"pem_fuel_cell","raw_blobs_in_sql":false,"bucket":"mirai-fuel-cells-demo","prefix":"workspaces/fraunhofer/projects/pem_fuel_cell_real_cathode_degradation"}'::jsonb,
+    '{"mode":"s3","bucket":"mirai-fuel-cells-demo","prefix":"workspaces/fraunhofer/projects/pem_fuel_cell_real_cathode_degradation"}'::jsonb
 )
 ON CONFLICT (project_id) DO UPDATE
 SET workspace_id = EXCLUDED.workspace_id,
@@ -31,6 +32,7 @@ SET workspace_id = EXCLUDED.workspace_id,
     lifecycle_contract = EXCLUDED.lifecycle_contract,
     schema_version = EXCLUDED.schema_version,
     metadata = projects.metadata || EXCLUDED.metadata,
+    storage = EXCLUDED.storage,
     updated_at = now();
 
 INSERT INTO datasets (

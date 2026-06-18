@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 
+from .control_plane import get_project_storage_config
 from .workspace_storage import WorkspaceStorageConfig, validate_workspace_object_uri
 
 
@@ -49,7 +50,7 @@ def is_mlflow_project(project_id: str) -> bool:
     return bool(project_id) and "/" not in project_id and "\\" not in project_id and ".." not in project_id
 
 
-def durable_artifact_pointer_for_project(project_id: str, artifact_kind: str = "onnx_model") -> dict:
+def durable_artifact_pointer_for_project(project_id: str, artifact_kind: str = "onnx_model", workspace_id: str | None = None) -> dict:
     """Return the durable object-store pointer convention for a project artifact.
 
     This is metadata/validation only. Runtime download still happens through MLflow
@@ -58,17 +59,24 @@ def durable_artifact_pointer_for_project(project_id: str, artifact_kind: str = "
     Railway image and gives API/UI code a durable workspace/project-scoped target.
     """
 
-    if project_id not in PROJECT_STORAGE_METADATA:
-        raise FileNotFoundError(f"No durable artifact pointer metadata configured for project_id={project_id}")
-    metadata = PROJECT_STORAGE_METADATA[project_id]
-    workspace_id = metadata["workspace_id"]
-    bucket = os.getenv(f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3_BUCKET", metadata["bucket"])
-    config = WorkspaceStorageConfig(
-        workspace_id=workspace_id,
-        mode="s3",
-        bucket=bucket,
-        prefix=f"workspaces/{workspace_id}",
-    )
+    runtime_config = get_project_storage_config(workspace_id, project_id) if workspace_id else None
+    metadata = PROJECT_STORAGE_METADATA.get(project_id)
+    if runtime_config is None:
+        if metadata is None:
+            raise FileNotFoundError(f"No durable artifact pointer metadata configured for project_id={project_id}")
+        workspace_id = metadata["workspace_id"]
+        bucket = os.getenv(f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3_BUCKET", metadata["bucket"])
+        config = WorkspaceStorageConfig(
+            workspace_id=workspace_id,
+            mode="s3",
+            bucket=bucket,
+            prefix=metadata["prefix"],
+        )
+    else:
+        config = runtime_config
+        workspace_id = config.workspace_id
+        bucket = config.bucket
+        metadata = {"prefix": config.normalized_prefix}
     suffix_by_kind = {
         "dataset": "intake/dataset.csv" if project_id == "battery_tabular_doe_demo" else "intake/model_table.csv",
         "canonical_table": "canonical/model_table.parquet",
@@ -80,15 +88,16 @@ def durable_artifact_pointer_for_project(project_id: str, artifact_kind: str = "
     }
     if artifact_kind not in suffix_by_kind:
         raise ValueError(f"Unsupported durable artifact kind: {artifact_kind}")
-    object_key = f"{metadata['prefix']}/{suffix_by_kind[artifact_kind]}"
+    object_key = f"{config.normalized_prefix}/{suffix_by_kind[artifact_kind]}"
     validate_workspace_object_uri(config, object_key)
+    object_uri = f"s3://{bucket}/{object_key}" if config.mode == "s3" and bucket else object_key
     return {
         "project_id": project_id,
         "workspace_id": workspace_id,
         "artifact_kind": artifact_kind,
         "bucket": bucket,
         "object_key": object_key,
-        "object_uri": f"s3://{bucket}/{object_key}",
+        "object_uri": object_uri,
         "runtime_status": "pointer_only_until_bootstrapped",
     }
 

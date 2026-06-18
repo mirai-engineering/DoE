@@ -9,12 +9,12 @@ import shutil
 from typing import Any
 from uuid import uuid4
 
-from .control_plane import complete_training_run, create_training_run, fail_training_run
+from .control_plane import complete_training_run, create_training_run, fail_training_run, get_project_storage_config
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
 from .mlflow_registry import registered_model_name_for_project
-from .workspace_storage import put_workspace_object, workspace_s3_config_from_env
+from .workspace_storage import put_workspace_object, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
 
@@ -236,11 +236,18 @@ def activate_session_artifacts_for_model_quality(project_id: str, dataset_id: st
     }
 
 
+def _project_storage_config_for_training(workspace_id: str, project_id: str):
+    runtime_config = get_project_storage_config(workspace_id, project_id)
+    if runtime_config is not None:
+        return runtime_config
+    return workspace_s3_config_from_env(workspace_id, prefix=f"workspaces/{workspace_id}/projects/{project_id}")
+
+
 def _upload_training_artifacts_to_s3(workspace_id: str, project_id: str, training_run_id: str, artifact_dir: Path) -> dict[str, Any]:
     try:
-        config = workspace_s3_config_from_env(workspace_id)
+        config = _project_storage_config_for_training(workspace_id, project_id)
         uploaded: list[dict[str, Any]] = []
-        prefix = f"workspaces/{workspace_id}/projects/{project_id}/training_runs/{training_run_id}"
+        prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/training_runs/{training_run_id}")
         for path in sorted(artifact_dir.rglob("*")):
             if not path.is_file():
                 continue
@@ -283,7 +290,8 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", status_payload)
     session = get_ingestion_session(project_id, dataset_id, session_id)
     workspace_id = str(session.get("workspace_id") or "mirai-engineering")
-    artifact_prefix = f"workspaces/{workspace_id}/projects/{project_id}/training_runs/{training_request_id}/"
+    storage_config = _project_storage_config_for_training(workspace_id, project_id)
+    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/training_runs/{training_request_id}") + "/"
     create_training_run(
         workspace_id=workspace_id,
         project_id=project_id,

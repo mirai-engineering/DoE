@@ -134,7 +134,7 @@ async def require_clerk_auth(request: Request, call_next):
     try:
         request.state.principal = authenticate_bearer_token(request.headers.get("Authorization"))
         if not principal_workspace_id(request_principal(request)):
-            return JSONResponse(status_code=403, content={"detail": "Workspace claim required"})
+            return JSONResponse(status_code=403, content={"detail": "Authenticated workspace required"})
         project_id = _project_id_from_path(request.url.path)
         if project_id and not _request_can_access_project(request, project_id):
             return JSONResponse(status_code=403, content={"detail": "Workspace access denied"})
@@ -507,7 +507,7 @@ def project_artifact_status(project_id: str, request: Request):
         pointers = {}
         for artifact_kind in ["dataset", "canonical_table", "preprocessing_output", "mlflow_artifacts", "onnx_model", "bo_state", "review_file"]:
             try:
-                pointers[artifact_kind] = durable_artifact_pointer_for_project(project_id, artifact_kind)
+                pointers[artifact_kind] = durable_artifact_pointer_for_project(project_id, artifact_kind, workspace_id)
             except Exception as exc:  # noqa: BLE001 - individual artifacts may be intentionally deferred.
                 pointers[artifact_kind] = {"status": "unavailable", "detail": str(exc)}
 
