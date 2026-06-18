@@ -7,8 +7,12 @@ from app.services.workspace_storage import (
     WorkspaceStorageConfig,
     WorkspaceStorageError,
     assert_same_workspace_path,
+    local_object_storage_path,
     local_object_storage_root,
     object_storage_backend,
+    object_storage_uri,
+    read_object_storage_bytes,
+    validate_object_key,
     validate_workspace_object_uri,
     workspace_scoped_path,
 )
@@ -34,6 +38,35 @@ def test_object_storage_backend_and_local_root_are_explicit(monkeypatch, tmp_pat
     monkeypatch.setenv("OBJECT_STORAGE_BACKEND", "ftp")
     with pytest.raises(WorkspaceStorageError):
         object_storage_backend()
+
+
+def test_bucket_aware_local_object_storage_path_and_uri(monkeypatch, tmp_path):
+    monkeypatch.setenv("OBJECT_STORAGE_BACKEND", "local")
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(tmp_path / "mirror"))
+    key = "workspaces/fraunhofer/projects/fuel-cell/intake/model_table.csv"
+
+    path = local_object_storage_path("mirai-fuel-cells-demo", key)
+
+    assert path == (tmp_path / "mirror" / "mirai-fuel-cells-demo" / "workspaces" / "fraunhofer" / "projects" / "fuel-cell" / "intake" / "model_table.csv").resolve()
+    assert object_storage_uri("mirai-fuel-cells-demo", key) == str(path)
+
+    path.parent.mkdir(parents=True)
+    path.write_text("x1,y1\n1,2\n", encoding="utf-8")
+    assert read_object_storage_bytes("mirai-fuel-cells-demo", key) == b"x1,y1\n1,2\n"
+
+
+def test_object_storage_uri_uses_s3_for_s3_backend(monkeypatch):
+    monkeypatch.setenv("OBJECT_STORAGE_BACKEND", "s3")
+
+    assert object_storage_uri("mirai-fuel-cells-demo", "workspaces/fraunhofer/model_table.csv") == "s3://mirai-fuel-cells-demo/workspaces/fraunhofer/model_table.csv"
+
+
+def test_bucket_level_object_key_rejects_unsafe_values():
+    for key in ["", "/absolute/path.csv", "../escape.csv", "workspaces/fraunhofer/../escape.csv"]:
+        with pytest.raises(WorkspaceStorageError):
+            validate_object_key(key)
+    with pytest.raises(WorkspaceStorageError):
+        local_object_storage_path("../bad-bucket", "workspaces/fraunhofer/model_table.csv")
 
 
 def test_workspace_scoped_path_requires_safe_workspace_and_relative_parts(tmp_path):

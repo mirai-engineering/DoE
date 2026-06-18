@@ -19,6 +19,7 @@ env/
 # Environment files
 .env
 .env.local
+backend/.env.training
 
 # Logs
 *.log
@@ -30,18 +31,13 @@ node_modules/
 # Railway/S3 is the production source of truth. Local mirrors/caches are optional
 # developer state and must not be committed.
 backend/.object-storage-local/
-backend/data-minio/experiment_logs/
-backend/data-minio/bo_configs/
-backend/data-minio/model_quality_reviews/
-backend/data-minio/intake/
-backend/data-minio/preprocessing_reviews/
-backend/data-minio/workspaces/*/intake/
-backend/data-minio/workspaces/default-workspace/
-backend/data-minio/workspaces/mirai-engineering/
+backend/data-minio/
 
 # Local MLflow / MLOps runtime state
+mlruns/
 backend/mlruns/
 backend/.mlflow-cache/
+*.onnx
 
 # Data
 # Root-level raw/reference data is local-only by default.

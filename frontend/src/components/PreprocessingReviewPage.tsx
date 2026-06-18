@@ -54,6 +54,23 @@ function variableLabel(variable?: VariableMetadata) {
   return variable ? `${variable.label || variable.name}${variable.unit ? ` / ${variable.unit}` : ''}` : 'Select variable'
 }
 
+const EDITABLE_METADATA_ROLES = new Set<VariableMetadata['role']>(['input', 'output', 'group', 'sweep', 'time', 'cycle', 'sequence', 'curve_axis'])
+const INTERNAL_NAME_PATTERNS = [
+  /(^|_)(id|uuid|hash)$/i,
+  /(^|_)(experiment|condition|result|row|source|file|path|provenance)(_id|_index|_name|_path|_hash)?$/i,
+  /^(experiment_id|condition_id|result_id|row_index|source_file|source_path|split)$/i,
+]
+
+function isInternalVariable(variable: VariableMetadata) {
+  if (['id', 'metadata', 'context', 'ignore'].includes(variable.role)) return true
+  const names = [variable.name, variable.source_name, variable.variable_id, variable.semantic_type].filter(Boolean) as string[]
+  return names.some((name) => INTERNAL_NAME_PATTERNS.some((pattern) => pattern.test(name)))
+}
+
+function isEditableModelVariable(variable: VariableMetadata) {
+  return EDITABLE_METADATA_ROLES.has(variable.role) && !isInternalVariable(variable)
+}
+
 function buildPrimaryRecipe(metadata: ProjectDomainMetadata, xVariable: string, yVariable: string) {
   const variables = metadata.variables ?? []
   const x = variables.find((variable) => variable.name === xVariable)
@@ -244,11 +261,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const preprocessingComplete = preprocessingStatus.status === 'preprocessing_complete_needs_approval' || preprocessingApproved
   const metadataApproved = metadataStatus?.approval_status === 'approved'
   const metadataVariables = metadataDraft?.variables ?? []
-  const inputOrSweepVariables = metadataVariables.filter((variable) => ['input', 'sweep'].includes(variable.role))
-  const outputVariables = metadataVariables.filter((variable) => variable.role === 'output')
+  const editableVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => isEditableModelVariable(variable))
+  const provenanceVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => !isEditableModelVariable(variable))
+  const editableVariables = editableVariableEntries.map(({ variable }) => variable)
+  const inputOrSweepVariables = editableVariables.filter((variable) => ['input', 'sweep'].includes(variable.role))
+  const outputVariables = editableVariables.filter((variable) => variable.role === 'output')
   const selectedRecipe = metadataDraft?.ui_config?.plot_recipes?.find((recipe) => recipe.id === metadataDraft.ui_config?.selected_plot_recipe_id) ?? metadataDraft?.ui_config?.plot_recipes?.[0]
-  const selectedX = selectedRecipe?.x?.variable || inputOrSweepVariables[0]?.name || metadataVariables[0]?.name || ''
-  const selectedY = selectedRecipe?.y?.variable || outputVariables[0]?.name || metadataVariables.find((variable) => variable.role === 'output')?.name || ''
+  const selectedX = (selectedRecipe?.x?.variable && inputOrSweepVariables.some((variable) => variable.name === selectedRecipe.x?.variable) ? selectedRecipe.x.variable : undefined) || inputOrSweepVariables[0]?.name || ''
+  const selectedY = (selectedRecipe?.y?.variable && outputVariables.some((variable) => variable.name === selectedRecipe.y?.variable) ? selectedRecipe.y.variable : undefined) || outputVariables[0]?.name || ''
   const trainingCompleted = trainingStatus?.['status'] === 'completed'
 
   function updateMetadataDraft(updater: (draft: ProjectDomainMetadata) => void) {
@@ -325,7 +345,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const metadataSummary = [
     ['Inputs', inputOrSweepVariables.length],
     ['Outputs', outputVariables.length],
-    ['Other fields', metadataVariables.length - inputOrSweepVariables.length - outputVariables.length],
+    ['Other/provenance', provenanceVariableEntries.length],
   ]
 
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
@@ -445,14 +465,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-sm font-semibold text-slate-700">
                   X variable
-                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                    {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
+                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50">
+                    {inputOrSweepVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Y variable
-                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                    {metadataVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
+                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50">
+                    {outputVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
               </div>
@@ -462,7 +482,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                     <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {metadataVariables.map((variable, index) => (
+                    {editableVariableEntries.map(({ variable, index }) => (
                       <tr key={`${variable.name}-${index}`}>
                         <td className="px-3 py-3 font-mono text-xs text-slate-600">{variable.variable_id || variable.name}</td>
                         <td className="px-3 py-3 text-xs text-slate-600"><div className="font-medium text-slate-800">{variable.source_name || variable.name}</div></td>
@@ -470,14 +490,37 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                         <td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => updateVariable(index, { unit: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
                         <td className="px-3 py-3">
                           <select value={variable.role} onChange={(event) => updateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="w-full rounded-xl border border-slate-200 px-3 py-2">
-                            <option value="input">input</option><option value="output">output</option><option value="group">group</option><option value="sweep">sweep</option><option value="time">time</option><option value="metadata">metadata</option>
+                            <option value="input">input</option><option value="output">output</option><option value="group">group</option><option value="sweep">sweep</option><option value="time">time</option><option value="cycle">cycle</option><option value="sequence">sequence</option><option value="curve_axis">curve_axis</option>
                           </select>
                         </td>
                       </tr>
                     ))}
+                    {!editableVariableEntries.length && <tr><td colSpan={5} className="px-3 py-6 text-sm text-slate-500">No editable modeling variables were detected.</td></tr>}
                   </tbody>
                 </table>
               </div>
+              {!!provenanceVariableEntries.length && (
+                <DisclosurePanel title={`Internal/provenance fields (${provenanceVariableEntries.length})`} defaultOpen={false}>
+                  <p className="text-sm leading-6 text-slate-600">These IDs, joins, split columns, and source metadata are kept read-only so they cannot accidentally become training inputs.</p>
+                  <div className="mt-3 max-h-80 overflow-auto rounded-2xl border border-slate-200 bg-white">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="bg-slate-50 uppercase tracking-[0.14em] text-slate-500">
+                        <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Role</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {provenanceVariableEntries.map(({ variable, index }) => (
+                          <tr key={`${variable.name}-${index}`}>
+                            <td className="px-3 py-3 font-mono text-slate-600">{variable.variable_id || variable.name}</td>
+                            <td className="px-3 py-3 text-slate-700">{variable.source_name || variable.name}</td>
+                            <td className="px-3 py-3 text-slate-700">{variable.label || '—'}</td>
+                            <td className="px-3 py-3 text-slate-500">{variable.role}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </DisclosurePanel>
+              )}
               <div className="mt-4 flex flex-wrap justify-end gap-3">
                 <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={saveMetadataDraft} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:opacity-45">{busy === 'metadata-save' ? 'Saving...' : 'Save draft'}</button>
                 <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata'}</button>

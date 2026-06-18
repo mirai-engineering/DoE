@@ -51,6 +51,101 @@ def seed_object_storage_root() -> Path:
     return BACKEND_ROOT / "seeds" / "object_storage"
 
 
+def object_storage_bucket(*, required: bool = True) -> str | None:
+    """Return the bucket configured for local-training object-key resolution."""
+
+    bucket = os.getenv("OBJECT_STORAGE_BUCKET") or os.getenv("MIRAI_OBJECT_STORAGE_BUCKET")
+    if bucket:
+        return bucket.strip()
+    if required:
+        raise WorkspaceStorageError("Missing OBJECT_STORAGE_BUCKET for object-key data loading")
+    return None
+
+
+def _validate_bucket_name(bucket: str) -> str:
+    if not bucket or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", bucket):
+        raise WorkspaceStorageError(f"Unsafe object-storage bucket: {bucket!r}")
+    return bucket
+
+
+def validate_object_key(object_key: str) -> str:
+    """Validate a relative object-store key and return its normalized POSIX form.
+
+    Unlike workspace-specific validation, this helper is bucket-level and only
+    rejects absolute paths, traversal, and empty keys. Callers that need
+    workspace confinement should use validate_workspace_object_key instead.
+    """
+
+    key_path = PurePosixPath(object_key)
+    _reject_unsafe_posix_parts(key_path, original=object_key)
+    key = key_path.as_posix().strip("/")
+    if not key:
+        raise WorkspaceStorageError("Object key cannot be empty")
+    return key
+
+
+def local_object_storage_path(bucket: str, object_key: str) -> Path:
+    """Resolve a bucket/object key into the gitignored local mirror path.
+
+    The logical key after the bucket is identical to the S3 key, e.g.:
+      backend/.object-storage-local/<bucket>/workspaces/.../model_table.csv
+      s3://<bucket>/workspaces/.../model_table.csv
+    """
+
+    bucket_name = _validate_bucket_name(bucket)
+    key = validate_object_key(object_key)
+    root = local_object_storage_root().resolve()
+    path = (root / bucket_name / Path(*PurePosixPath(key).parts)).resolve()
+    bucket_root = (root / bucket_name).resolve()
+    if bucket_root not in [path, *path.parents]:
+        raise WorkspaceStorageError("Resolved local object path escapes bucket mirror root")
+    return path
+
+
+def object_storage_uri(bucket: str, object_key: str) -> str:
+    """Return the URI/path for the configured object-storage backend."""
+
+    bucket_name = _validate_bucket_name(bucket)
+    key = validate_object_key(object_key)
+    if object_storage_backend() == "s3":
+        return f"s3://{bucket_name}/{key}"
+    return str(local_object_storage_path(bucket_name, key))
+
+
+def _generic_s3_client():
+    try:
+        import boto3  # type: ignore
+    except ImportError as exc:  # pragma: no cover - dependency/runtime guard
+        raise WorkspaceStorageError("S3 operations require boto3") from exc
+    endpoint = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL") or os.getenv("MLFLOW_S3_ENDPOINT_URL")
+    access_key = os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+    region = os.getenv("S3_REGION") or os.getenv("AWS_DEFAULT_REGION") or os.getenv("MIRAI_S3_REGION") or "auto"
+    if not endpoint or not access_key or not secret_key:
+        raise WorkspaceStorageError("Missing S3_ENDPOINT_URL/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY for S3 object loading")
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+    )
+
+
+def read_object_storage_bytes(bucket: str, object_key: str) -> bytes:
+    """Read an object from the configured local mirror or S3 backend."""
+
+    bucket_name = _validate_bucket_name(bucket)
+    key = validate_object_key(object_key)
+    if object_storage_backend() == "s3":
+        response = _generic_s3_client().get_object(Bucket=bucket_name, Key=key)
+        return response["Body"].read()
+    path = local_object_storage_path(bucket_name, key)
+    if not path.exists():
+        raise WorkspaceStorageError(f"Local object mirror file does not exist: {path}")
+    return path.read_bytes()
+
+
 @dataclass(frozen=True)
 class WorkspaceStorageConfig:
     """Storage contract for one workspace.
@@ -85,7 +180,8 @@ def validate_workspace_id(workspace_id: str) -> str:
 
 
 def _reject_unsafe_posix_parts(path: PurePosixPath | Path, *, original: str) -> None:
-    if path.is_absolute() or ".." in path.parts:
+    raw_parts = [part for part in str(original).replace("\\", "/").split("/") if part]
+    if not str(original).strip() or path.is_absolute() or ".." in path.parts or ".." in raw_parts:
         raise WorkspaceStorageError(f"Unsafe storage path segment: {original}")
 
 

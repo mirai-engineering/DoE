@@ -5,7 +5,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 from typing import Any
+from urllib.parse import urlparse
 
 import joblib
 import numpy as np
@@ -18,6 +20,37 @@ MLFLOW_TRACKING_DIR = BACKEND_ROOT / "mlruns"
 
 def _tracking_uri() -> str:
     return os.getenv("MLFLOW_TRACKING_URI", MLFLOW_TRACKING_DIR.resolve().as_uri())
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _remote_mlflow_required() -> bool:
+    return _truthy_env("MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW")
+
+
+def _remote_artifacts_required() -> bool:
+    return _truthy_env("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS")
+
+
+def _is_local_tracking_uri(tracking_uri: str) -> bool:
+    parsed = urlparse(tracking_uri)
+    host = (parsed.hostname or "").lower()
+    return tracking_uri.startswith("file:") or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def _assert_demo_mlflow_contract(*, tracking_uri: str, artifact_location: str | None) -> None:
+    if _remote_mlflow_required() and _is_local_tracking_uri(tracking_uri):
+        raise RuntimeError(
+            "MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW is enabled, but MLFLOW_TRACKING_URI points to local MLflow. "
+            "Set MLFLOW_TRACKING_URI to the Railway MLflow URL for demo training."
+        )
+    if _remote_artifacts_required() and not str(artifact_location or "").startswith("s3://"):
+        raise RuntimeError(
+            "MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS is enabled, but the MLflow experiment artifact location is not s3://. "
+            "Set MIRAI_MLFLOW_WORKSPACE_ID and MIRAI_<WORKSPACE>_S3_BUCKET so artifacts land in Railway S3."
+        )
 
 
 def _registered_model_name_for_project(project_id: str) -> str:
@@ -206,20 +239,25 @@ def _log_generic_mlflow(
         from mlflow.tracking import MlflowClient
 
         MLFLOW_TRACKING_DIR.mkdir(parents=True, exist_ok=True)
-        mlflow.set_tracking_uri(_tracking_uri())
-        mlflow.set_registry_uri(_tracking_uri())
-        client = MlflowClient(tracking_uri=_tracking_uri(), registry_uri=_tracking_uri())
+        tracking_uri = _tracking_uri()
+        requested_artifact_location = _experiment_artifact_location(project_id)
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_registry_uri(tracking_uri)
+        client = MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
         existing_experiment = client.get_experiment_by_name(project_id)
         if existing_experiment is not None and existing_experiment.lifecycle_stage == "deleted":
             client.restore_experiment(existing_experiment.experiment_id)
             existing_experiment = client.get_experiment_by_name(project_id)
         if existing_experiment is None:
-            client.create_experiment(project_id, artifact_location=_experiment_artifact_location(project_id))
+            client.create_experiment(project_id, artifact_location=requested_artifact_location)
+            existing_experiment = client.get_experiment_by_name(project_id)
+        experiment_artifact_location = existing_experiment.artifact_location if existing_experiment is not None else requested_artifact_location
+        _assert_demo_mlflow_contract(tracking_uri=tracking_uri, artifact_location=experiment_artifact_location)
         mlflow.set_experiment(project_id)
         registered_name = _registered_model_name_for_project(project_id)
         input_schema_hash = _stable_json_hash(schema.get("inputs", []))
         output_schema_hash = _stable_json_hash(schema.get("outputs", []))
-        common_artifacts = ["metrics_summary.json", "schema.json", "preprocessing.json", "split_report.json", "predictions.csv", "candidate_comparison.csv"]
+        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx"]
         run_ids: dict[str, str] = {}
         registered_version: dict[str, Any] | None = None
         for candidate in candidates:
@@ -303,8 +341,10 @@ def _log_generic_mlflow(
                         client.set_registered_model_tag(registered_name, "model_family", "doe_surrogate")
                         registered_version = {"name": registered_name, "version": str(version.version), "run_id": run.info.run_id, "alias": "challenger"}
         return {"run_ids": run_ids, "registered_model": registered_version}
-    except Exception as exc:  # noqa: BLE001 - local artifact training must not fail if MLflow is unavailable.
+    except Exception as exc:  # noqa: BLE001 - local-only dev runs may continue without MLflow.
         _write_json(artifact_dir / "mlflow_warning.json", {"warning": str(exc), "generated_at": _now()})
+        if _remote_mlflow_required() or _remote_artifacts_required():
+            raise
         return {"run_ids": {}, "registered_model": None, "warning": str(exc)}
 
 
@@ -667,7 +707,10 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         "deployment_note": "Generic MVP stores sklearn joblib and logs a challenger run to MLflow when available.",
     }
     _write_json(artifact_dir / "metrics_summary.json", metrics_summary)
+    _write_json(artifact_dir / "metrics.json", metrics_summary)
     _write_json(artifact_dir / "metadata.json", {"project_id": project_id, "created_at": _now(), "best_model": best["model_name"], "model_artifact": best["model_path"], "onnx_artifact": best.get("onnx_path"), "schema_driven": True})
+    if best.get("onnx_path") and Path(str(best["onnx_path"])).exists():
+        shutil.copyfile(str(best["onnx_path"]), artifact_dir / "model.onnx")
     mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}
     if mlflow_cfg.get("enabled", True):
         mlflow_result = _log_generic_mlflow(
