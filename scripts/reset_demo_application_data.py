@@ -193,22 +193,24 @@ def main() -> int:
                         count = 0
                     if count:
                         print(f"    - {table}: {count}")
-            if args.confirm:
-                with conn.transaction():
-                    for workspace_id in reset_workspaces:
-                        delete_workspace_rows(cur, workspace_id)
-                    upsert_fraunhofer(cur, owner_user_id=args.user_a_id, bucket=args.bucket, prefix=args.prefix)
-                    cleanup_memberships(cur, owner_user_id=args.user_a_id, user_b_id=args.user_b_id, workspace_ids=reset_workspaces)
-                    delete_old_workspace_rows(cur, old_workspaces)
-                print("Database reset/upsert transaction completed")
-            else:
+            if not args.confirm:
                 print("Dry run only: no DB rows changed")
+                delete_prefixes(args.bucket, prefixes, confirm=False)
+                return 0
 
-    try:
-        delete_prefixes(args.bucket, prefixes, confirm=args.confirm)
-    except Exception as exc:  # noqa: BLE001
-        print(f"Object-prefix deletion failed after DB step: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 2 if args.confirm else 0
+            try:
+                delete_prefixes(args.bucket, prefixes, confirm=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Object-prefix deletion failed before DB reset: {type(exc).__name__}: {exc}", file=sys.stderr)
+                return 2
+
+            with conn.transaction():
+                for workspace_id in reset_workspaces:
+                    delete_workspace_rows(cur, workspace_id)
+                upsert_fraunhofer(cur, owner_user_id=args.user_a_id, bucket=args.bucket, prefix=args.prefix)
+                cleanup_memberships(cur, owner_user_id=args.user_a_id, user_b_id=args.user_b_id, workspace_ids=reset_workspaces)
+                delete_old_workspace_rows(cur, old_workspaces)
+            print("Database reset/upsert transaction completed")
     return 0
 
 
