@@ -5,6 +5,7 @@ import {
   approveDomainMetadata,
   approvePreprocessing,
   createTrainingRequest,
+  exportApprovedTrainingPackage,
   getDomainMetadata,
   getPreprocessingEdaSummary,
   getPreprocessingReport,
@@ -155,6 +156,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [edaSummary, setEdaSummary] = useState<PreprocessingEdaSummary | null>(null)
   const [trainingRequest, setTrainingRequest] = useState<TrainingRequestResponse | null>(null)
   const [trainingStatus, setTrainingStatus] = useState<Record<string, unknown> | null>(null)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfiguration>(() => defaultTrainingConfiguration(schema))
   const [metadataStatus, setMetadataStatus] = useState<DomainMetadataStatus | null>(null)
   const [metadataDraft, setMetadataDraft] = useState<ProjectDomainMetadata | null>(null)
@@ -350,6 +352,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
   const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
+
+  async function handleExportApprovedPackage() {
+    if (!selectedSession || !trainingRequest) return
+    await runAction('export-package', async () => {
+      await exportApprovedTrainingPackage(selectedSession, trainingRequest.training_request_id)
+      setExportMessage('Approved training package export started. Check your downloads folder.')
+    })
+  }
 
   const nextAction = (() => {
     if (!selectedSession) return { label: 'Select a session', disabled: true, run: undefined as (() => void) | undefined }
@@ -612,6 +622,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <div className="font-semibold">Training request ready</div>
             <div className="mt-1">Preset: {trainingRequest.preset}</div>
             <div className="mt-1">Models: {trainingRequest.model_families.join(', ')}</div>
+          </div>
+        )}
+        {selectedSession && preprocessingApproved && trainingRequest && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <div className="font-semibold">Export approved training package</div>
+                <p className="mt-1 leading-6">Download the approved, versioned dataset package for authorized local or on-premise training. Export activity is recorded in the project audit trail.</p>
+                <p className="mt-2 font-semibold leading-6">This package leaves the managed Mirai environment. Store and handle it according to your workspace data-governance policy.</p>
+                {exportMessage && <p className="mt-2 text-emerald-800">{exportMessage}</p>}
+              </div>
+              <button type="button" onClick={handleExportApprovedPackage} disabled={Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+                {busy === 'export-package' ? 'Exporting...' : 'Export approved training package'}
+              </button>
+            </div>
           </div>
         )}
         {trainingCompleted && (

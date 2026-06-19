@@ -1071,6 +1071,34 @@ export async function getTrainingStatus(session: IngestionSessionResponse, train
   }
 }
 
+function filenameFromContentDisposition(header?: string): string | null {
+  if (!header) return null
+  const quoted = header.match(/filename="([^"]+)"/i)
+  if (quoted?.[1]) return quoted[1]
+  const plain = header.match(/filename=([^;]+)/i)
+  return plain?.[1]?.trim() ?? null
+}
+
+export async function exportApprovedTrainingPackage(session: IngestionSessionResponse, trainingRequestId: string): Promise<void> {
+  try {
+    const response = await api.get<Blob>(`${sessionPath(session)}/training-requests/${trainingRequestId}/export-package`, {
+      responseType: 'blob',
+    })
+    const filename = filenameFromContentDisposition(response.headers['content-disposition'])
+      ?? `mirai-training-package-${session.project_id}-${session.dataset_id}-${trainingRequestId}.zip`
+    const url = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    throw normalizeError(error, 'Unable to export approved training package')
+  }
+}
+
 export async function predictExperiment(
   projectId: string,
   inputs: ExperimentInputs,

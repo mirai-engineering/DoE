@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from io import BytesIO
 import logging
 import os
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -84,7 +85,7 @@ from .services.project_registry import (
     list_projects,
 )
 from .services.recommendation import recommend_experiments
-from .services.training_requests import create_training_request, get_training_status, list_training_requests, start_training_request
+from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, list_training_requests, start_training_request
 from .services.workspaces import list_workspaces
 
 
@@ -566,6 +567,45 @@ def data_intake_get_training_request_status(project_id: str, dataset_id: str, se
         return get_training_status(project_id, dataset_id, session_id, training_request_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Training status lookup failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/training-requests/{training_request_id}/export-package")
+def data_intake_export_approved_training_package(project_id: str, dataset_id: str, session_id: str, training_request_id: str, request: Request):
+    try:
+        workspace_id = _raise_if_no_workspace_access(request)
+        package = build_approved_training_package(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            dataset_id=dataset_id,
+            session_id=session_id,
+            training_request_id=training_request_id,
+        )
+        log_audit(
+            workspace_id=workspace_id,
+            user_id=_request_user_id(request),
+            action="approved_training_package_exported",
+            resource_type="training_request",
+            resource_id=training_request_id,
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "session_id": session_id,
+                "training_request_id": training_request_id,
+                "package_sha256": package.sha256,
+                "package_size_bytes": package.size_bytes,
+                "exported_at": package.manifest.get("exported_at"),
+            },
+        )
+        headers = {
+            "Content-Disposition": f'attachment; filename="{package.filename}"',
+            "X-Mirai-Package-SHA256": package.sha256,
+            "X-Mirai-Package-Size": str(package.size_bytes),
+        }
+        return StreamingResponse(BytesIO(package.content), media_type="application/zip", headers=headers)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Approved training package export failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 

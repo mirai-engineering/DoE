@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -873,6 +874,204 @@ def test_training_request_gate_requires_preprocessing_report(client):
     )
 
     assert training.status_code in {400, 503}
+
+
+def _write_json(path: Path, payload: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _prepare_export_fixture(tmp_path, monkeypatch, *, approved: bool = True, request_dataset_id: str | None = None):
+    from app.services import data_intake
+
+    object_root = tmp_path / "object-store"
+    monkeypatch.setenv("DOE_OBJECT_STORE_ROOT", str(object_root))
+    monkeypatch.setattr(data_intake, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+
+    project_id = "fraunhofer_export_project"
+    dataset_id = "dataset_export"
+    session_id = "ing_export"
+    training_request_id = "train_req_export"
+    workspace = data_intake.session_workspace(project_id, dataset_id, session_id)
+    for path in workspace.values():
+        path.mkdir(parents=True, exist_ok=True)
+
+    session = {
+        "project_id": project_id,
+        "project_name": "Fraunhofer Export Project",
+        "dataset_id": dataset_id,
+        "ingestion_session_id": session_id,
+        "workspace_id": "fraunhofer",
+        "status": "approved_for_training" if approved else "ready_for_contract_review",
+        "files": [
+            {
+                "filename": "source.zip",
+                "sha256": "source-sha-123",
+                "size_bytes": 1234,
+                "relative_path": "workspaces/fraunhofer/raw/source.zip",
+            }
+        ],
+    }
+    _write_json(workspace["root"] / "session.json", session)
+    (workspace["canonical"] / "model_table.csv").write_text("x1,x2,y1\n1,2,3\n4,5,6\n", encoding="utf-8")
+    (workspace["canonical"] / "raw_reference_extracted").mkdir(parents=True)
+    (workspace["canonical"] / "raw_reference_extracted" / "secret.csv").write_text("do,not,export\n", encoding="utf-8")
+    schema = {
+        "project_id": project_id,
+        "metadata": {"template_id": "generic_tabular_doe", "contract_version": "mirai-generic-0.1"},
+        "inputs": [{"name": "x1"}, {"name": "x2"}],
+        "outputs": [{"name": "y1"}],
+    }
+    _write_json(workspace["training_latest"] / "schema.json", schema)
+    _write_json(workspace["training_latest"] / "preprocessing.json", {"version": "mirai-generic-0.1", "input_order": ["x1", "x2"], "output_order": ["y1"]})
+    _write_json(
+        workspace["eda"] / "preprocessing_report.json",
+        {
+            "project_id": project_id,
+            "dataset_id": dataset_id,
+            "ingestion_session_id": session_id,
+            "status": "approved_for_training" if approved else "preprocessing_complete_needs_approval",
+            "approval": {"status": "approved_for_training" if approved else "not_approved"},
+            "canonical_artifacts": {"files": ["model_table.csv"], "row_counts": {"model_table.csv": 2}},
+        },
+    )
+    _write_json(workspace["status"] / "preprocessing.json", {"status": "approved_for_training" if approved else "preprocessing_complete_needs_approval"})
+    request = {
+        "training_request_id": training_request_id,
+        "project_id": project_id,
+        "dataset_id": request_dataset_id or dataset_id,
+        "ingestion_session_id": session_id,
+        "status": "staged_for_mirai_execution",
+        "requested_by": "test",
+        "model_families": ["mean_baseline"],
+    }
+    _write_json(workspace["training_requests"] / f"{training_request_id}.json", request)
+    return session | {"training_request_id": training_request_id}
+
+
+def _auth_fraunhofer(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "fraunhofer-user")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "fraunhofer")
+
+
+def _export_url(session):
+    return (
+        f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}"
+        f"/sessions/{session['ingestion_session_id']}/training-requests/{session['training_request_id']}/export-package"
+    )
+
+
+def test_fraunhofer_member_can_export_approved_training_package(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch)
+    _auth_fraunhofer(monkeypatch)
+    monkeypatch.setattr(main_module, "list_projects", lambda workspace_id=None: [{"id": session["project_id"], "workspace_id": "fraunhofer"}] if workspace_id == "fraunhofer" else [])
+    audit_events = []
+    monkeypatch.setattr(main_module, "log_audit", lambda **kwargs: audit_events.append(kwargs))
+
+    with TestClient(app) as test_client:
+        response = test_client.get(_export_url(session), headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment" in response.headers["content-disposition"]
+    with ZipFile(io.BytesIO(response.content)) as archive:
+        assert sorted(archive.namelist()) == ["model_table.csv", "schema.json", "training_manifest.json"]
+        manifest = json.loads(archive.read("training_manifest.json"))
+    assert manifest["workspace_id"] == "fraunhofer"
+    assert manifest["project_id"] == session["project_id"]
+    assert manifest["dataset_id"] == session["dataset_id"]
+    assert manifest["session_id"] == session["ingestion_session_id"]
+    assert manifest["training_request_id"] == session["training_request_id"]
+    assert manifest["feature_columns"] == ["x1", "x2"]
+    assert manifest["target_columns"] == ["y1"]
+    assert manifest["source_checksums"]["source.zip"] == "source-sha-123"
+    assert manifest["source_checksums"]["model_table.csv"]
+    assert manifest["source_checksums"]["schema.json"]
+    assert not any("bucket" in json.dumps(manifest).lower() or "object_key" in json.dumps(manifest).lower() for _ in [manifest])
+    assert audit_events
+    assert audit_events[0]["action"] == "approved_training_package_exported"
+    assert audit_events[0]["metadata"]["package_size_bytes"] == len(response.content)
+    assert audit_events[0]["metadata"]["package_sha256"]
+
+
+def test_export_approved_training_package_unassigned_user_gets_no_workspace_403(tmp_path, monkeypatch):
+    session = _prepare_export_fixture(tmp_path, monkeypatch)
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "user_without_workspace")
+    monkeypatch.delenv("CLERK_AUTH_TEST_WORKSPACE_ID", raising=False)
+
+    with TestClient(app) as test_client:
+        response = test_client.get(_export_url(session), headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 403
+    assert response.json() == {"code": "no_workspace_membership", "detail": "Workspace membership required"}
+
+
+def test_test_client_isolated_user_cannot_export_fraunhofer_package(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch)
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_USER_ID", "isolated-user")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "test-client-isolated")
+    monkeypatch.setattr(main_module, "list_projects", lambda workspace_id=None: [])
+
+    with TestClient(app) as test_client:
+        response = test_client.get(_export_url(session), headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "workspace_access_denied"
+
+
+def test_export_approved_training_package_rejects_unapproved_preprocessing(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch, approved=False)
+    _auth_fraunhofer(monkeypatch)
+    monkeypatch.setattr(main_module, "list_projects", lambda workspace_id=None: [{"id": session["project_id"], "workspace_id": "fraunhofer"}])
+
+    with TestClient(app) as test_client:
+        response = test_client.get(_export_url(session), headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 400
+    assert "approved" in response.json()["detail"]
+
+
+def test_export_approved_training_package_rejects_mismatched_training_request(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch, request_dataset_id="dataset_other")
+    _auth_fraunhofer(monkeypatch)
+    monkeypatch.setattr(main_module, "list_projects", lambda workspace_id=None: [{"id": session["project_id"], "workspace_id": "fraunhofer"}])
+
+    with TestClient(app) as test_client:
+        response = test_client.get(_export_url(session), headers={"Authorization": "Bearer valid-test-token"})
+
+    assert response.status_code == 400
+    assert "does not belong" in response.json()["detail"]
+
+
+def test_frontend_export_helper_does_not_accept_storage_location_inputs():
+    source = (Path(__file__).parents[2] / "frontend" / "src" / "lib" / "api.ts").read_text(encoding="utf-8")
+    start = source.index("export async function exportApprovedTrainingPackage")
+    end = source.index("export async function predictExperiment", start)
+    helper = source[start:end]
+    assert "responseType: 'blob'" in helper
+    assert "export-package" in helper
+    assert "bucket" not in helper.lower()
+    assert "object_key" not in helper.lower()
+    assert "objectKey" not in helper
+    assert "object_path" not in helper.lower()
+    assert "objectPath" not in helper
+    assert "presigned" not in helper.lower()
 
 
 def test_bo_fantasy_rollout_is_not_logged_as_observed(isolated_client):

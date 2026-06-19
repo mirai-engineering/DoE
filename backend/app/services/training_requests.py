@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import BytesIO
+import hashlib
 import json
 import logging
 import mimetypes
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 from uuid import uuid4
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from .control_plane import complete_training_run, create_training_run, fail_training_run, get_project_storage_config
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
@@ -20,6 +25,15 @@ from ml_lifecycle.training.generic_tabular_doe.train import train_generic_projec
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ApprovedTrainingPackage:
+    filename: str
+    content: bytes
+    sha256: str
+    size_bytes: int
+    manifest: dict[str, Any]
 
 
 DEFAULT_TRAINING_PLAN: dict[str, Any] = {
@@ -263,6 +277,132 @@ def _upload_training_artifacts_to_s3(workspace_id: str, project_id: str, trainin
         if postgres_control_plane_required():
             raise
         return {"status": "skipped", "detail": str(exc)}
+
+
+_SAFE_EXPORT_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _validate_export_route_id(name: str, value: str) -> str:
+    if not value or not _SAFE_EXPORT_ID.fullmatch(value):
+        raise ValueError(f"{name} must be a safe identifier")
+    return value
+
+
+def _column_names(items: Any) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    names: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("variable_id") or item.get("source_name")
+            if name:
+                names.append(str(name))
+        elif isinstance(item, str):
+            names.append(item)
+    return names
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_checksums(session: dict[str, Any], canonical_table: Path, schema_path: Path) -> dict[str, str]:
+    checksums: dict[str, str] = {}
+    for item in session.get("files", []):
+        if isinstance(item, dict) and item.get("sha256"):
+            checksums[str(item.get("filename") or "uploaded_source")] = str(item["sha256"])
+    checksums[canonical_table.name] = _sha256_file(canonical_table)
+    checksums[schema_path.name] = _sha256_file(schema_path)
+    return checksums
+
+
+def _preprocessing_contract_version(schema: dict[str, Any], preprocessing: dict[str, Any]) -> str:
+    if preprocessing.get("version"):
+        return str(preprocessing["version"])
+    metadata = schema.get("metadata") if isinstance(schema.get("metadata"), dict) else {}
+    return str(metadata.get("contract_version") or metadata.get("template_id") or "unknown")
+
+
+def build_approved_training_package(
+    *,
+    workspace_id: str | None,
+    project_id: str,
+    dataset_id: str,
+    session_id: str,
+    training_request_id: str,
+) -> ApprovedTrainingPackage:
+    project_id = _validate_export_route_id("project_id", project_id)
+    dataset_id = _validate_export_route_id("dataset_id", dataset_id)
+    session_id = _validate_export_route_id("session_id", session_id)
+    training_request_id = _validate_export_route_id("training_request_id", training_request_id)
+    session = get_ingestion_session(project_id, dataset_id, session_id)
+    session_workspace_id = session.get("workspace_id")
+    if workspace_id and session_workspace_id and str(session_workspace_id) != str(workspace_id):
+        raise ValueError("Training package does not belong to the authorized workspace")
+    if str(session.get("project_id")) != project_id or str(session.get("dataset_id")) != dataset_id or str(session.get("ingestion_session_id")) != session_id:
+        raise ValueError("Session identity does not match requested training package")
+
+    request = get_training_request(project_id, dataset_id, session_id, training_request_id)
+    if (
+        str(request.get("project_id")) != project_id
+        or str(request.get("dataset_id")) != dataset_id
+        or str(request.get("ingestion_session_id")) != session_id
+        or str(request.get("training_request_id")) != training_request_id
+    ):
+        raise ValueError("Training request does not belong to the requested dataset/session/project")
+
+    report = get_preprocessing_review_report(project_id, dataset_id, session_id)
+    if report.get("approval", {}).get("status") != "approved_for_training":
+        raise ValueError("Preprocessing must be approved before exporting a training package")
+
+    workspace = session_workspace(project_id, dataset_id, session_id)
+    canonical = workspace["canonical"]
+    training_latest = workspace["training_latest"]
+    table_path = canonical / "model_table.parquet"
+    if not table_path.exists():
+        table_path = canonical / "model_table.csv"
+    if not table_path.exists():
+        raise FileNotFoundError("Approved model table is missing")
+    schema_path = training_latest / "schema.json"
+    if not schema_path.exists():
+        raise FileNotFoundError("Approved schema.json is missing")
+
+    preprocessing = _read_json(training_latest / "preprocessing.json", default={}) or {}
+    schema = _read_json(schema_path, default={}) or {}
+    feature_columns = list(preprocessing.get("input_order") or _column_names(schema.get("inputs")))
+    target_columns = list(preprocessing.get("output_order") or _column_names(schema.get("outputs")))
+    manifest = {
+        "package_format_version": "1",
+        "workspace_id": str(session_workspace_id or workspace_id or ""),
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "session_id": session_id,
+        "training_request_id": training_request_id,
+        "feature_columns": feature_columns,
+        "target_columns": target_columns,
+        "preprocessing_contract_version": _preprocessing_contract_version(schema, preprocessing),
+        "source_checksums": _source_checksums(session, table_path, schema_path),
+        "exported_at": _now(),
+    }
+
+    buffer = BytesIO()
+    with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+        archive.write(table_path, table_path.name)
+        archive.write(schema_path, "schema.json")
+        archive.writestr("training_manifest.json", json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    content = buffer.getvalue()
+    filename = f"mirai-training-package-{project_id}-{dataset_id}-{training_request_id}.zip"
+    return ApprovedTrainingPackage(
+        filename=filename,
+        content=content,
+        sha256=hashlib.sha256(content).hexdigest(),
+        size_bytes=len(content),
+        manifest=manifest,
+    )
 
 
 def start_training_request(project_id: str, dataset_id: str, session_id: str, training_request_id: str) -> dict[str, Any]:
