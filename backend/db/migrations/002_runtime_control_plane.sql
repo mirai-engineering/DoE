@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS datasets (
     project_id text NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
     filename text NOT NULL,
     object_uri text NOT NULL,
+    sha256 text,
+    size_bytes bigint CHECK (size_bytes IS NULL OR size_bytes >= 0),
     schema_hash text,
     manifest_version text,
     row_count integer CHECK (row_count IS NULL OR row_count >= 0),
