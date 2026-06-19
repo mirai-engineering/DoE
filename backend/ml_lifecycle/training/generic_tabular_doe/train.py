@@ -262,7 +262,13 @@ def _log_generic_mlflow(
         registered_name = _registered_model_name_for_project(project_id)
         input_schema_hash = _stable_json_hash(schema.get("inputs", []))
         output_schema_hash = _stable_json_hash(schema.get("outputs", []))
+        mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}
+        extra_tags = mlflow_cfg.get("extra_tags", {}) if isinstance(mlflow_cfg.get("extra_tags"), dict) else {}
+        extra_artifacts = mlflow_cfg.get("extra_artifacts", []) if isinstance(mlflow_cfg.get("extra_artifacts"), list) else []
         common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx"]
+        for artifact_name in extra_artifacts:
+            if isinstance(artifact_name, str) and artifact_name not in common_artifacts:
+                common_artifacts.append(artifact_name)
         run_ids: dict[str, str] = {}
         registered_version: dict[str, Any] | None = None
         for candidate in candidates:
@@ -282,6 +288,7 @@ def _log_generic_mlflow(
                     "candidate_role": "challenger" if is_selected else "candidate",
                     "lifecycle_role": "challenger" if is_selected else "candidate",
                     "selected_candidate": str(is_selected).lower(),
+                    **{str(key): str(value) for key, value in extra_tags.items() if value is not None},
                 }
                 mlflow.set_tags(lifecycle_tags)
                 params = {

@@ -20,6 +20,7 @@ env/
 .env
 .env.local
 backend/.env.training
+backend/.env.training.local
 
 # Logs
 *.log
@@ -37,6 +38,8 @@ backend/data-minio/
 mlruns/
 backend/mlruns/
 backend/.mlflow-cache/
+backend/.local-training-runs/
+training-runs/
 *.onnx
 
 # Data
