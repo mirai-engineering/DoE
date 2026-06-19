@@ -216,16 +216,17 @@ def upsert_project_metadata(
     project_name: str,
     workspace_name: str | None,
     ingestion_path: str = "generic_tabular_doe",
+    workspace_id: str | None = None,
 ) -> dict[str, Any]:
-    workspace = ensure_workspace(workspace_name or "Default workspace")
-    workspace_id = str(workspace.get("workspace_id") or workspace_id_for_name(workspace_name))
+    workspace = ensure_workspace(workspace_name or workspace_id or "Default workspace")
+    resolved_workspace_id = workspace_id or str(workspace.get("workspace_id") or workspace_id_for_name(workspace_name))
     existing = read_project_metadata(project_id) or {}
     payload = {
         **existing,
         "project_id": project_id,
         "display_name": project_name or existing.get("display_name") or project_id,
-        "workspace_id": workspace_id,
-        "workspace_name": str(workspace.get("display_name") or workspace_name or "Default workspace"),
+        "workspace_id": resolved_workspace_id,
+        "workspace_name": str(workspace.get("display_name") or workspace_name or resolved_workspace_id or "Default workspace"),
         "template_id": existing.get("template_id") or "generic_tabular_doe",
         "lifecycle_contract": "generic_tabular_doe",
         "status": existing.get("status") or "active",
@@ -244,10 +245,11 @@ def _build_session_payload(
     notes: str | None = None,
     ingestion_path: str = "generic_tabular_doe",
     workspace_name: str | None = None,
+    workspace_id: str | None = None,
 ) -> dict[str, Any]:
     status = _infer_session_status(files)
     session_path = _session_dir(project_id, dataset_id, session_id)
-    project_metadata = upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path)
+    project_metadata = upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path, workspace_id=workspace_id)
     return {
         "project_id": project_id,
         "project_name": project_name,
@@ -287,6 +289,7 @@ async def create_ingestion_session(
     ingestion_path: str = "generic_tabular_doe",
     workspace_name: str | None = None,
     existing_project_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> dict[str, Any]:
     if not uploads:
         raise ValueError("At least one file must be uploaded")
@@ -297,13 +300,13 @@ async def create_ingestion_session(
         project_id = existing_project_id
     else:
         project_id = f"{_slugify(project_name)}_{uuid4().hex[:8]}"
-    upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path)
+    upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path, workspace_id=workspace_id)
     dataset_id = f"dataset_{uuid4().hex[:10]}"
     session_id = f"ing_{uuid4().hex[:10]}"
     session_path = _session_dir(project_id, dataset_id, session_id)
     raw_dir = session_path / "raw"
     files = [await _store_upload(upload, raw_dir) for upload in uploads]
-    payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name)
+    payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name, workspace_id=workspace_id)
     _write_json(session_path / "session.json", payload)
     _write_json(session_path / "inventory" / "file_inventory.json", {"files": files, "generated_at": _now()})
     return payload

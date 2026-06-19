@@ -264,6 +264,7 @@ def data_intake_sessions(request: Request):
 
 @app.post("/data-intake/sessions", response_model=IngestionSessionResponse)
 async def data_intake_create_session(
+    request: Request,
     project_name: str = Form(...),
     notes: str | None = Form(default=None),
     ingestion_path: str = Form(default="generic_tabular_doe"),
@@ -279,6 +280,7 @@ async def data_intake_create_session(
             ingestion_path=ingestion_path,
             workspace_name=workspace_name,
             existing_project_id=existing_project_id,
+            workspace_id=_authorized_workspace_id(request),
         )
         clear_registry_cache()
         return session

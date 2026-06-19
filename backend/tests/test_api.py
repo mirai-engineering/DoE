@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -69,6 +70,40 @@ def test_new_ingestion_session_uses_workspace_scoped_storage(tmp_path, monkeypat
     session = data_intake.session_workspace("client_a_project", "dataset_a", "session_a")
 
     assert session["root"].is_relative_to(tmp_path / "workspaces" / "mirai-engineering")
+
+
+@pytest.mark.anyio
+async def test_create_ingestion_session_uses_authenticated_workspace_id(tmp_path, monkeypatch):
+    object_root = tmp_path / ".object-storage-local"
+    monkeypatch.setenv("DOE_OBJECT_STORE_ROOT", str(object_root))
+    from app.services import data_intake
+
+    monkeypatch.setattr(data_intake, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+
+    class Upload:
+        filename = "mirai_manifest.json"
+        content_type = "application/json"
+
+        def __init__(self):
+            self._file = io.BytesIO(b"{}")
+
+        async def read(self, size: int = -1):
+            return self._file.read(size)
+
+    session = await data_intake.create_ingestion_session(
+        project_name="PEM Fuel Cell Cathode Degradation",
+        uploads=[Upload()],
+        existing_project_id=PROJECT_ID,
+        workspace_name="Battery Demo",
+        workspace_id="user_clerk_123",
+    )
+
+    assert session["workspace_id"] == "user_clerk_123"
+    assert Path(session["storage"]["root"]).is_relative_to(
+        Path(".object-storage-local") / "workspaces" / "user_clerk_123" / "intake" / "projects" / PROJECT_ID
+    )
 
 
 def test_projects(client):
