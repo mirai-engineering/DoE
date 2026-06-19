@@ -73,6 +73,88 @@ def test_new_ingestion_session_uses_workspace_scoped_storage(tmp_path, monkeypat
 
 
 @pytest.mark.anyio
+async def test_create_ingestion_session_writes_project_scoped_object_metadata(tmp_path, monkeypatch):
+    object_root = tmp_path / ".object-storage-local"
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(object_root))
+    from app.services import data_intake
+    from app.services.workspace_storage import WorkspaceStorageConfig
+
+    monkeypatch.setattr(data_intake, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+    monkeypatch.setattr(data_intake, "postgres_control_plane_enabled", lambda: True)
+    monkeypatch.setattr(
+        data_intake,
+        "ensure_project_record",
+        lambda **kwargs: WorkspaceStorageConfig(
+            workspace_id=kwargs["workspace_id"],
+            mode="local",
+            bucket="mirai-user-123-demo",
+            prefix=f"workspaces/{kwargs['workspace_id']}/projects/{kwargs['project_id']}",
+        ),
+    )
+    datasets = []
+    artifacts = []
+    monkeypatch.setattr(data_intake, "record_uploaded_dataset", lambda **kwargs: datasets.append(kwargs))
+    monkeypatch.setattr(data_intake, "record_artifact_object", lambda **kwargs: artifacts.append(kwargs))
+
+    class Upload:
+        filename = "project.zip"
+        content_type = "application/zip"
+
+        def __init__(self):
+            self._file = io.BytesIO(b"zip-bytes")
+
+        async def read(self, size: int = -1):
+            return self._file.read(size)
+
+    session = await data_intake.create_ingestion_session(
+        project_name="Pilot Project",
+        uploads=[Upload()],
+        workspace_name="Pilot Client",
+        workspace_id="user_123",
+        uploaded_by="user_123",
+    )
+
+    uploaded = session["files"][0]
+    assert uploaded["bucket"] == "mirai-user-123-demo"
+    assert uploaded["object_key"].startswith(f"workspaces/user_123/projects/{session['project_id']}/intake/{session['dataset_id']}/{session['ingestion_session_id']}/raw/")
+    assert uploaded["object_uri"].endswith(uploaded["object_key"])
+    assert datasets[0]["workspace_id"] == "user_123"
+    assert datasets[0]["object_uri"] == uploaded["object_uri"]
+    assert artifacts[0]["artifact_kind"] == "raw_upload"
+
+
+@pytest.mark.anyio
+async def test_create_ingestion_session_requires_provisioned_storage_when_postgres_enabled(tmp_path, monkeypatch):
+    object_root = tmp_path / ".object-storage-local"
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(object_root))
+    from app.services import data_intake
+
+    monkeypatch.setattr(data_intake, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+    monkeypatch.setattr(data_intake, "postgres_control_plane_enabled", lambda: True)
+    monkeypatch.setattr(data_intake, "ensure_project_record", lambda **kwargs: (_ for _ in ()).throw(ValueError("Workspace storage is not provisioned yet")))
+
+    class Upload:
+        filename = "project.zip"
+        content_type = "application/zip"
+
+        async def read(self, size: int = -1):
+            return b"zip-bytes"
+
+    with pytest.raises(ValueError, match="not provisioned"):
+        await data_intake.create_ingestion_session(
+            project_name="Blocked Project",
+            uploads=[Upload()],
+            workspace_name="Blocked Client",
+            workspace_id="user_without_bucket",
+            uploaded_by="user_without_bucket",
+        )
+
+
+@pytest.mark.anyio
 async def test_create_ingestion_session_uses_authenticated_workspace_id(tmp_path, monkeypatch):
     object_root = tmp_path / ".object-storage-local"
     monkeypatch.setenv("DOE_OBJECT_STORE_ROOT", str(object_root))
@@ -111,6 +193,15 @@ def test_projects(client):
 
     assert response.status_code == 200
     assert any(project["id"] == PROJECT_ID for project in response.json()["projects"])
+
+
+def test_health_hides_project_fallbacks_when_auth_required(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    with TestClient(app) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["available_projects"] == []
 
 
 def test_auth_required_rejects_missing_token(monkeypatch):
@@ -167,7 +258,10 @@ def test_auth_required_valid_user_without_workspace_row_lists_no_projects(monkey
         response = test_client.get("/projects", headers={"Authorization": "Bearer valid-test-token"})
 
     assert response.status_code == 200
-    assert response.json()["projects"] == []
+    payload = response.json()
+    assert payload["projects"] == []
+    assert payload["workspaces"][0]["workspace_id"] == "user_without_workspace"
+    assert payload["workspaces"][0]["storage_provisioned"] is False
 
 
 def test_auth_required_lists_multiple_projects_for_one_clerk_workspace(monkeypatch):
@@ -191,6 +285,28 @@ def test_auth_required_lists_multiple_projects_for_one_clerk_workspace(monkeypat
 
     assert response.status_code == 200
     assert [project["id"] for project in response.json()["projects"]] == ["project_a", "project_b"]
+
+
+def test_workspace_storage_assignment_rejects_escaping_prefix():
+    from app.services.control_plane import assign_workspace_storage
+
+    with pytest.raises(ValueError):
+        assign_workspace_storage(workspace_id="user_123", bucket="mirai-user-123-demo", prefix="workspaces/user_456")
+
+
+def test_auth_required_rejects_cross_workspace_existing_project_intake(monkeypatch):
+    monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("CLERK_AUTH_TEST_TOKEN", "valid-test-token")
+    monkeypatch.setenv("CLERK_AUTH_TEST_WORKSPACE_ID", "other_workspace")
+    with TestClient(app) as test_client:
+        response = test_client.post(
+            "/data-intake/sessions",
+            headers={"Authorization": "Bearer valid-test-token"},
+            data={"project_name": "Bad", "existing_project_id": PROJECT_ID},
+            files=[("files", ("project.zip", b"zip", "application/zip"))],
+        )
+
+    assert response.status_code == 403
 
 
 def test_auth_required_rejects_cross_workspace_project_access(monkeypatch):

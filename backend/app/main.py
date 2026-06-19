@@ -25,6 +25,7 @@ from .schemas import (
     DomainMetadataUpdateRequest,
     FileInventoryResponse,
     IngestionSessionResponse,
+    WorkspaceStorageProvisionRequest,
     PredictRequest,
     PreprocessingApprovalRequest,
     TrainingRequestCreate,
@@ -42,7 +43,7 @@ from .services.bayesian_optimization import (
     suggest_next_experiment,
 )
 from .services.business_impact import get_business_impact_summary
-from .services.control_plane import get_project_runtime_state, log_audit
+from .services.control_plane import assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, synthetic_workspace_summary
 from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
 from .services.fantasy_rollout import run_fantasy_rollout
@@ -171,7 +172,11 @@ def _filter_workspaces_for_request(request: Request, workspaces: list[dict]) -> 
     workspace_id = _authorized_workspace_id(request)
     if not workspace_id:
         return workspaces
-    return [workspace for workspace in workspaces if workspace.get("workspace_id") == workspace_id]
+    runtime_workspace = get_workspace_summary(workspace_id)
+    if runtime_workspace:
+        return [runtime_workspace]
+    local_matches = [workspace for workspace in workspaces if workspace.get("workspace_id") == workspace_id]
+    return local_matches or [synthetic_workspace_summary(workspace_id)]
 
 
 def _project_id_from_path(path: str) -> str | None:
@@ -192,6 +197,19 @@ def _request_can_access_project(request: Request, project_id: str) -> bool:
 def _request_user_id(request: Request) -> str | None:
     principal = request_principal(request)
     return principal.clerk_user_id if principal else None
+
+
+def _csv_env(name: str) -> set[str]:
+    return {item.strip() for item in os.getenv(name, "").split(",") if item.strip()}
+
+
+def _request_is_admin(request: Request) -> bool:
+    if not auth_required():
+        return True
+    user_id = _request_user_id(request)
+    if not user_id:
+        return False
+    return user_id in _csv_env("MIRAI_ADMIN_CLERK_USER_IDS")
 
 
 def _static_index_path() -> str | None:
@@ -218,7 +236,7 @@ def api_info():
 def health_check():
     return {
         "status": "healthy",
-        "available_projects": [project["id"] for project in list_projects()],
+        "available_projects": [] if auth_required() else [project["id"] for project in list_projects()],
         "models_loaded": are_models_loaded(),
     }
 
@@ -249,6 +267,34 @@ def workspaces(request: Request):
     return {"workspaces": _filter_workspaces_for_request(request, list_workspaces())}
 
 
+@app.post("/admin/workspaces/{workspace_id}/storage")
+def admin_provision_workspace_storage(workspace_id: str, payload: WorkspaceStorageProvisionRequest, request: Request):
+    if not _request_is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    try:
+        result = assign_workspace_storage(
+            workspace_id=workspace_id,
+            bucket=payload.bucket,
+            mode=payload.mode,
+            prefix=payload.prefix,
+            display_name=payload.display_name,
+            clerk_user_id=payload.clerk_user_id or workspace_id,
+        )
+        log_audit(
+            workspace_id=workspace_id,
+            user_id=_request_user_id(request),
+            action="workspace_storage_provisioned",
+            resource_type="workspace",
+            resource_id=workspace_id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"bucket": payload.bucket, "mode": payload.mode},
+        )
+        return {"workspace": result or synthetic_workspace_summary(workspace_id)}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Workspace storage provisioning failed for workspace_id=%s", workspace_id)
+        _raise_api_error(exc)
+
+
 @app.get("/data-intake/sessions")
 def data_intake_sessions(request: Request):
     try:
@@ -273,6 +319,8 @@ async def data_intake_create_session(
     files: list[UploadFile] = File(...),
 ):
     try:
+        if existing_project_id and not _request_can_access_project(request, existing_project_id):
+            raise HTTPException(status_code=403, detail="Workspace access denied")
         session = await create_ingestion_session(
             project_name=project_name,
             uploads=files,
@@ -281,9 +329,12 @@ async def data_intake_create_session(
             workspace_name=workspace_name,
             existing_project_id=existing_project_id,
             workspace_id=_authorized_workspace_id(request),
+            uploaded_by=_request_user_id(request),
         )
         clear_registry_cache()
         return session
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake session creation failed")
         _raise_api_error(exc)

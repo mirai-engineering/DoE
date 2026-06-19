@@ -276,19 +276,33 @@ def _workspace_s3_client(config: WorkspaceStorageConfig):
     access_key = os.getenv(f"{env_prefix}_ACCESS_KEY_ID")
     secret_key = os.getenv(f"{env_prefix}_SECRET_ACCESS_KEY")
     region = os.getenv(f"{env_prefix}_REGION", os.getenv("MIRAI_S3_REGION", "sjc"))
-    if not endpoint or not access_key or not secret_key:
-        raise WorkspaceStorageError(f"Missing S3 endpoint/access env vars for workspace {config.workspace_id!r}")
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region,
-    )
+    if endpoint and access_key and secret_key:
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+        )
+    # Railway demo buckets often share one S3 credential set. Fall back to the
+    # generic S3 env vars after validating the workspace/project key prefix.
+    return _generic_s3_client()
 
 
 def put_workspace_object(config: WorkspaceStorageConfig, object_key: str, body: bytes | BinaryIO, *, content_type: str | None = None) -> str:
     key = validate_workspace_object_key(config, object_key)
+    if config.mode == "local":
+        if not config.bucket:
+            raise WorkspaceStorageError("Local workspace object writes require a bucket/mirror name")
+        path = local_object_storage_path(config.bucket, key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if hasattr(body, "read"):
+            with path.open("wb") as handle:
+                while chunk := body.read(1024 * 1024):
+                    handle.write(chunk)
+        else:
+            path.write_bytes(body)
+        return key
     client = _workspace_s3_client(config)
     extra_args = {"ContentType": content_type} if content_type else None
     if hasattr(body, "read"):

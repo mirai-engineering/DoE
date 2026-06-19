@@ -3,10 +3,10 @@ import type { IngestionSessionResponse, ProjectSchema, ProjectSummary, Workspace
 import { createIngestionSession } from '../lib/api'
 import { DisclosurePanel, LifecycleStepper, SectionCard } from './ui'
 
-export function DataIntakePage({ schema, projects, workspaces, onReviewPreprocessing, onSessionCreated }: { schema: ProjectSchema; projects: ProjectSummary[]; workspaces: WorkspaceSummary[]; onReviewPreprocessing?: () => void; onSessionCreated?: (session: IngestionSessionResponse) => void | Promise<void> }) {
+export function DataIntakePage({ schema, projects, workspaces, onReviewPreprocessing, onSessionCreated }: { schema: ProjectSchema | null; projects: ProjectSummary[]; workspaces: WorkspaceSummary[]; onReviewPreprocessing?: () => void; onSessionCreated?: (session: IngestionSessionResponse) => void | Promise<void> }) {
   const [intakeMode, setIntakeMode] = useState<'new_project' | 'existing_project'>('new_project')
-  const [workspaceName, setWorkspaceName] = useState(schema.workspace_name || 'Mirai Engineering')
-  const [existingProjectId, setExistingProjectId] = useState(schema.project_id)
+  const [workspaceName, setWorkspaceName] = useState(schema?.workspace_name || workspaces[0]?.display_name || '')
+  const [existingProjectId, setExistingProjectId] = useState(schema?.project_id || projects[0]?.id || '')
   const [projectName, setProjectName] = useState('New Mirai ML Project')
   const [notes, setNotes] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -15,6 +15,14 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
   const [error, setError] = useState<string | null>(null)
 
   async function handleUpload() {
+    if (storageBlocked) {
+      setError('Storage setup is required before uploading data.')
+      return
+    }
+    if (intakeMode === 'existing_project' && !existingProjectId) {
+      setError('Select an existing project or create a new one.')
+      return
+    }
     if (!files.length) {
       setError('Select a Mirai package to continue.')
       return
@@ -24,11 +32,11 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
     try {
       const selectedExistingProject = projects.find((project) => project.id === existingProjectId)
       const effectiveProjectName = intakeMode === 'existing_project'
-        ? selectedExistingProject?.display_name || schema.display_name
+        ? selectedExistingProject?.display_name || schema?.display_name || 'Selected project'
         : projectName
       const effectiveWorkspaceName = intakeMode === 'existing_project'
-        ? workspaceFor(selectedExistingProject) || schema.workspace_name || workspaceName
-        : workspaceName
+        ? workspaceFor(selectedExistingProject) || schema?.workspace_name || workspaceName
+        : workspaceName || currentWorkspace?.display_name || 'Your workspace'
       const result = await createIngestionSession(effectiveProjectName, files, notes, {
         workspaceName: effectiveWorkspaceName,
         existingProjectId: intakeMode === 'existing_project' ? existingProjectId : undefined,
@@ -48,10 +56,12 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
   function workspaceFor(project?: ProjectSummary) {
     const explicit = project?.workspace_name
     if (explicit) return explicit
-    return schema.workspace_name || workspaces[0]?.display_name || 'Mirai Engineering'
+    return schema?.workspace_name || workspaces[0]?.display_name || workspaceName || 'Your workspace'
   }
 
   const selectedExistingProject = projects.find((project) => project.id === existingProjectId)
+  const currentWorkspace = workspaces.find((workspace) => workspace.display_name === workspaceName) || workspaces[0]
+  const storageBlocked = projects.length === 0 && currentWorkspace?.storage_provisioned === false
   const workspaceOptions = Array.from(new Set([...workspaces.map((workspace) => workspace.display_name), ...projects.map((project) => workspaceFor(project)), workspaceName].filter(Boolean)))
 
   return (
@@ -69,7 +79,13 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#60745c]">Data Intake</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Create a project from data</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Upload a Mirai package. We’ll validate it, prepare metadata review, and move you to preprocessing.</p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Upload a Mirai package. We’ll validate it, prepare metadata review, and move you to preprocessing. Storage stays scoped to your signed-in workspace.</p>
+            {projects.length === 0 && (
+              <div className="mt-5 rounded-2xl border border-[#d4c3a3] bg-[#fffaf0] px-4 py-3 text-sm text-slate-700">
+                <div className="font-semibold text-slate-900">Create your first workspace/project</div>
+                <div className="mt-1">Name your client workspace and first project, then upload a Mirai package. Your login remains the security boundary; the workspace name is a display label.</div>
+              </div>
+            )}
 
             <div className="mt-6 rounded-[1.5rem] border-2 border-dashed border-slate-200 bg-[#fbfaf5] p-6">
               <div className="text-center text-4xl">⇪</div>
@@ -83,9 +99,9 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
                     New project
                   </span>
                 </label>
-                <label className={`rounded-2xl border px-3 py-3 ${intakeMode === 'existing_project' ? 'border-[#60745c] bg-[#eef0ea]' : 'border-slate-200 bg-white'}`}>
+                <label className={`rounded-2xl border px-3 py-3 ${projects.length === 0 ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60' : intakeMode === 'existing_project' ? 'border-[#60745c] bg-[#eef0ea]' : 'border-slate-200 bg-white'}`}>
                   <span className="flex items-center gap-2 font-semibold text-slate-900">
-                    <input type="radio" checked={intakeMode === 'existing_project'} onChange={() => setIntakeMode('existing_project')} className="accent-[#526949]" />
+                    <input type="radio" checked={intakeMode === 'existing_project'} disabled={projects.length === 0} onChange={() => setIntakeMode('existing_project')} className="accent-[#526949]" />
                     Existing project
                   </span>
                 </label>
@@ -116,8 +132,14 @@ export function DataIntakePage({ schema, projects, workspaces, onReviewPreproces
                 )}
                 <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-16 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#60745c]" placeholder="Notes (optional)" />
                 <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" />
+                {storageBlocked && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <div className="font-semibold">Storage setup required</div>
+                    <div className="mt-1">Your private project bucket has not been assigned yet. Request setup from a Mirai admin before uploading client data.</div>
+                  </div>
+                )}
                 {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-                <button type="button" onClick={handleUpload} disabled={uploading} className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+                <button type="button" onClick={handleUpload} disabled={uploading || storageBlocked} className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
                   {uploading ? 'Creating...' : intakeMode === 'existing_project' ? 'Create dataset session' : 'Create project'}
                 </button>
               </div>

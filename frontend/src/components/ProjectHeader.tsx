@@ -53,7 +53,7 @@ export function ProjectHeader({
   }
 
   const workspaceOptions = Array.from(new Set([...workspaces.map((workspace) => workspace.display_name), ...projects.map((project) => workspaceFor(project))]))
-  const selectedWorkspace = selectedProject ? workspaceFor(selectedProject) : schema?.workspace_name || workspaceOptions[0] || 'Mirai Engineering'
+  const selectedWorkspace = selectedProject ? workspaceFor(selectedProject) : schema?.workspace_name || workspaceOptions[0] || 'Your workspace'
   const visibleProjects = projects.filter((project) => workspaceFor(project) === selectedWorkspace)
 
   function handleWorkspaceChange(workspaceName: string) {
@@ -82,14 +82,14 @@ export function ProjectHeader({
               <label htmlFor="workspace" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
                 Workspace
                 <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
-                  {workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>)}
+                  {workspaceOptions.length ? workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>) : <option value={selectedWorkspace}>{selectedWorkspace}</option>}
                 </select>
               </label>
 
               <label htmlFor="project" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
                 Project
                 <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
-                  {visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>)}
+                  {visibleProjects.length ? visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>) : <option value="">No projects yet</option>}
                 </select>
               </label>
             </div>
@@ -102,7 +102,7 @@ export function ProjectHeader({
             <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-[#f8f6ef] px-4 py-3 text-sm">
               <div>
                 <div className="font-semibold text-slate-800">Model quality</div>
-                <div className="mt-0.5 text-xs text-slate-500">{artifactStatusError || artifactStatus?.model_quality.message || 'Checking status'}</div>
+                <div className="mt-0.5 text-xs text-slate-500">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
               </div>
               <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
             </div>

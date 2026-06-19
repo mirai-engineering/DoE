@@ -356,6 +356,8 @@ function App() {
 
             {activeTab === 'model-quality' && <ModelQualityPage schema={schema} />}
           </>
+        ) : activeTab === 'data-intake' ? (
+          <DataIntakePage schema={null} projects={projects} workspaces={workspaces} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />
         ) : null}
       </div>
     </main>

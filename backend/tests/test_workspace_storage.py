@@ -11,6 +11,7 @@ from app.services.workspace_storage import (
     local_object_storage_root,
     object_storage_backend,
     object_storage_uri,
+    put_workspace_object,
     read_object_storage_bytes,
     validate_object_key,
     validate_workspace_object_uri,
@@ -171,6 +172,23 @@ def test_workspace_object_uri_rejects_escapes_and_filesystem_paths():
     ]:
         with pytest.raises(WorkspaceStorageError):
             validate_workspace_object_uri(config, uri)
+
+
+def test_put_workspace_object_writes_local_mirror_and_rejects_prefix_escape(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(tmp_path / "mirror"))
+    config = WorkspaceStorageConfig(
+        workspace_id="user_123",
+        mode="local",
+        bucket="mirai-user-123-demo",
+        prefix="workspaces/user_123/projects/project_a",
+    )
+
+    key = put_workspace_object(config, "workspaces/user_123/projects/project_a/intake/raw.zip", b"zip-bytes", content_type="application/zip")
+
+    assert key == "workspaces/user_123/projects/project_a/intake/raw.zip"
+    assert read_object_storage_bytes("mirai-user-123-demo", key) == b"zip-bytes"
+    with pytest.raises(WorkspaceStorageError):
+        put_workspace_object(config, "workspaces/user_456/projects/project_a/intake/raw.zip", b"bad")
 
 
 def test_local_config_rejects_s3_uri_but_accepts_workspace_key():

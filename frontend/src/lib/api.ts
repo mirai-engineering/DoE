@@ -43,6 +43,8 @@ export interface WorkspaceSummary {
   default_template_ids?: string[]
   allowed_extractors?: string[]
   lifecycle_contract?: string
+  storage?: Record<string, unknown>
+  storage_provisioned?: boolean
 }
 
 export interface ProjectSummary {
@@ -50,6 +52,7 @@ export interface ProjectSummary {
   display_name: string
   workspace_id?: string
   workspace_name?: string
+  storage?: Record<string, unknown>
 }
 
 export interface ProjectsResponse {
@@ -250,6 +253,10 @@ export interface IntakeFileInventoryItem {
   size_bytes: number
   sha256: string
   suffix: string
+  bucket?: string
+  object_key?: string
+  object_uri?: string
+  storage_provider?: string
 }
 
 export interface IngestionSessionResponse {
@@ -691,6 +698,7 @@ function assertProjectsResponse(value: unknown): ProjectsResponse {
         display_name: assertString(project.display_name, `projects.${index}.display_name`),
         workspace_id: typeof project.workspace_id === 'string' ? project.workspace_id : undefined,
         workspace_name: typeof project.workspace_name === 'string' ? project.workspace_name : undefined,
+        storage: isRecord(project.storage) ? project.storage : undefined,
       }
     }),
     workspaces: Array.isArray(value.workspaces)
@@ -706,6 +714,8 @@ function assertProjectsResponse(value: unknown): ProjectsResponse {
           default_template_ids: Array.isArray(workspace.default_template_ids) ? workspace.default_template_ids.filter((item): item is string => typeof item === 'string') : undefined,
           allowed_extractors: Array.isArray(workspace.allowed_extractors) ? workspace.allowed_extractors.filter((item): item is string => typeof item === 'string') : undefined,
           lifecycle_contract: typeof workspace.lifecycle_contract === 'string' ? workspace.lifecycle_contract : undefined,
+          storage: isRecord(workspace.storage) ? workspace.storage : undefined,
+          storage_provisioned: typeof workspace.storage_provisioned === 'boolean' ? workspace.storage_provisioned : undefined,
         }
       })
       : [],

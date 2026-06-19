@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from .db import execute, fetch_all, fetch_one, jsonb, postgres_control_plane_enabled, postgres_control_plane_required
-from .workspace_storage import WorkspaceStorageConfig
+from .workspace_storage import WorkspaceStorageConfig, validate_workspace_id
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,101 @@ def get_workspace_project(workspace_id: str, project_id: str) -> dict[str, Any] 
     return next((project for project in projects if project["id"] == project_id), None)
 
 
+def get_workspace_summary(workspace_id: str) -> dict[str, Any] | None:
+    if not postgres_control_plane_enabled():
+        return None
+    try:
+        row = fetch_one(
+            workspace_id,
+            """
+            SELECT workspace_id, display_name, status, storage
+            FROM workspaces
+            WHERE workspace_id = %s
+            """,
+            (workspace_id,),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Postgres workspace lookup failed for workspace_id=%s: %s", workspace_id, exc)
+        if _should_raise():
+            raise
+        return None
+    if not row:
+        return None
+    storage = row.get("storage") if isinstance(row.get("storage"), dict) else {}
+    return {
+        "workspace_id": row["workspace_id"],
+        "display_name": row.get("display_name") or row["workspace_id"],
+        "status": row.get("status") or "active",
+        "storage": storage,
+        "storage_provisioned": bool(storage.get("bucket")),
+        "lifecycle_contract": "generic_tabular_doe",
+        "default_template_ids": ["generic_tabular_doe"],
+        "allowed_extractors": [],
+    }
+
+
+def synthetic_workspace_summary(workspace_id: str) -> dict[str, Any]:
+    return {
+        "workspace_id": validate_workspace_id(workspace_id),
+        "display_name": "Your workspace",
+        "status": "storage_not_provisioned",
+        "storage": {},
+        "storage_provisioned": False,
+        "lifecycle_contract": "generic_tabular_doe",
+        "default_template_ids": ["generic_tabular_doe"],
+        "allowed_extractors": [],
+    }
+
+
+def ensure_workspace_record(*, workspace_id: str, display_name: str | None = None, clerk_user_id: str | None = None, storage: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not postgres_control_plane_enabled():
+        return None
+    workspace = validate_workspace_id(workspace_id)
+    workspace_storage = storage or {}
+    execute(
+        workspace,
+        """
+        INSERT INTO workspaces (workspace_id, display_name, status, storage, created_at, updated_at)
+        VALUES (%s, %s, 'active', %s, now(), now())
+        ON CONFLICT (workspace_id) DO UPDATE
+        SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), workspaces.display_name),
+            storage = CASE WHEN EXCLUDED.storage = '{}'::jsonb THEN workspaces.storage ELSE EXCLUDED.storage END,
+            updated_at = now()
+        """,
+        (workspace, display_name or workspace, jsonb(workspace_storage)),
+    )
+    if clerk_user_id:
+        execute(
+            workspace,
+            """
+            INSERT INTO clerk_user_workspaces (clerk_user_id, workspace_id, role, created_at)
+            VALUES (%s, %s, 'owner', now())
+            ON CONFLICT (clerk_user_id, workspace_id) DO UPDATE SET role = EXCLUDED.role
+            """,
+            (clerk_user_id, workspace),
+        )
+    return get_workspace_summary(workspace)
+
+
+def assign_workspace_storage(*, workspace_id: str, bucket: str, mode: str = "s3", prefix: str | None = None, display_name: str | None = None, clerk_user_id: str | None = None) -> dict[str, Any] | None:
+    config = WorkspaceStorageConfig(workspace_id=workspace_id, mode=mode, bucket=bucket, prefix=prefix or f"workspaces/{workspace_id}")
+    storage = {"mode": config.mode, "bucket": config.bucket, "prefix": config.normalized_prefix}
+    return ensure_workspace_record(workspace_id=workspace_id, display_name=display_name, clerk_user_id=clerk_user_id, storage=storage)
+
+
+def get_workspace_storage_config(workspace_id: str) -> WorkspaceStorageConfig | None:
+    summary = get_workspace_summary(workspace_id)
+    if not summary:
+        return None
+    storage = summary.get("storage") if isinstance(summary.get("storage"), dict) else {}
+    bucket = storage.get("bucket")
+    if not bucket:
+        return None
+    mode = str(storage.get("mode") or "s3")
+    prefix = storage.get("prefix") or f"workspaces/{workspace_id}"
+    return WorkspaceStorageConfig(workspace_id=workspace_id, mode=mode, bucket=bucket, prefix=prefix)
+
+
 def _storage_config_from_project(project: dict[str, Any]) -> WorkspaceStorageConfig:
     workspace_id = str(project["workspace_id"])
     project_id = str(project["project_id"])
@@ -78,6 +173,84 @@ def _storage_config_from_project(project: dict[str, Any]) -> WorkspaceStorageCon
     bucket = storage.get("bucket") or metadata.get("bucket")
     prefix = storage.get("prefix") or metadata.get("prefix") or f"workspaces/{workspace_id}/projects/{project_id}"
     return WorkspaceStorageConfig(workspace_id=workspace_id, mode=mode, bucket=bucket, prefix=prefix)
+
+
+def ensure_project_record(*, workspace_id: str, project_id: str, display_name: str, workspace_name: str | None = None, clerk_user_id: str | None = None) -> WorkspaceStorageConfig | None:
+    if not postgres_control_plane_enabled():
+        return None
+    ensure_workspace_record(workspace_id=workspace_id, display_name=workspace_name or workspace_id, clerk_user_id=clerk_user_id)
+    workspace_config = get_workspace_storage_config(workspace_id)
+    if not workspace_config:
+        raise ValueError("Workspace storage is not provisioned yet. Ask a Mirai admin to assign a private storage bucket before uploading data.")
+    project_config = WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode=workspace_config.mode,
+        bucket=workspace_config.bucket,
+        prefix=f"{workspace_config.normalized_prefix}/projects/{project_id}",
+    )
+    execute(
+        workspace_id,
+        """
+        INSERT INTO projects (project_id, workspace_id, display_name, lifecycle_contract, metadata, storage, created_at, updated_at)
+        VALUES (%s, %s, %s, 'generic_tabular_doe', %s, %s, now(), now())
+        ON CONFLICT (project_id) DO UPDATE
+        SET display_name = EXCLUDED.display_name,
+            lifecycle_contract = EXCLUDED.lifecycle_contract,
+            metadata = projects.metadata || EXCLUDED.metadata,
+            storage = EXCLUDED.storage,
+            updated_at = now()
+        WHERE projects.workspace_id = EXCLUDED.workspace_id
+        """,
+        (
+            project_id,
+            workspace_id,
+            display_name or project_id,
+            jsonb({"runtime_visible": True, "template_id": "generic_tabular_doe"}),
+            jsonb({"mode": project_config.mode, "bucket": project_config.bucket, "prefix": project_config.normalized_prefix}),
+        ),
+    )
+    if not get_workspace_project(workspace_id, project_id):
+        raise ValueError("Project id already belongs to another workspace")
+    return project_config
+
+
+def record_uploaded_dataset(*, workspace_id: str, project_id: str, dataset_id: str, filename: str, object_uri: str, sha256: str | None, size_bytes: int | None, uploaded_by: str | None, metadata: dict[str, Any] | None = None) -> None:
+    if not postgres_control_plane_enabled():
+        return
+    execute(
+        workspace_id,
+        """
+        INSERT INTO datasets (dataset_id, workspace_id, project_id, filename, object_uri, sha256, size_bytes, uploaded_by, status, metadata, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'uploaded', %s, now(), now())
+        ON CONFLICT (dataset_id) DO UPDATE
+        SET filename = EXCLUDED.filename,
+            object_uri = EXCLUDED.object_uri,
+            sha256 = EXCLUDED.sha256,
+            size_bytes = EXCLUDED.size_bytes,
+            uploaded_by = EXCLUDED.uploaded_by,
+            status = EXCLUDED.status,
+            metadata = EXCLUDED.metadata,
+            updated_at = now()
+        """,
+        (dataset_id, workspace_id, project_id, filename, object_uri, sha256, size_bytes, uploaded_by, jsonb(metadata or {})),
+    )
+
+
+def record_artifact_object(*, workspace_id: str, project_id: str, artifact_kind: str, object_uri: str, sha256: str | None, size_bytes: int | None, metadata: dict[str, Any] | None = None) -> None:
+    if not postgres_control_plane_enabled():
+        return
+    execute(
+        workspace_id,
+        """
+        INSERT INTO artifact_objects (workspace_id, project_id, artifact_kind, object_uri, sha256, size_bytes, metadata, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, now())
+        ON CONFLICT (workspace_id, project_id, artifact_kind, object_uri) DO UPDATE
+        SET sha256 = EXCLUDED.sha256,
+            size_bytes = EXCLUDED.size_bytes,
+            metadata = EXCLUDED.metadata
+        """,
+        (workspace_id, project_id, artifact_kind, object_uri, sha256, size_bytes, jsonb(metadata or {})),
+    )
 
 
 def get_project_storage_config(workspace_id: str, project_id: str) -> WorkspaceStorageConfig | None:

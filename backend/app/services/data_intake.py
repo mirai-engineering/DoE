@@ -11,7 +11,9 @@ from typing import Any
 from uuid import uuid4
 from fastapi import UploadFile
 
-from .workspace_storage import local_object_storage_root, workspace_scoped_path
+from .control_plane import ensure_project_record, get_project_storage_config, record_artifact_object, record_uploaded_dataset
+from .db import postgres_control_plane_enabled
+from .workspace_storage import WorkspaceStorageConfig, local_object_storage_root, object_storage_uri, put_workspace_object, workspace_scoped_path
 from .workspaces import ensure_workspace, workspace_id_for_name
 
 
@@ -139,7 +141,7 @@ def _safe_filename(filename: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._ -]+", "_", name).strip() or "uploaded_file"
 
 
-async def _store_upload(upload: UploadFile, raw_dir: Path) -> dict[str, Any]:
+async def _store_upload(upload: UploadFile, raw_dir: Path, *, storage_config: WorkspaceStorageConfig | None = None, object_key_prefix: str | None = None) -> dict[str, Any]:
     raw_dir.mkdir(parents=True, exist_ok=True)
     filename = _safe_filename(upload.filename or "uploaded_file")
     target = raw_dir / filename
@@ -158,7 +160,7 @@ async def _store_upload(upload: UploadFile, raw_dir: Path) -> dict[str, Any]:
             sha256.update(chunk)
             handle.write(chunk)
 
-    return {
+    file_metadata: dict[str, Any] = {
         "filename": target.name,
         "original_filename": upload.filename,
         "relative_path": str(target.relative_to(OBJECT_STORE_ROOT)),
@@ -167,6 +169,19 @@ async def _store_upload(upload: UploadFile, raw_dir: Path) -> dict[str, Any]:
         "sha256": sha256.hexdigest(),
         "suffix": target.suffix.lower(),
     }
+    if storage_config and object_key_prefix:
+        object_key = f"{object_key_prefix.rstrip('/')}/{target.name}"
+        with target.open("rb") as handle:
+            stored_key = put_workspace_object(storage_config, object_key, handle, content_type=file_metadata["content_type"])
+        file_metadata.update(
+            {
+                "bucket": storage_config.bucket,
+                "object_key": stored_key,
+                "object_uri": f"s3://{storage_config.bucket}/{stored_key}" if storage_config.mode == "s3" else object_storage_uri(storage_config.bucket or "", stored_key),
+                "storage_provider": storage_config.mode,
+            }
+        )
+    return file_metadata
 
 
 def _manifest_dictionary_presence(files: list[dict[str, Any]]) -> dict[str, bool]:
@@ -246,6 +261,7 @@ def _build_session_payload(
     ingestion_path: str = "generic_tabular_doe",
     workspace_name: str | None = None,
     workspace_id: str | None = None,
+    storage_config: WorkspaceStorageConfig | None = None,
 ) -> dict[str, Any]:
     status = _infer_session_status(files)
     session_path = _session_dir(project_id, dataset_id, session_id)
@@ -262,7 +278,9 @@ def _build_session_payload(
         "created_at": _now(),
         "updated_at": _now(),
         "storage": {
-            "provider": "local_filesystem",
+            "provider": storage_config.mode if storage_config else "local_filesystem",
+            "bucket": storage_config.bucket if storage_config else None,
+            "prefix": storage_config.normalized_prefix if storage_config else None,
             "root": str(session_path.relative_to(BACKEND_ROOT)),
             "raw_dir": str((session_path / "raw").relative_to(BACKEND_ROOT)),
         },
@@ -290,6 +308,7 @@ async def create_ingestion_session(
     workspace_name: str | None = None,
     existing_project_id: str | None = None,
     workspace_id: str | None = None,
+    uploaded_by: str | None = None,
 ) -> dict[str, Any]:
     if not uploads:
         raise ValueError("At least one file must be uploaded")
@@ -301,14 +320,48 @@ async def create_ingestion_session(
     else:
         project_id = f"{_slugify(project_name)}_{uuid4().hex[:8]}"
     upsert_project_metadata(project_id=project_id, project_name=project_name, workspace_name=workspace_name, ingestion_path=ingestion_path, workspace_id=workspace_id)
+    storage_config = None
+    if workspace_id and postgres_control_plane_enabled():
+        storage_config = ensure_project_record(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            display_name=project_name,
+            workspace_name=workspace_name or workspace_id,
+            clerk_user_id=uploaded_by or workspace_id,
+        )
     dataset_id = f"dataset_{uuid4().hex[:10]}"
     session_id = f"ing_{uuid4().hex[:10]}"
     session_path = _session_dir(project_id, dataset_id, session_id)
     raw_dir = session_path / "raw"
-    files = [await _store_upload(upload, raw_dir) for upload in uploads]
-    payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name, workspace_id=workspace_id)
+    object_key_prefix = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/raw" if storage_config else None
+    files = [await _store_upload(upload, raw_dir, storage_config=storage_config, object_key_prefix=object_key_prefix) for upload in uploads]
+    payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name, workspace_id=workspace_id, storage_config=storage_config)
     _write_json(session_path / "session.json", payload)
     _write_json(session_path / "inventory" / "file_inventory.json", {"files": files, "generated_at": _now()})
+    if workspace_id and files:
+        primary_file = files[0]
+        primary_uri = str(primary_file.get("object_uri") or primary_file.get("relative_path"))
+        record_uploaded_dataset(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            dataset_id=dataset_id,
+            filename=str(primary_file.get("filename") or "uploaded_file"),
+            object_uri=primary_uri,
+            sha256=primary_file.get("sha256"),
+            size_bytes=primary_file.get("size_bytes"),
+            uploaded_by=uploaded_by,
+            metadata={"ingestion_session_id": session_id, "files": files},
+        )
+        for file_metadata in files:
+            record_artifact_object(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                artifact_kind="raw_upload",
+                object_uri=str(file_metadata.get("object_uri") or file_metadata.get("relative_path")),
+                sha256=file_metadata.get("sha256"),
+                size_bytes=file_metadata.get("size_bytes"),
+                metadata={"dataset_id": dataset_id, "ingestion_session_id": session_id, "filename": file_metadata.get("filename")},
+            )
     return payload
 
 
@@ -319,7 +372,10 @@ async def append_ingestion_files(project_id: str, dataset_id: str, session_id: s
     if session.get("status") in {"approved_for_training", "training_running", "training_complete"}:
         raise ValueError("Cannot append files after training approval/execution; create a new ingestion session instead")
     session_path = _session_dir(project_id, dataset_id, session_id)
-    new_files = [await _store_upload(upload, session_path / "raw") for upload in uploads]
+    workspace_id = session.get("workspace_id")
+    storage_config = get_project_storage_config(str(workspace_id), project_id) if workspace_id else None
+    object_key_prefix = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/raw" if storage_config else None
+    new_files = [await _store_upload(upload, session_path / "raw", storage_config=storage_config, object_key_prefix=object_key_prefix) for upload in uploads]
     files = [*session.get("files", []), *new_files]
     session["files"] = files
     session["status"] = _infer_session_status(files)
@@ -332,6 +388,17 @@ async def append_ingestion_files(project_id: str, dataset_id: str, session_id: s
     }
     _write_json(session_path / "session.json", session)
     _write_json(session_path / "inventory" / "file_inventory.json", {"files": files, "generated_at": _now(), "appended_files": new_files})
+    if workspace_id:
+        for file_metadata in new_files:
+            record_artifact_object(
+                workspace_id=str(workspace_id),
+                project_id=project_id,
+                artifact_kind="raw_upload",
+                object_uri=str(file_metadata.get("object_uri") or file_metadata.get("relative_path")),
+                sha256=file_metadata.get("sha256"),
+                size_bytes=file_metadata.get("size_bytes"),
+                metadata={"dataset_id": dataset_id, "ingestion_session_id": session_id, "filename": file_metadata.get("filename"), "appended": True},
+            )
     # File additions invalidate previously generated preprocessing/training statuses.
     status_dir = session_path / "status"
     for status_file in status_dir.glob("*.json") if status_dir.exists() else []:

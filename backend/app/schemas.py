@@ -22,6 +22,20 @@ class IntakeFileInventoryItem(BaseModel):
     size_bytes: int
     sha256: str
     suffix: str
+    bucket: str | None = None
+    object_key: str | None = None
+    object_uri: str | None = None
+    storage_provider: str | None = None
+
+
+class WorkspaceStorageProvisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bucket: str
+    mode: str = "s3"
+    prefix: str | None = None
+    display_name: str | None = None
+    clerk_user_id: str | None = None
 
 
 class IngestionSessionResponse(BaseModel):
