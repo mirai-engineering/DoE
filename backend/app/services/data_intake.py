@@ -333,7 +333,7 @@ async def create_ingestion_session(
     session_id = f"ing_{uuid4().hex[:10]}"
     session_path = _session_dir(project_id, dataset_id, session_id)
     raw_dir = session_path / "raw"
-    object_key_prefix = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/raw" if storage_config else None
+    object_key_prefix = f"{storage_config.normalized_prefix}/raw/{dataset_id}" if storage_config else None
     files = [await _store_upload(upload, raw_dir, storage_config=storage_config, object_key_prefix=object_key_prefix) for upload in uploads]
     payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name, workspace_id=workspace_id, storage_config=storage_config)
     _write_json(session_path / "session.json", payload)
@@ -374,7 +374,7 @@ async def append_ingestion_files(project_id: str, dataset_id: str, session_id: s
     session_path = _session_dir(project_id, dataset_id, session_id)
     workspace_id = session.get("workspace_id")
     storage_config = get_project_storage_config(str(workspace_id), project_id) if workspace_id else None
-    object_key_prefix = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/raw" if storage_config else None
+    object_key_prefix = f"{storage_config.normalized_prefix}/raw/{dataset_id}" if storage_config else None
     new_files = [await _store_upload(upload, session_path / "raw", storage_config=storage_config, object_key_prefix=object_key_prefix) for upload in uploads]
     files = [*session.get("files", []), *new_files]
     session["files"] = files

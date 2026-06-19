@@ -55,9 +55,19 @@ export interface ProjectSummary {
   storage?: Record<string, unknown>
 }
 
+export interface AccountStatus {
+  status: 'active_single_workspace' | 'no_workspace_membership' | 'workspace_selection_required' | string
+  message?: string
+  can_create_project: boolean
+  can_upload: boolean
+  can_train: boolean
+  can_predict: boolean
+}
+
 export interface ProjectsResponse {
   projects: ProjectSummary[]
   workspaces: WorkspaceSummary[]
+  account?: AccountStatus
 }
 
 export interface SchemaInput {
@@ -719,6 +729,16 @@ function assertProjectsResponse(value: unknown): ProjectsResponse {
         }
       })
       : [],
+    account: isRecord(value.account)
+      ? {
+        status: typeof value.account.status === 'string' ? value.account.status : 'active_single_workspace',
+        message: typeof value.account.message === 'string' ? value.account.message : undefined,
+        can_create_project: typeof value.account.can_create_project === 'boolean' ? value.account.can_create_project : true,
+        can_upload: typeof value.account.can_upload === 'boolean' ? value.account.can_upload : true,
+        can_train: typeof value.account.can_train === 'boolean' ? value.account.can_train : true,
+        can_predict: typeof value.account.can_predict === 'boolean' ? value.account.can_predict : true,
+      }
+      : undefined,
   }
 }
 

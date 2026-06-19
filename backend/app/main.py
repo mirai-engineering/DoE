@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from dataclasses import replace
 import logging
 import os
 
@@ -43,7 +44,7 @@ from .services.bayesian_optimization import (
     suggest_next_experiment,
 )
 from .services.business_impact import get_business_impact_summary
-from .services.control_plane import assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, synthetic_workspace_summary
+from .services.control_plane import account_capabilities, assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, resolve_workspace_membership, synthetic_workspace_summary
 from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
 from .services.fantasy_rollout import run_fantasy_rollout
@@ -127,18 +128,39 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if isinstance(exc.detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.middleware("http")
 async def require_clerk_auth(request: Request, call_next):
     if request.method == "OPTIONS" or not auth_required() or is_public_path(request.url.path):
         return await call_next(request)
 
     try:
-        request.state.principal = authenticate_bearer_token(request.headers.get("Authorization"))
-        if not principal_workspace_id(request_principal(request)):
-            return JSONResponse(status_code=403, content={"detail": "Authenticated workspace required"})
+        principal = authenticate_bearer_token(request.headers.get("Authorization"))
+        if principal.workspace_id and principal.membership_status == "active_single_workspace":
+            # Explicit test-only fixture path. Production JWTs arrive without a workspace_id.
+            membership_status = principal.membership_status
+            role = principal.role
+            workspace_id = principal.workspace_id
+        else:
+            membership = resolve_workspace_membership(principal.clerk_user_id)
+            membership_status = membership.status
+            role = membership.role
+            workspace_id = membership.workspace_id
+        request.state.principal = replace(principal, workspace_id=workspace_id, role=role, membership_status=membership_status)
         project_id = _project_id_from_path(request.url.path)
-        if project_id and not _request_can_access_project(request, project_id):
-            return JSONResponse(status_code=403, content={"detail": "Workspace access denied"})
+        if project_id:
+            if membership_status == "no_workspace_membership":
+                return _membership_required_response()
+            if membership_status == "workspace_selection_required":
+                return _workspace_selection_required_response()
+            if not _request_can_access_project(request, project_id):
+                return JSONResponse(status_code=403, content={"code": "workspace_access_denied", "detail": "Workspace access denied"})
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
@@ -155,13 +177,48 @@ def _raise_api_error(exc: Exception) -> None:
     raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
+def _membership_status(request: Request) -> str | None:
+    principal = request_principal(request)
+    return principal.membership_status if principal else None
+
+
 def _authorized_workspace_id(request: Request) -> str | None:
     if not auth_required():
         return None
     return principal_workspace_id(request_principal(request))
 
 
+def _account_for_request(request: Request) -> dict:
+    if not auth_required():
+        return account_capabilities("active_single_workspace")
+    return account_capabilities(_membership_status(request) or "no_workspace_membership")
+
+
+def _membership_required_response() -> JSONResponse:
+    return JSONResponse(status_code=403, content={"code": "no_workspace_membership", "detail": "Workspace membership required"})
+
+
+def _workspace_selection_required_response() -> JSONResponse:
+    return JSONResponse(status_code=403, content={"code": "workspace_selection_required", "detail": "Workspace selection required"})
+
+
+def _raise_if_no_workspace_access(request: Request) -> str | None:
+    if not auth_required():
+        return None
+    status_value = _membership_status(request)
+    if status_value == "no_workspace_membership" or not status_value:
+        raise HTTPException(status_code=403, detail={"code": "no_workspace_membership", "detail": "Workspace membership required"})
+    if status_value == "workspace_selection_required":
+        raise HTTPException(status_code=403, detail={"code": "workspace_selection_required", "detail": "Workspace selection required"})
+    workspace_id = _authorized_workspace_id(request)
+    if not workspace_id:
+        raise HTTPException(status_code=403, detail={"code": "no_workspace_membership", "detail": "Workspace membership required"})
+    return workspace_id
+
+
 def _filter_projects_for_request(request: Request, projects: list[dict] | None = None) -> list[dict]:
+    if auth_required() and _membership_status(request) != "active_single_workspace":
+        return []
     workspace_id = _authorized_workspace_id(request)
     if workspace_id:
         return list_projects(workspace_id)
@@ -169,14 +226,15 @@ def _filter_projects_for_request(request: Request, projects: list[dict] | None =
 
 
 def _filter_workspaces_for_request(request: Request, workspaces: list[dict]) -> list[dict]:
+    if auth_required() and _membership_status(request) != "active_single_workspace":
+        return []
     workspace_id = _authorized_workspace_id(request)
     if not workspace_id:
         return workspaces
     runtime_workspace = get_workspace_summary(workspace_id)
     if runtime_workspace:
         return [runtime_workspace]
-    local_matches = [workspace for workspace in workspaces if workspace.get("workspace_id") == workspace_id]
-    return local_matches or [synthetic_workspace_summary(workspace_id)]
+    return [workspace for workspace in workspaces if workspace.get("workspace_id") == workspace_id]
 
 
 def _project_id_from_path(path: str) -> str | None:
@@ -259,12 +317,13 @@ def projects(request: Request):
     return {
         "projects": _filter_projects_for_request(request),
         "workspaces": _filter_workspaces_for_request(request, list_workspaces()),
+        "account": _account_for_request(request),
     }
 
 
 @app.get("/workspaces")
 def workspaces(request: Request):
-    return {"workspaces": _filter_workspaces_for_request(request, list_workspaces())}
+    return {"workspaces": _filter_workspaces_for_request(request, list_workspaces()), "account": _account_for_request(request)}
 
 
 @app.post("/admin/workspaces/{workspace_id}/storage")
@@ -298,6 +357,8 @@ def admin_provision_workspace_storage(workspace_id: str, payload: WorkspaceStora
 @app.get("/data-intake/sessions")
 def data_intake_sessions(request: Request):
     try:
+        if auth_required() and _membership_status(request) != "active_single_workspace":
+            return {"sessions": []}
         workspace_id = _authorized_workspace_id(request)
         sessions = list_ingestion_sessions()
         if workspace_id:
@@ -319,6 +380,7 @@ async def data_intake_create_session(
     files: list[UploadFile] = File(...),
 ):
     try:
+        workspace_id = _raise_if_no_workspace_access(request)
         if existing_project_id and not _request_can_access_project(request, existing_project_id):
             raise HTTPException(status_code=403, detail="Workspace access denied")
         session = await create_ingestion_session(
@@ -328,7 +390,7 @@ async def data_intake_create_session(
             ingestion_path=ingestion_path,
             workspace_name=workspace_name,
             existing_project_id=existing_project_id,
-            workspace_id=_authorized_workspace_id(request),
+            workspace_id=workspace_id,
             uploaded_by=_request_user_id(request),
         )
         clear_registry_cache()

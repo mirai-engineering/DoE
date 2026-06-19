@@ -247,7 +247,7 @@ def _upload_training_artifacts_to_s3(workspace_id: str, project_id: str, trainin
     try:
         config = _project_storage_config_for_training(workspace_id, project_id)
         uploaded: list[dict[str, Any]] = []
-        prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/training_runs/{training_run_id}")
+        prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/artifacts/{training_run_id}")
         for path in sorted(artifact_dir.rglob("*")):
             if not path.is_file():
                 continue
@@ -291,7 +291,7 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     session = get_ingestion_session(project_id, dataset_id, session_id)
     workspace_id = str(session.get("workspace_id") or "mirai-engineering")
     storage_config = _project_storage_config_for_training(workspace_id, project_id)
-    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/training_runs/{training_request_id}") + "/"
+    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/artifacts/{training_request_id}") + "/"
     create_training_run(
         workspace_id=workspace_id,
         project_id=project_id,
@@ -316,8 +316,26 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
         approved_metadata = metadata_status.get("domain_metadata") if isinstance(metadata_status, dict) and metadata_status.get("approval_status") == "approved" else None
         schema["domain_metadata"] = approved_metadata or build_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
         _write_json(schema_path, schema)
-    activation = activate_session_artifacts_for_model_quality(project_id, dataset_id, session_id)
-    s3_upload = _upload_training_artifacts_to_s3(workspace_id, project_id, training_request_id, training_latest)
+    try:
+        activation = activate_session_artifacts_for_model_quality(project_id, dataset_id, session_id)
+        s3_upload = _upload_training_artifacts_to_s3(workspace_id, project_id, training_request_id, training_latest)
+    except Exception as exc:  # noqa: BLE001 - durable artifact upload failure must be explicit/recoverable.
+        fail_training_run(workspace_id=workspace_id, project_id=project_id, training_run_id=training_request_id, error_message=f"Training artifact upload failed: {exc}")
+        failed = {
+            **status_payload,
+            "status": "failed_retryable_artifact_upload",
+            "completed_at": _now(),
+            "result": result,
+            "error": "Training artifact upload failed",
+            "detail": str(exc),
+            "retryable": True,
+        }
+        write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", failed)
+        request["status"] = failed["status"]
+        request["error"] = failed["error"]
+        request["retryable"] = True
+        _write_training_request(project_id, dataset_id, session_id, request)
+        return failed
     completed = {
         **status_payload,
         "status": "completed",

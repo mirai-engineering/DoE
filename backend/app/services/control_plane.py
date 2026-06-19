@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import os
 from typing import Any
 
 from .db import execute, fetch_all, fetch_one, jsonb, postgres_control_plane_enabled, postgres_control_plane_required
@@ -9,6 +11,103 @@ from .workspace_storage import WorkspaceStorageConfig, validate_workspace_id
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class WorkspaceMembershipState:
+    status: str
+    clerk_user_id: str
+    workspace_id: str | None = None
+    role: str | None = None
+    memberships: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def can_access_workspace(self) -> bool:
+        return self.status == "active_single_workspace" and bool(self.workspace_id)
+
+
+def _candidate_membership_workspaces() -> list[str]:
+    configured = os.getenv("MIRAI_TENANT_WORKSPACE_IDS") or os.getenv("MIRAI_ALLOWED_WORKSPACE_IDS")
+    if configured:
+        values = [item.strip() for item in configured.split(",") if item.strip()]
+    else:
+        values = ["fraunhofer", "test-client-isolated"]
+    # Preserve order while deduplicating.
+    return list(dict.fromkeys(values))
+
+
+def resolve_workspace_membership(clerk_user_id: str) -> WorkspaceMembershipState:
+    """Resolve Clerk user -> workspace membership from Postgres.
+
+    RLS-protected demo tables require querying through known workspace scopes.
+    The hard-reset demo intentionally provisions only `fraunhofer` plus the
+    test-only `test-client-isolated` fixture, configurable by env for tests.
+    """
+
+    if not clerk_user_id:
+        return WorkspaceMembershipState(status="no_workspace_membership", clerk_user_id="")
+    if not postgres_control_plane_enabled():
+        return WorkspaceMembershipState(status="no_workspace_membership", clerk_user_id=clerk_user_id)
+    memberships: list[dict[str, Any]] = []
+    for workspace_id in _candidate_membership_workspaces():
+        try:
+            rows = fetch_all(
+                workspace_id,
+                """
+                SELECT cuw.clerk_user_id, cuw.workspace_id, cuw.role, w.display_name, w.status, w.storage
+                FROM clerk_user_workspaces cuw
+                JOIN workspaces w ON w.workspace_id = cuw.workspace_id
+                WHERE cuw.clerk_user_id = %s AND cuw.workspace_id = %s
+                """,
+                (clerk_user_id, workspace_id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Membership lookup failed for workspace_id=%s: %s", workspace_id, exc)
+            if _should_raise():
+                raise
+            continue
+        memberships.extend(rows)
+    if not memberships:
+        return WorkspaceMembershipState(status="no_workspace_membership", clerk_user_id=clerk_user_id)
+    if len(memberships) > 1:
+        return WorkspaceMembershipState(status="workspace_selection_required", clerk_user_id=clerk_user_id, memberships=tuple(memberships))
+    membership = memberships[0]
+    return WorkspaceMembershipState(
+        status="active_single_workspace",
+        clerk_user_id=clerk_user_id,
+        workspace_id=str(membership["workspace_id"]),
+        role=str(membership.get("role") or "member"),
+        memberships=(membership,),
+    )
+
+
+def account_capabilities(status: str) -> dict[str, Any]:
+    if status == "active_single_workspace":
+        return {
+            "status": status,
+            "message": "Your account is active and assigned to a client workspace.",
+            "can_create_project": True,
+            "can_upload": True,
+            "can_train": True,
+            "can_predict": True,
+        }
+    if status == "workspace_selection_required":
+        return {
+            "status": status,
+            "message": "Multiple client workspaces are assigned. Workspace selection is required before continuing.",
+            "can_create_project": False,
+            "can_upload": False,
+            "can_train": False,
+            "can_predict": False,
+        }
+    return {
+        "status": "no_workspace_membership",
+        "message": "Your account is active, but no client workspace has been assigned yet.",
+        "can_create_project": False,
+        "can_upload": False,
+        "can_train": False,
+        "can_predict": False,
+    }
 
 
 def _should_raise() -> bool:
@@ -178,7 +277,9 @@ def _storage_config_from_project(project: dict[str, Any]) -> WorkspaceStorageCon
 def ensure_project_record(*, workspace_id: str, project_id: str, display_name: str, workspace_name: str | None = None, clerk_user_id: str | None = None) -> WorkspaceStorageConfig | None:
     if not postgres_control_plane_enabled():
         return None
-    ensure_workspace_record(workspace_id=workspace_id, display_name=workspace_name or workspace_id, clerk_user_id=clerk_user_id)
+    workspace_summary = get_workspace_summary(workspace_id)
+    if not workspace_summary:
+        raise ValueError("Workspace membership required")
     workspace_config = get_workspace_storage_config(workspace_id)
     if not workspace_config:
         raise ValueError("Workspace storage is not provisioned yet. Ask a Mirai admin to assign a private storage bucket before uploading data.")

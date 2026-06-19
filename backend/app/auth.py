@@ -19,6 +19,8 @@ DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 class AuthenticatedPrincipal:
     clerk_user_id: str
     workspace_id: str | None = None
+    role: str | None = None
+    membership_status: str | None = None
     claims: dict | None = None
 
 
@@ -79,25 +81,18 @@ def _csv_env(name: str) -> list[str]:
 
 
 def _workspace_from_subject(subject: str) -> str:
-    """Derive the Mirai workspace/client id from a verified Clerk user id.
+    """Deprecated compatibility helper for explicit test fixtures only.
 
-    Production tenancy is intentionally based on the signed Clerk JWT `sub`
-    claim, not a frontend-selected workspace id or user-editable metadata.
-    `CLERK_WORKSPACE_ID_MODE=clerk_prefixed` is available if we later want a
-    non-raw namespace, but the current product model is Clerk `sub` exactly.
+    Production tenancy must never derive a workspace id from the Clerk `sub`.
+    Workspace access is resolved from Postgres `clerk_user_workspaces` after JWT
+    verification. This helper remains only so older tests that explicitly set a
+    test workspace can be migrated without changing JWT verification behavior.
     """
 
     mode = os.getenv("CLERK_WORKSPACE_ID_MODE", "sub").strip().lower()
     if mode in {"clerk_prefixed", "prefixed"}:
         return f"clerk_{subject}"
     return subject
-
-
-def _workspace_from_claims(claims: dict) -> str | None:
-    subject = claims.get("sub")
-    if not isinstance(subject, str) or not subject:
-        return None
-    return _workspace_from_subject(subject)
 
 
 def _verify_authorized_party(claims: dict) -> None:
@@ -122,7 +117,9 @@ def authenticate_bearer_token(authorization: str | None) -> AuthenticatedPrincip
         test_user_id = os.getenv("CLERK_AUTH_TEST_USER_ID", "test_user")
         return AuthenticatedPrincipal(
             clerk_user_id=test_user_id,
-            workspace_id=os.getenv("CLERK_AUTH_TEST_WORKSPACE_ID") or _workspace_from_subject(test_user_id),
+            workspace_id=os.getenv("CLERK_AUTH_TEST_WORKSPACE_ID") or None,
+            role=os.getenv("CLERK_AUTH_TEST_ROLE") or None,
+            membership_status="active_single_workspace" if os.getenv("CLERK_AUTH_TEST_WORKSPACE_ID") else None,
             claims={"sub": test_user_id, "test_token": True},
         )
 
@@ -151,7 +148,7 @@ def authenticate_bearer_token(authorization: str | None) -> AuthenticatedPrincip
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bearer token")
     _verify_authorized_party(claims)
 
-    return AuthenticatedPrincipal(clerk_user_id=subject, workspace_id=_workspace_from_claims(claims), claims=claims)
+    return AuthenticatedPrincipal(clerk_user_id=subject, workspace_id=None, claims=claims)
 
 
 def request_principal(request: Request) -> AuthenticatedPrincipal | None:

@@ -206,3 +206,15 @@ def test_local_config_rejects_s3_uri_but_accepts_workspace_key():
             config,
             "s3://mirai-fuel-cells-demo/workspaces/fraunhofer/projects/pem_fuel_cell_real_cathode_degradation/reviews/latest.json",
         )
+
+
+def test_railway_requires_s3_object_storage(monkeypatch):
+    monkeypatch.delenv("OBJECT_STORAGE_BACKEND", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    with pytest.raises(WorkspaceStorageError, match="OBJECT_STORAGE_BACKEND=s3"):
+        object_storage_backend()
+    monkeypatch.setenv("OBJECT_STORAGE_BACKEND", "local")
+    with pytest.raises(WorkspaceStorageError, match="OBJECT_STORAGE_BACKEND=s3"):
+        object_storage_backend()
+    monkeypatch.setenv("OBJECT_STORAGE_BACKEND", "s3")
+    assert object_storage_backend() == "s3"

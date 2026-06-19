@@ -11,7 +11,7 @@ import { DesignStudioPage } from './components/DesignStudioPage'
 import { DataIntakePage } from './components/DataIntakePage'
 import { PreprocessingReviewPage } from './components/PreprocessingReviewPage'
 import { Alert } from './components/ui'
-import type { ProjectSchema, ProjectSummary, WorkspaceSummary } from './lib/api'
+import type { AccountStatus, ProjectSchema, ProjectSummary, WorkspaceSummary } from './lib/api'
 import { getProjectSchema, getProjectsResponse, predictExperiment, recommendExperiments } from './lib/api'
 import {
   clampInteger,
@@ -33,6 +33,7 @@ function App() {
   const [batchView, setBatchView] = useState<'configure' | 'results' | 'visuals'>('configure')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
+  const [account, setAccount] = useState<AccountStatus | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [schema, setSchema] = useState<ProjectSchema | null>(null)
   const [appError, setAppError] = useState<string | null>(null)
@@ -67,6 +68,7 @@ function App() {
         if (!isMounted) return
         setProjects(projectList)
         setWorkspaces(response.workspaces)
+        setAccount(response.account ?? null)
         const storedProjectId = window.localStorage.getItem('mirai.activeProjectId')
         const preferred = storedProjectId && projectList.some((project) => project.id === storedProjectId)
           ? storedProjectId
@@ -126,6 +128,7 @@ function App() {
       const projectList = response.projects
       setProjects(projectList)
       setWorkspaces(response.workspaces)
+      setAccount(response.account ?? null)
       setSelectedProjectId(projectId)
       window.localStorage.setItem('mirai.activeProjectId', projectId)
     } catch (error) {
@@ -246,6 +249,14 @@ function App() {
 
         {appError && <Alert tone="error" title="Backend connection issue" messages={[appError]} />}
 
+        {account && account.status !== 'active_single_workspace' && (
+          <Alert
+            tone="warning"
+            title="Workspace setup required"
+            messages={[account.message ?? 'Your account is active, but no client workspace has been assigned yet.']}
+          />
+        )}
+
         {schemaLoading || projectsLoading ? (
           <div className="rounded-[2rem] border border-white/70 bg-white/70 p-8 text-slate-600 shadow-xl">
             Loading project schema...
@@ -338,7 +349,7 @@ function App() {
               </div>
             )}
 
-            {activeTab === 'data-intake' && <DataIntakePage schema={schema} projects={projects} workspaces={workspaces} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
+            {activeTab === 'data-intake' && <DataIntakePage schema={schema} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
 
             {activeTab === 'preprocessing-review' && <PreprocessingReviewPage schema={schema} onOpenModelQuality={() => setActiveTab('model-quality')} />}
 
@@ -357,7 +368,7 @@ function App() {
             {activeTab === 'model-quality' && <ModelQualityPage schema={schema} />}
           </>
         ) : activeTab === 'data-intake' ? (
-          <DataIntakePage schema={null} projects={projects} workspaces={workspaces} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />
+          <DataIntakePage schema={null} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />
         ) : null}
       </div>
     </main>

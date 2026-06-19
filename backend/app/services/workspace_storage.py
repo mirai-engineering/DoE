@@ -19,15 +19,26 @@ class WorkspaceStorageError(ValueError):
     pass
 
 
+def _production_storage_required() -> bool:
+    return (
+        os.getenv("RAILWAY_ENVIRONMENT") is not None
+        or os.getenv("RAILWAY_SERVICE_NAME") is not None
+        or os.getenv("MIRAI_REQUIRE_S3_OBJECT_STORAGE", "").strip().lower() in {"1", "true", "yes", "on"}
+    )
+
+
 def object_storage_backend() -> str:
     """Return the configured object-storage backend.
 
     `local` is for developer mirrors/caches under `LOCAL_OBJECT_STORAGE_ROOT`.
-    `s3` is for Railway/production object storage. Legacy `DOE_OBJECT_STORE_ROOT`
-    remains supported only as a local-root override during migration.
+    `s3` is mandatory in Railway/production. Legacy `DOE_OBJECT_STORE_ROOT`
+    remains supported only as a local-root override during local development.
     """
 
-    backend = os.getenv("OBJECT_STORAGE_BACKEND", "local").strip().lower() or "local"
+    configured = os.getenv("OBJECT_STORAGE_BACKEND")
+    if _production_storage_required() and (configured or "").strip().lower() != "s3":
+        raise WorkspaceStorageError("OBJECT_STORAGE_BACKEND=s3 is required in Railway/production")
+    backend = (configured or "local").strip().lower() or "local"
     if backend not in {"local", "s3"}:
         raise WorkspaceStorageError(f"Unsupported OBJECT_STORAGE_BACKEND: {backend!r}")
     return backend
