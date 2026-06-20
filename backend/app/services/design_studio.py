@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..schemas import RecommendRequest
-from .model_quality import _artifact_dir, get_active_model_metadata
+from .model_quality import _prediction_path, get_active_model_metadata
 from .prediction import predict_rows
 from .project_registry import get_project_schema
 from .recommendation import _generate_candidates, _score_predictions
@@ -41,7 +41,7 @@ def _default_objective_weights(schema: dict[str, Any], project_id: str) -> dict[
 
 
 def _predictions_artifact(project_id: str) -> pd.DataFrame:
-    path = _artifact_dir(project_id) / "predictions.csv"
+    path = _prediction_path(project_id)
     if not path.exists():
         raise FileNotFoundError("Design Studio real-cell comparisons require predictions.csv. Run real-data training first.")
     return pd.read_csv(path)
@@ -155,11 +155,14 @@ def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variab
 
 def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str | None = None, plot_recipe: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
     schema = get_project_schema(project_id)
-    recipes = _plot_recipes(project_id, schema)
+    response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
+    recipes = [recipe for recipe in _plot_recipes(project_id, schema) if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
     preset = dict(plot_recipe) if isinstance(plot_recipe, dict) else None
+    if preset is not None and preset.get("kind") not in response_recipe_kinds:
+        preset = None
     if preset is None:
         preset = next((item for item in recipes if item.get("id") == plot_recipe_id), None) if plot_recipe_id else None
-    preset = preset or next((item for item in recipes if item.get("recommended") and item.get("enabled")), None)
+    preset = preset or next((item for item in recipes if item.get("recommended")), None)
     if not preset or not preset.get("enabled", True):
         return None, [], "unknown"
     if preset.get("kind") == "fuel_cell_polarization":

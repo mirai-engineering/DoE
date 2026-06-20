@@ -7,7 +7,7 @@ from pathlib import Path
 from .control_plane import get_project_runtime_state, list_workspace_projects
 from .data_intake import list_ingestion_sessions, read_project_metadata, read_status, session_workspace
 from .domain_metadata import apply_variable_metadata_to_schema, attach_domain_metadata, infer_template_id
-from .mlflow_registry import download_production_onnx, is_mlflow_project, registered_model_name_for_project, tracking_uri
+from .mlflow_registry import download_aliased_run_artifacts, download_production_onnx, is_mlflow_project, registered_model_name_for_project, tracking_uri
 from .workspace_storage import local_object_storage_root
 from .workspaces import get_workspace
 
@@ -84,21 +84,58 @@ def _battery_placeholder_schema() -> dict:
     }
 
 
+def _list_mlflow_registered_projects(workspace_id: str | None = None) -> list[dict[str, str]]:
+    try:
+        from mlflow.tracking import MlflowClient
+
+        client = MlflowClient(tracking_uri=tracking_uri(), registry_uri=tracking_uri())
+        projects: list[dict[str, str]] = []
+        for registered_model in client.search_registered_models():
+            name = str(registered_model.name)
+            if not name.startswith("doe_surrogate_"):
+                continue
+            project_id = name.removeprefix("doe_surrogate_")
+            run_workspace_id = None
+            display_name = project_id
+            try:
+                version = client.get_model_version_by_alias(name, "challenger")
+                if version.run_id:
+                    run = client.get_run(version.run_id)
+                    run_workspace_id = run.data.tags.get("workspace_id") or run.data.params.get("workspace_id")
+                    training_request_id = run.data.tags.get("training_request_id") or run.data.params.get("training_request_id")
+                    if training_request_id == "train_req_smoke" or "smoke" in project_id.lower():
+                        continue
+                    display_name = run.data.tags.get("project_display_name") or run.data.params.get("project_display_name") or display_name
+            except Exception:
+                pass
+            if workspace_id and run_workspace_id and run_workspace_id != workspace_id:
+                continue
+            if workspace_id and not run_workspace_id:
+                continue
+            workspace = _workspace_from_payload(project_id, display_name, {"workspace_id": run_workspace_id or workspace_id or "fraunhofer"})
+            projects.append({"id": project_id, "display_name": f"{display_name} · MLflow", **workspace})
+        return projects
+    except Exception as exc:  # noqa: BLE001 - project listing must not fail if MLflow is unavailable.
+        logger.info("Could not list MLflow registered projects: %s", exc)
+        return []
+
+
 def list_projects(workspace_id: str | None = None) -> list[dict[str, str]]:
+    projects: list[dict[str, str]] = []
+    seen: set[str] = set()
     if workspace_id:
         db_projects = list_workspace_projects(workspace_id)
         if db_projects is not None:
-            return db_projects
-
-    projects: list[dict[str, str]] = []
-    seen: set[str] = set()
+            projects.extend(db_projects)
+            seen.update(str(project.get("id")) for project in db_projects if project.get("id"))
     if (REAL_REFERENCE_ARTIFACT_DIR / "schema.json").exists():
         try:
             schema = _read_json(REAL_REFERENCE_ARTIFACT_DIR / "schema.json")
             project_id = str(schema.get("project_id") or REAL_FUEL_CELL_PROJECT_ID)
-            seen.add(project_id)
             display_name = schema.get("display_name", project_id)
-            projects.append({"id": project_id, "display_name": display_name, **_workspace_from_payload(project_id, display_name, schema)})
+            if project_id not in seen:
+                seen.add(project_id)
+                projects.append({"id": project_id, "display_name": display_name, **_workspace_from_payload(project_id, display_name, schema)})
         except Exception as exc:  # noqa: BLE001 - malformed projects should not break discovery.
             logger.warning("Skipping invalid reference project schema at %s: %s", REAL_REFERENCE_ARTIFACT_DIR, exc)
 
@@ -129,6 +166,11 @@ def list_projects(workspace_id: str | None = None) -> list[dict[str, str]]:
                 **workspace,
             }
         )
+    for mlflow_project in _list_mlflow_registered_projects(workspace_id):
+        project_id = str(mlflow_project.get("id") or "")
+        if project_id and project_id not in seen:
+            seen.add(project_id)
+            projects.append(mlflow_project)
     if workspace_id:
         return [project for project in projects if project.get("workspace_id") == workspace_id]
     return projects
@@ -152,6 +194,20 @@ def _latest_ingestion_artifact_dir(project_id: str) -> Path | None:
     workspace = session_workspace(str(session["project_id"]), str(session["dataset_id"]), str(session["ingestion_session_id"]))
     artifact_dir = workspace["training_latest"]
     return artifact_dir if artifact_dir.exists() else None
+
+
+def _latest_mlflow_artifact_dir(project_id: str) -> Path | None:
+    if not is_mlflow_project(project_id):
+        return None
+    try:
+        return download_aliased_run_artifacts(project_id, alias="challenger")
+    except Exception as exc:  # noqa: BLE001 - local/reference fallbacks remain available.
+        logger.info("Could not resolve MLflow run artifacts for %s: %s", project_id, exc)
+        return None
+
+
+def _latest_project_artifact_dir(project_id: str) -> Path | None:
+    return _latest_ingestion_artifact_dir(project_id) or _latest_mlflow_artifact_dir(project_id)
 
 
 def _best_model_name(artifact_dir: Path) -> str:
@@ -261,38 +317,42 @@ def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict
             schema = _battery_placeholder_schema()
             return attach_domain_metadata(schema, template_id="generic_tabular_doe", approval_status="pending_bootstrap")
         session = _latest_ingestion_project(project_id)
-        if not session:
+        artifact_dir = _latest_project_artifact_dir(project_id)
+        if not session and artifact_dir is None:
             raise
         base_schema_path = REAL_REFERENCE_ARTIFACT_DIR / "schema.json"
-        if not base_schema_path.exists():
+        if not base_schema_path.exists() and artifact_dir is None:
             raise ProjectNotFoundError(f"Base fuel-cell schema not found for intake project_id: {project_id}")
-        artifact_dir = _latest_ingestion_artifact_dir(project_id)
         schema_path = artifact_dir / "schema.json" if artifact_dir is not None else None
         schema = _read_json(schema_path) if schema_path and schema_path.exists() else _read_json(base_schema_path)
         schema["project_id"] = project_id
-        schema["display_name"] = f"{session.get('project_name') or project_id} · Uploaded"
+        schema["display_name"] = schema.get("display_name") or f"{session.get('project_name') if session else project_id} · Uploaded"
         project_metadata = read_project_metadata(project_id) or {}
-        workspace = _workspace_from_payload(project_id, schema["display_name"], project_metadata or session)
+        workspace = _workspace_from_payload(project_id, schema["display_name"], project_metadata or session or schema)
         schema["workspace_id"] = workspace["workspace_id"]
         schema["workspace_name"] = workspace["workspace_name"]
         schema["source_project_id"] = schema.get("source_project_id") or REAL_FUEL_CELL_PROJECT_ID
-        schema["ingestion_session"] = {
-            "dataset_id": session.get("dataset_id"),
-            "ingestion_session_id": session.get("ingestion_session_id"),
-            "status": session.get("status"),
-            "approval_status": session.get("approval_status"),
-        }
-        metadata_status = read_status(project_id, str(session["dataset_id"]), str(session["ingestion_session_id"]), "domain_metadata", default={})
-        approved = metadata_status if isinstance(metadata_status, dict) and metadata_status.get("approval_status") == "approved" else None
-        if approved and isinstance(approved.get("domain_metadata"), dict):
-            schema["domain_metadata"] = approved["domain_metadata"]
-            return apply_variable_metadata_to_schema(schema)
+        if session:
+            schema["ingestion_session"] = {
+                "dataset_id": session.get("dataset_id"),
+                "ingestion_session_id": session.get("ingestion_session_id"),
+                "status": session.get("status"),
+                "approval_status": session.get("approval_status"),
+            }
+        elif artifact_dir is not None:
+            schema["ingestion_session"] = {"status": "external_training_package", "approval_status": "approved"}
+        if session:
+            metadata_status = read_status(project_id, str(session["dataset_id"]), str(session["ingestion_session_id"]), "domain_metadata", default={})
+            approved = metadata_status if isinstance(metadata_status, dict) and metadata_status.get("approval_status") == "approved" else None
+            if approved and isinstance(approved.get("domain_metadata"), dict):
+                schema["domain_metadata"] = approved["domain_metadata"]
+                return apply_variable_metadata_to_schema(schema)
         return attach_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
 
 
 @lru_cache(maxsize=32)
 def get_project_metadata(project_id: str) -> dict:
-    artifact_dir = _latest_ingestion_artifact_dir(project_id)
+    artifact_dir = _latest_project_artifact_dir(project_id)
     if artifact_dir is not None:
         metadata_path = artifact_dir / "metadata.json"
         best_model = _best_model_name(artifact_dir)
@@ -311,7 +371,7 @@ def get_project_metadata(project_id: str) -> dict:
 
 @lru_cache(maxsize=32)
 def get_project_preprocessing(project_id: str) -> dict:
-    artifact_dir = _latest_ingestion_artifact_dir(project_id)
+    artifact_dir = _latest_project_artifact_dir(project_id)
     if artifact_dir is not None:
         preprocessing_path = artifact_dir / "preprocessing.json"
         if not preprocessing_path.exists():
@@ -325,7 +385,7 @@ def get_project_preprocessing(project_id: str) -> dict:
 
 
 def get_project_model_path(project_id: str) -> Path:
-    artifact_dir = _latest_ingestion_artifact_dir(project_id)
+    artifact_dir = _latest_project_artifact_dir(project_id)
     if is_mlflow_project(project_id) and os.getenv("DOE_DISABLE_MLFLOW_MODEL_LOADING", "").lower() not in {"1", "true", "yes"}:
         try:
             return download_production_onnx(project_id)

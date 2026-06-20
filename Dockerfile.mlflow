@@ -6,25 +6,20 @@ FROM python:3.11-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV PYTHONUNBUFFERED=1
 ENV MLFLOW_WORKERS=1
-ENV MLFLOW_ALLOWED_HOSTS=*
-ENV MLFLOW_CORS_ALLOWED_ORIGINS=*
 ENV MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false
 ENV MLFLOW_DISABLE_TELEMETRY=true
 WORKDIR /app
 
 RUN uv pip install --system \
-    "mlflow-skinny==3.13.0" \
-    "flask>=3.0.0" \
-    "flask-cors>=4.0.0" \
-    "sqlalchemy>=2.0.0" \
-    "alembic>=1.13.0" \
-    "gunicorn>=21.2.0" \
-    "pandas>=2.2.0" \
+    "mlflow[auth]==3.13.0" \
     "aiohttp>=3.9.0" \
-    "huey>=2.5.0" \
-    "boto3>=1.34.0" \
-    "psycopg2-binary>=2.9.9"
+    "psycopg2-binary>=2.9.9" \
+    "boto3>=1.34.0"
+
+COPY scripts/start_mlflow_auth_server.sh /app/start_mlflow_auth_server.sh
+COPY scripts/mlflow_basic_auth_proxy.py /app/mlflow_basic_auth_proxy.py
+RUN chmod 755 /app/start_mlflow_auth_server.sh
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "mlflow server --host 0.0.0.0 --port ${PORT:-5000} --workers ${MLFLOW_WORKERS:-1} --allowed-hosts ${MLFLOW_ALLOWED_HOSTS:-'*'} --cors-allowed-origins ${MLFLOW_CORS_ALLOWED_ORIGINS:-'*'} --backend-store-uri ${MLFLOW_BACKEND_STORE_URI:?MLFLOW_BACKEND_STORE_URI is required} --artifacts-destination ${MLFLOW_ARTIFACT_ROOT:?MLFLOW_ARTIFACT_ROOT is required} --serve-artifacts"]
+CMD ["/app/start_mlflow_auth_server.sh"]

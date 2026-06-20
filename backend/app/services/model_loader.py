@@ -45,8 +45,8 @@ def load_model(project_id: str) -> ProjectModel:
     preprocessing = get_project_preprocessing(project_id)
     model_path = get_project_model_path(project_id)
 
-    if model_path.suffix.lower() == ".joblib":
-        logger.info("Loading sklearn/joblib model for project_id=%s from %s", project_id, model_path)
+    if model_path.suffix.lower() in {".joblib", ".pkl"}:
+        logger.info("Loading sklearn/joblib-compatible model for project_id=%s from %s", project_id, model_path)
         estimator = joblib.load(model_path)
         model = ProjectModel(
             project_id=project_id,

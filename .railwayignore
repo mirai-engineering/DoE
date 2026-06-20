@@ -8,7 +8,14 @@
 !Dockerfile.railway
 !Dockerfile.mlflow
 !railway.toml
+!railway.mlflow.toml
 !.dockerignore
+
+# MLflow service entrypoint
+!scripts/
+scripts/*
+!scripts/start_mlflow_auth_server.sh
+!scripts/mlflow_basic_auth_proxy.py
 
 # Backend source and package metadata
 !backend/
@@ -45,6 +52,8 @@ frontend/*
 !frontend/tsconfig.json
 !frontend/tsconfig.node.json
 !frontend/vite.config.ts
+!frontend/postcss.config.cjs
+!frontend/tailwind.config.cjs
 !frontend/index.html
 !frontend/.eslintrc.cjs
 

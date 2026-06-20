@@ -11,7 +11,7 @@ import zipfile
 import pandas as pd
 
 from .data_intake import list_ingestion_sessions, session_workspace
-from .mlflow_registry import durable_artifact_pointer_for_project, get_registered_model_metadata, tracking_uri
+from .mlflow_registry import durable_artifact_pointer_for_project, download_aliased_run_artifacts, get_registered_model_metadata, tracking_uri
 from .workspace_storage import local_object_storage_root
 
 
@@ -36,7 +36,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-MODEL_QUALITY_REQUIRED_ARTIFACTS = ["metrics_summary.json", "candidate_comparison.csv", "predictions.csv"]
+MODEL_QUALITY_REQUIRED_ARTIFACTS = ["metrics_summary.json", "candidate_comparison.csv"]
 
 
 def _is_complete_quality_artifact_dir(path: Path) -> bool:
@@ -53,10 +53,21 @@ def _latest_intake_training_artifact_dir(project_id: str) -> Path | None:
     return None
 
 
+def _latest_mlflow_training_artifact_dir(project_id: str, *, include_predictions: bool = False) -> Path | None:
+    try:
+        path = download_aliased_run_artifacts(project_id, alias="challenger", include_quality=True, include_predictions=include_predictions)
+    except Exception:
+        return None
+    return path if _is_complete_quality_artifact_dir(path) else None
+
+
 def _artifact_dir(project_id: str) -> Path:
     intake_dir = _latest_intake_training_artifact_dir(project_id)
     if intake_dir is not None:
         return intake_dir
+    mlflow_dir = _latest_mlflow_training_artifact_dir(project_id)
+    if mlflow_dir is not None:
+        return mlflow_dir
     if project_id == REAL_PROJECT_ID and _is_complete_quality_artifact_dir(TRAINING_ARTIFACT_DIR):
         return TRAINING_ARTIFACT_DIR
     raise ValueError(f"Model quality is not available yet for project_id={project_id}; train the uploaded project first")
@@ -104,7 +115,13 @@ def get_preprocessing_report(project_id: str) -> dict[str, Any]:
 
 
 def _prediction_path(project_id: str) -> Path:
-    return _artifact_dir(project_id) / "predictions.csv"
+    artifact_dir = _artifact_dir(project_id)
+    path = artifact_dir / "predictions.csv"
+    if not path.exists():
+        mlflow_dir = _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
+        if mlflow_dir is not None:
+            path = mlflow_dir / "predictions.csv"
+    return path
 
 
 def _display_path(path: Path) -> str:
@@ -183,12 +200,14 @@ def get_predictions(project_id: str, *, model_name: str | None = None, splits: s
 
 
 def _predictions_long(frame: pd.DataFrame) -> pd.DataFrame:
-    output_units = {
+    legacy_output_units = {
         "bol_current_density": "A/cm²",
         "eol_current_density": "A/cm²",
         "bol_ecsa": "m²/gPt",
         "ecsa_loss": "fraction",
     }
+    output_names = sorted(column.removesuffix("_true") for column in frame.columns if column.endswith("_true") and f"{column.removesuffix('_true')}_pred" in frame.columns)
+    output_units = {name: legacy_output_units.get(name, "") for name in output_names}
     context_columns = [
         column
         for column in [
@@ -199,6 +218,16 @@ def _predictions_long(frame: pd.DataFrame) -> pd.DataFrame:
             "split",
             "cell_id",
             "row_index",
+            "experiment_id",
+            "condition_id",
+            "result_id",
+            "x1",
+            "x2",
+            "x3",
+            "x4",
+            "x5",
+            "x6",
+            "x7",
             "pt_c_ratio",
             "i_c_ratio",
             "ionomer_ew",

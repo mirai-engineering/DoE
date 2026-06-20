@@ -1,9 +1,10 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.mlflow"
+watchPatterns = ["Dockerfile.mlflow", "railway.mlflow.toml", "scripts/start_mlflow_auth_server.sh", "scripts/mlflow_basic_auth_proxy.py", "deployments/railway/**", "docs/reference/MLFLOW_MODEL_LIFECYCLE.md"]
 
 [deploy]
-healthcheckPath = "/"
+healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 

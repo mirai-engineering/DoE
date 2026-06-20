@@ -77,6 +77,12 @@ context.md
 !.pi/skills/clerk-webhooks/**
 !.pi/skills/use-railway/
 !.pi/skills/use-railway/**
+!.pi/skills/mlflow-onboarding/
+!.pi/skills/mlflow-onboarding/**
+!.pi/skills/searching-mlflow-docs/
+!.pi/skills/searching-mlflow-docs/**
+!.pi/skills/querying-mlflow-metrics/
+!.pi/skills/querying-mlflow-metrics/**
 # Local legacy archives moved out of runtime paths
 legacy/
 

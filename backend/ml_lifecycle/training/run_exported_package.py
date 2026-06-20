@@ -56,6 +56,8 @@ def _truthy_env(name: str) -> bool:
 
 
 def _load_local_env() -> None:
+    if os.getenv("PYTEST_CURRENT_TEST") and not _truthy_env("MIRAI_LOAD_LOCAL_TRAINING_ENV_IN_TESTS"):
+        return
     env_path = BACKEND_ROOT / ".env.training.local"
     if not env_path.exists():
         return

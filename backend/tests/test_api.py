@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.domain_metadata import build_domain_metadata, infer_template_id
+from app.services.domain_metadata import attach_domain_metadata, build_domain_metadata, infer_template_id
 from app.services.replay_mapping import load_hidden_replay_pool
 
 
@@ -415,6 +415,30 @@ def test_generic_tabular_doe_domain_metadata_uses_non_fuel_cell_names():
     assert recipes
     assert all(recipe["safe"] for recipe in recipes)
     assert recipes[0]["kind"] == "parity"
+
+
+def test_approved_domain_metadata_is_rebuilt_when_recipes_do_not_match_generic_schema():
+    schema = {
+        "project_id": "demo_ccm_degradation_cff1d4ae",
+        "inputs": [{"name": "x1", "type": "continuous", "min": 0, "max": 1}],
+        "outputs": [{"name": "y1", "direction": "maximize", "unit": ""}],
+        "metadata": {"template_id": "generic_tabular_doe"},
+        "domain_metadata": {
+            "template_id": "fuel_cell",
+            "approval_status": "approved",
+            "variables": [],
+            "ui_config": {
+                "plot_recipes": [{"id": "fuel", "kind": "fuel_cell_polarization", "x": {"variables": ["bol_current_density"]}, "y": {"variable": "operating_voltage"}}],
+                "model_quality": {"default_output": "bol_current_density"},
+            },
+        },
+    }
+
+    enriched = attach_domain_metadata(schema, template_id="generic_tabular_doe", approval_status="approved")
+
+    assert enriched["domain_metadata"]["template_id"] == "generic_tabular_doe"
+    assert enriched["domain_metadata"]["ui_config"]["model_quality"]["default_output"] == "y1"
+    assert enriched["domain_metadata"]["ui_config"]["plot_recipes"][0]["kind"] == "parity"
 
 
 def test_training_config_schema_accepts_advanced_hyperparameters():

@@ -42,16 +42,21 @@ def _is_local_tracking_uri(tracking_uri: str) -> bool:
     return tracking_uri.startswith("file:") or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
+def _is_remote_artifact_location(artifact_location: str | None) -> bool:
+    location = str(artifact_location or "")
+    return location.startswith("s3://") or location.startswith("mlflow-artifacts:/")
+
+
 def _assert_demo_mlflow_contract(*, tracking_uri: str, artifact_location: str | None) -> None:
     if _remote_mlflow_required() and _is_local_tracking_uri(tracking_uri):
         raise RuntimeError(
             "MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW is enabled, but MLFLOW_TRACKING_URI points to local MLflow. "
             "Set MLFLOW_TRACKING_URI to the Railway MLflow URL for demo training."
         )
-    if _remote_artifacts_required() and not str(artifact_location or "").startswith("s3://"):
+    if _remote_artifacts_required() and not _is_remote_artifact_location(artifact_location):
         raise RuntimeError(
-            "MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS is enabled, but the MLflow experiment artifact location is not s3://. "
-            "Set MIRAI_MLFLOW_WORKSPACE_ID and MIRAI_<WORKSPACE>_S3_BUCKET so artifacts land in Railway S3."
+            "MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS is enabled, but the MLflow experiment artifact location is not s3:// or mlflow-artifacts:/. "
+            "Expected s3:// for direct server-side runs or mlflow-artifacts:/ for remote MLflow artifact proxying."
         )
 
 
@@ -68,7 +73,18 @@ def _workspace_id_for_project(project_id: str) -> str | None:
     return None
 
 
+def _use_mlflow_artifact_proxy() -> bool:
+    """Prefer MLflow's artifact proxy for local training against remote MLflow.
+
+    This keeps local/on-prem exported-package training from requiring direct S3
+    credentials. The remote MLflow server owns S3 access via --serve-artifacts.
+    """
+    return _remote_mlflow_required() and _remote_artifacts_required() and not _is_local_tracking_uri(_tracking_uri())
+
+
 def _experiment_artifact_location(project_id: str) -> str | None:
+    if _use_mlflow_artifact_proxy():
+        return None
     workspace_id = _workspace_id_for_project(project_id)
     if not workspace_id:
         return os.getenv("MLFLOW_ARTIFACT_ROOT")

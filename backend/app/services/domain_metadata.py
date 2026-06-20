@@ -275,10 +275,46 @@ def apply_variable_metadata_to_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def _recipe_variables(recipe: dict[str, Any]) -> set[str]:
+    variables: set[str] = set()
+    for key in ("x", "y"):
+        payload = recipe.get(key)
+        if isinstance(payload, dict):
+            variable = payload.get("variable")
+            if isinstance(variable, str) and variable:
+                variables.add(variable.removesuffix("_true").removesuffix("_pred"))
+            for item in payload.get("variables", []) if isinstance(payload.get("variables"), list) else []:
+                if isinstance(item, str) and item:
+                    variables.add(item.removesuffix("_true").removesuffix("_pred"))
+    for item in recipe.get("series", []) if isinstance(recipe.get("series"), list) else []:
+        if isinstance(item, dict) and isinstance(item.get("variable"), str):
+            variables.add(str(item["variable"]).removesuffix("_true").removesuffix("_pred"))
+    return variables
+
+
+def _approved_metadata_matches_schema(schema: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    input_names = {str(item.get("name")) for item in schema.get("inputs", []) if item.get("name")}
+    output_names = {str(item.get("name")) for item in schema.get("outputs", []) if item.get("name")}
+    known_names = input_names | output_names
+    ui_config = metadata.get("ui_config") if isinstance(metadata.get("ui_config"), dict) else {}
+    model_quality = ui_config.get("model_quality") if isinstance(ui_config.get("model_quality"), dict) else {}
+    default_output = model_quality.get("default_output")
+    if default_output and str(default_output) not in output_names:
+        return False
+    recipes = ui_config.get("plot_recipes") if isinstance(ui_config.get("plot_recipes"), list) else []
+    for recipe in recipes:
+        if not isinstance(recipe, dict):
+            continue
+        kind = recipe.get("kind")
+        if kind in {"parity", "scatter_response", "fuel_cell_polarization"} and not _recipe_variables(recipe).issubset(known_names):
+            return False
+    return True
+
+
 def attach_domain_metadata(schema: dict[str, Any], *, template_id: TemplateId | None = None, approval_status: str = "approved") -> dict[str, Any]:
     enriched = deepcopy(schema)
     existing = enriched.get("domain_metadata")
-    if isinstance(existing, dict) and existing.get("approval_status") == "approved":
+    if isinstance(existing, dict) and existing.get("approval_status") == "approved" and _approved_metadata_matches_schema(enriched, existing):
         return apply_variable_metadata_to_schema(enriched)
     enriched["domain_metadata"] = build_domain_metadata(enriched, template_id=template_id, approval_status=approval_status)
     return apply_variable_metadata_to_schema(enriched)
