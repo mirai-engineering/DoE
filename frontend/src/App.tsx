@@ -263,13 +263,13 @@ function App() {
           />
         )}
 
-        {schemaLoading || projectsLoading ? (
+        {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
           <div className="rounded-[2rem] border border-white/70 bg-white/70 p-8 text-slate-600 shadow-xl">
             Loading project schema...
           </div>
-        ) : schema ? (
+        ) : schema || activeTab === 'preprocessing-review' ? (
           <>
-            {activeTab === 'batch' && (
+            {activeTab === 'batch' && schema && (
               <div className="space-y-8">
                 <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
@@ -359,9 +359,9 @@ function App() {
 
             {activeTab === 'preprocessing-review' && <PreprocessingReviewPage schema={schema} onOpenModelQuality={() => setActiveTab('model-quality')} />}
 
-            {activeTab === 'design-studio' && <DesignStudioPage schema={schema} />}
+            {activeTab === 'design-studio' && schema && <DesignStudioPage schema={schema} />}
 
-            {activeTab === 'optimization' && (
+            {activeTab === 'optimization' && schema && (
               <OptimizationLoopPage
                 schema={schema}
                 objectiveWeights={objectiveWeights}
@@ -369,9 +369,9 @@ function App() {
               />
             )}
 
-            {activeTab === 'impact' && <BusinessImpactPage schema={schema} />}
+            {activeTab === 'impact' && schema && <BusinessImpactPage schema={schema} />}
 
-            {activeTab === 'model-quality' && <ModelQualityPage schema={schema} />}
+            {activeTab === 'model-quality' && schema && <ModelQualityPage schema={schema} />}
           </>
         ) : activeTab === 'data-intake' ? (
           <DataIntakePage schema={null} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />

@@ -149,7 +149,7 @@ function DistributionTable({ title, rows }: { title: string; rows?: Record<strin
   )
 }
 
-export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema: ProjectSchema; onOpenModelQuality?: () => void }) {
+export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema: ProjectSchema | null; onOpenModelQuality?: () => void }) {
   const [sessions, setSessions] = useState<IngestionSessionResponse[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [validation, setValidation] = useState<MiraiContractValidation | null>(null)
@@ -161,7 +161,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [mlflowImport, setMlflowImport] = useState({ runId: '', registeredModelName: '', modelVersion: '', alias: 'challenger' })
   const [importMessage, setImportMessage] = useState<string | null>(null)
-  const [trainingConfig, setTrainingConfig] = useState<TrainingConfiguration>(() => defaultTrainingConfiguration(schema))
+  const [trainingConfig, setTrainingConfig] = useState<TrainingConfiguration>(() => defaultTrainingConfiguration(schema ?? { project_id: '', display_name: '', inputs: [], outputs: [] }))
   const [metadataStatus, setMetadataStatus] = useState<DomainMetadataStatus | null>(null)
   const [metadataDraft, setMetadataDraft] = useState<ProjectDomainMetadata | null>(null)
   const [appendFiles, setAppendFiles] = useState<File[]>([])
@@ -230,8 +230,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   }
 
   useEffect(() => {
-    setTrainingConfig(defaultTrainingConfiguration(schema))
-  }, [schema.project_id])
+    if (schema) setTrainingConfig(defaultTrainingConfiguration(schema))
+  }, [schema?.project_id])
 
   useEffect(() => {
     loadSessions().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions'))
@@ -358,7 +358,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   ]
 
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
-  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
+  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest && Boolean(schema)
 
   async function handleExportApprovedPackage() {
     if (!selectedSession || !trainingRequest) return
@@ -385,7 +385,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   }
 
   async function handleRefreshApprovedChampion() {
-    if (!schema.project_id) return
+    if (!schema?.project_id) return
     await runAction('refresh-approved-champion', async () => {
       const status = await refreshApprovedChampion(schema.project_id, { notes: 'Refreshed from Preprocessing Review UI after MLflow champion promotion.' })
       setTrainingStatus(status)
