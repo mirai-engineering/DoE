@@ -233,7 +233,7 @@ def _prepare_package_root(raw_root: Path, artifact_dir: Path) -> tuple[Path, dic
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(member) as source, target.open("wb") as destination:
                     destination.write(source.read())
-                members.append({"path": str(target.relative_to(extract_root)), "size_bytes": int(member.file_size)})
+                members.append({"path": str(target.relative_to(extract_root.resolve())), "size_bytes": int(member.file_size)})
     except BadZipFile as exc:
         raise ContractValidationError([f"Invalid ZIP package: {zip_paths[0].name}"]) from exc
 

@@ -155,11 +155,14 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
           <div className="space-y-4">
             <div className="rounded-[1.5rem] border border-slate-200 bg-[#fbfaf5] p-5">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Package requirements</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Expected files</h2>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Expected package files</h2>
+              <p className="mt-3 text-sm text-slate-600">Upload one ZIP, or select these five files together:</p>
               <ul className="mt-4 space-y-2 text-sm text-slate-700">
                 <li>• mirai_manifest.json</li>
                 <li>• data_dictionary.csv</li>
-                <li>• experiments.csv, conditions.csv, results.csv</li>
+                <li>• experiments.csv</li>
+                <li>• conditions.csv</li>
+                <li>• results.csv</li>
               </ul>
               <p className="mt-4 text-sm leading-6 text-slate-500">Column names can be client-native. The contract maps them to stable internal variables.</p>
             </div>

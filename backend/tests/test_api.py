@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.domain_metadata import attach_domain_metadata, build_domain_metadata, infer_template_id
 from app.services.replay_mapping import load_hidden_replay_pool
+from ml_lifecycle.ingesting.generic_tabular_doe.contract import load_and_validate_contract
+from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root
 
 
 PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
@@ -735,6 +737,33 @@ def test_generic_zip_package_blocks_path_traversal(client, tmp_path):
     payload = start.json()
     assert payload["status"] == "failed_validation"
     assert any("Unsafe ZIP member" in error for error in payload["validation"]["errors"])
+
+
+def test_zip_package_extraction_handles_resolved_symlink_roots(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "fuel_cell_fixed_multitable_package"
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    link_root = tmp_path / "linked"
+    try:
+        link_root.symlink_to(real_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this environment")
+
+    raw = link_root / "raw"
+    inventory = link_root / "inventory"
+    raw.mkdir()
+    inventory.mkdir()
+    archive = raw / "mirai_fixed_multitable_package.zip"
+    with ZipFile(archive, "w") as zip_file:
+        for path in fixture.iterdir():
+            zip_file.write(path, arcname=path.name)
+
+    package_root, package_inventory = _prepare_package_root(raw, inventory)
+
+    assert package_inventory["mode"] == "zip_fixed_source_tables"
+    assert package_inventory["member_count"] == 5
+    contract = load_and_validate_contract(package_root)
+    assert contract["project"]["template_id"] == "generic_tabular_doe"
 
 
 def test_generic_zip_package_queues_through_contract_validation(client, tmp_path):
