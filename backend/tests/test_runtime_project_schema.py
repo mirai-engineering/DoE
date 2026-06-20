@@ -1,6 +1,37 @@
 from app.services import project_registry
 
 
+def test_runtime_control_plane_project_without_schema_manifest_returns_pending_schema(monkeypatch):
+    project_registry.get_project_schema.cache_clear()
+
+    def fake_runtime_state(workspace_id: str, project_id: str):
+        assert workspace_id == "fraunhofer"
+        assert project_id == "ccm_degradation_bae3ee79"
+        return {
+            "project": {
+                "project_id": project_id,
+                "workspace_id": workspace_id,
+                "workspace_name": "Fraunhofer",
+                "display_name": "CCM Degradation",
+                "lifecycle_contract": "generic_tabular_doe",
+            },
+            "schema_manifest": None,
+        }
+
+    monkeypatch.setattr(project_registry, "get_project_runtime_state", fake_runtime_state)
+
+    schema = project_registry.get_project_schema("ccm_degradation_bae3ee79", "fraunhofer")
+
+    assert schema["project_id"] == "ccm_degradation_bae3ee79"
+    assert schema["workspace_id"] == "fraunhofer"
+    assert schema["display_name"] == "CCM Degradation"
+    assert schema["inputs"] == []
+    assert schema["outputs"] == []
+    assert schema["metadata"]["schema_status"] == "pending_preprocessing"
+    assert schema["domain_metadata"]["approval_status"] == "pending_preprocessing"
+
+
+
 def test_runtime_control_plane_project_schema_resolves_without_reference_artifacts(monkeypatch):
     project_registry.get_project_schema.cache_clear()
 

@@ -289,6 +289,27 @@ def _runtime_variable(name: str, *, role: str, unit_map: dict) -> dict:
     return payload
 
 
+def _pending_runtime_schema(workspace_id: str, project_id: str, project: dict | None = None) -> dict:
+    project = project or {}
+    schema = {
+        "project_id": project_id,
+        "display_name": project.get("display_name") or project_id,
+        "description": "Runtime project is waiting for preprocessing to produce an approved schema.",
+        "schema_version": project.get("schema_version") or "pending-preprocessing",
+        "allow_unknown_inputs": False,
+        "inputs": [],
+        "outputs": [],
+        "workspace_id": workspace_id,
+        "workspace_name": project.get("workspace_name") or workspace_id,
+        "metadata": {
+            "template_id": project.get("lifecycle_contract") or "generic_tabular_doe",
+            "runtime_source": "postgres_control_plane",
+            "schema_status": "pending_preprocessing",
+        },
+    }
+    return attach_domain_metadata(schema, template_id="generic_tabular_doe", approval_status="pending_preprocessing")
+
+
 def _schema_from_runtime_state(workspace_id: str, project_id: str) -> dict | None:
     runtime_state = get_project_runtime_state(workspace_id, project_id)
     if not runtime_state:
@@ -302,7 +323,7 @@ def _schema_from_runtime_state(workspace_id: str, project_id: str) -> dict | Non
         input_columns = schema_manifest.get("input_columns") or []
         output_columns = schema_manifest.get("output_columns") or []
         if not input_columns and not output_columns:
-            return None
+            return _pending_runtime_schema(workspace_id, project_id, project)
         unit_map = schema_manifest.get("unit_map") or {}
         schema = {
             "project_id": project_id,
@@ -352,9 +373,11 @@ def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict
         artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
         if not session and artifact_dir is None:
             raise
+        if workspace_id and _has_runtime_project(workspace_id, project_id):
+            return _pending_runtime_schema(workspace_id, project_id, (get_project_runtime_state(workspace_id, project_id) or {}).get("project") or {})
         base_schema_path = REAL_REFERENCE_ARTIFACT_DIR / "schema.json"
         if not base_schema_path.exists() and artifact_dir is None:
-            raise ProjectNotFoundError(f"Base fuel-cell schema not found for intake project_id: {project_id}")
+            raise ProjectNotFoundError(f"Preprocessing schema is not available yet for intake project_id: {project_id}")
         schema_path = artifact_dir / "schema.json" if artifact_dir is not None else None
         schema = _read_json(schema_path) if schema_path and schema_path.exists() else _read_json(base_schema_path)
         schema["project_id"] = project_id
