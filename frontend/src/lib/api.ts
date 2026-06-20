@@ -394,6 +394,10 @@ export interface ExternalMlflowRunImportRequest {
   notes?: string
 }
 
+export interface ChampionReconcileRequest {
+  notes?: string
+}
+
 export interface PreprocessingEdaSummary {
   status: PreprocessingStatus
   summary: {
@@ -1085,6 +1089,15 @@ export async function importExternalMlflowRun(session: IngestionSessionResponse,
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to import MLflow run')
+  }
+}
+
+export async function refreshApprovedChampion(projectId: string, payload: ChampionReconcileRequest = {}): Promise<TrainingStatus> {
+  try {
+    const response = await api.post<TrainingStatus>(`/projects/${projectId}/models/refresh-approved-champion`, payload)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to refresh approved champion')
   }
 }
 

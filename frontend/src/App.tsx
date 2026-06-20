@@ -95,6 +95,10 @@ function App() {
 
     async function loadSchema() {
       setSchemaLoading(true)
+      setSchema(null)
+      setInputValues({})
+      setObjectiveWeights({})
+      setFixedInputs({})
       setAppError(null)
       resetRunState()
       try {
@@ -139,6 +143,8 @@ function App() {
   }
 
   function handleProjectChange(projectId: string) {
+    setSchema(null)
+    resetRunState()
     setSelectedProjectId(projectId)
     window.localStorage.setItem('mirai.activeProjectId', projectId)
   }

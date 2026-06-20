@@ -196,16 +196,23 @@ def _latest_ingestion_artifact_dir(project_id: str) -> Path | None:
     return artifact_dir if artifact_dir.exists() else None
 
 
-def _imported_mlflow_artifact_dir(project_id: str, workspace_id: str | None) -> Path | None:
+def _imported_mlflow_artifact_dir(project_id: str, workspace_id: str | None, *, champion_only: bool = False, include_predictions: bool = False) -> Path | None:
     if not workspace_id or not is_mlflow_project(project_id):
         return None
     try:
         runtime_state = get_project_runtime_state(workspace_id, project_id)
-        training_run = runtime_state.get("training_run") if isinstance(runtime_state, dict) else None
-        run_id = training_run.get("mlflow_run_id") if isinstance(training_run, dict) and training_run.get("status") == "completed" else None
+        if not isinstance(runtime_state, dict):
+            return None
+        model = runtime_state.get("champion_model") if champion_only else (runtime_state.get("champion_model") or runtime_state.get("candidate_model"))
+        metrics = model.get("metrics_json") if isinstance(model, dict) and isinstance(model.get("metrics_json"), dict) else {}
+        mlflow_import = metrics.get("mlflow_import") if isinstance(metrics.get("mlflow_import"), dict) else None
+        run_id = mlflow_import.get("run_id") if isinstance(mlflow_import, dict) else None
+        if not run_id and not champion_only:
+            training_run = runtime_state.get("training_run")
+            run_id = training_run.get("mlflow_run_id") if isinstance(training_run, dict) and training_run.get("status") == "completed" else None
         if run_id:
-            return download_run_artifacts(project_id, str(run_id), include_quality=True, include_predictions=False)
-    except Exception as exc:  # noqa: BLE001 - fallback remains available for non-imported projects.
+            return download_run_artifacts(project_id, str(run_id), include_quality=True, include_predictions=include_predictions)
+    except Exception as exc:  # noqa: BLE001 - local/reference fallbacks remain available only outside canonical runtime state.
         logger.info("Could not resolve imported MLflow run artifacts for %s: %s", project_id, exc)
     return None
 
@@ -221,7 +228,16 @@ def _latest_mlflow_artifact_dir(project_id: str) -> Path | None:
 
 
 def _latest_project_artifact_dir(project_id: str, workspace_id: str | None = None) -> Path | None:
-    return _latest_ingestion_artifact_dir(project_id) or _imported_mlflow_artifact_dir(project_id, workspace_id) or _latest_mlflow_artifact_dir(project_id)
+    return _imported_mlflow_artifact_dir(project_id, workspace_id) or _latest_ingestion_artifact_dir(project_id) or (None if workspace_id else _latest_mlflow_artifact_dir(project_id))
+
+
+def _has_runtime_project(workspace_id: str | None, project_id: str) -> bool:
+    if not workspace_id:
+        return False
+    try:
+        return bool(get_project_runtime_state(workspace_id, project_id))
+    except Exception:
+        return False
 
 
 def _best_model_name(artifact_dir: Path) -> str:
@@ -285,6 +301,8 @@ def _schema_from_runtime_state(workspace_id: str, project_id: str) -> dict | Non
     else:
         input_columns = schema_manifest.get("input_columns") or []
         output_columns = schema_manifest.get("output_columns") or []
+        if not input_columns and not output_columns:
+            return None
         unit_map = schema_manifest.get("unit_map") or {}
         schema = {
             "project_id": project_id,
@@ -403,8 +421,10 @@ def get_project_model_path(project_id: str, workspace_id: str | None = None) -> 
     if is_mlflow_project(project_id) and os.getenv("DOE_DISABLE_MLFLOW_MODEL_LOADING", "").lower() not in {"1", "true", "yes"}:
         try:
             return download_production_onnx(project_id, workspace_id=workspace_id)
-        except Exception as exc:  # noqa: BLE001 - fall back to object-store runtime state with explicit logging.
-            logger.warning("Could not resolve MLflow aliased model for %s: %s", project_id, exc)
+        except Exception as exc:  # noqa: BLE001 - runtime projects must not silently serve challenger/session artifacts.
+            if _has_runtime_project(workspace_id, project_id):
+                raise
+            logger.warning("Could not resolve reconciled MLflow champion for %s: %s", project_id, exc)
 
     if artifact_dir is not None:
         schema_path = artifact_dir / "schema.json"

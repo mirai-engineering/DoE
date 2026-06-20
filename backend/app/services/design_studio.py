@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 from typing import Any
 import zipfile
 
@@ -25,8 +26,16 @@ def _default_inputs(schema: dict[str, Any]) -> dict[str, float]:
     return {item["name"]: float((float(item["min"]) + float(item["max"])) / 2.0) for item in schema.get("inputs", [])}
 
 
+def _project_schema(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    return get_project_schema(project_id, workspace_id) if workspace_id else get_project_schema(project_id)
+
+
+def _prediction_artifact_path(project_id: str, workspace_id: str | None = None) -> Path:
+    return _prediction_path(project_id, workspace_id) if workspace_id else _prediction_path(project_id)
+
+
 def _is_fuel_cell_project(project_id: str, schema: dict[str, Any] | None = None) -> bool:
-    schema = schema or get_project_schema(project_id)
+    schema = schema or _project_schema(project_id)
     return project_id == REAL_PROJECT_ID or schema.get("source_project_id") == REAL_PROJECT_ID
 
 
@@ -40,19 +49,19 @@ def _default_objective_weights(schema: dict[str, Any], project_id: str) -> dict[
     return {outputs[0]["name"]: 1.0} if outputs else {}
 
 
-def _predictions_artifact(project_id: str) -> pd.DataFrame:
-    path = _prediction_path(project_id)
+def _predictions_artifact(project_id: str, workspace_id: str | None = None) -> pd.DataFrame:
+    path = _prediction_artifact_path(project_id, workspace_id)
     if not path.exists():
         raise FileNotFoundError("Design Studio real-cell comparisons require predictions.csv. Run real-data training first.")
     return pd.read_csv(path)
 
 
-def _observed_voltage_grid(project_id: str) -> list[float]:
-    schema = get_project_schema(project_id)
+def _observed_voltage_grid(project_id: str, workspace_id: str | None = None) -> list[float]:
+    schema = _project_schema(project_id, workspace_id)
     if not _is_fuel_cell_project(project_id, schema):
         return []
-    frame = _predictions_artifact(project_id)
-    schema = get_project_schema(project_id)
+    frame = _predictions_artifact(project_id, workspace_id)
+    schema = _project_schema(project_id, workspace_id)
     voltage_schema = next((item for item in schema.get("inputs", []) if item.get("name") == FUEL_CELL_VOLTAGE_INPUT), None)
     minimum = float(voltage_schema.get("min", -np.inf)) if voltage_schema else -np.inf
     maximum = float(voltage_schema.get("max", np.inf)) if voltage_schema else np.inf
@@ -66,7 +75,7 @@ def _observed_voltage_grid(project_id: str) -> list[float]:
     return values
 
 
-def _plot_recipes(project_id: str, schema: dict[str, Any]) -> list[dict[str, Any]]:
+def _plot_recipes(project_id: str, schema: dict[str, Any], workspace_id: str | None = None) -> list[dict[str, Any]]:
     metadata = schema.get("domain_metadata") if isinstance(schema.get("domain_metadata"), dict) else {}
     ui_config = metadata.get("ui_config") if isinstance(metadata.get("ui_config"), dict) else {}
     recipes = ui_config.get("plot_recipes") if isinstance(ui_config.get("plot_recipes"), list) else []
@@ -75,7 +84,7 @@ def _plot_recipes(project_id: str, schema: dict[str, Any]) -> list[dict[str, Any
         item = dict(recipe)
         if item.get("kind") == "fuel_cell_polarization":
             item["enabled"] = _is_fuel_cell_project(project_id, schema)
-            item["observed_voltage_grid"] = _observed_voltage_grid(project_id) if item["enabled"] else []
+            item["observed_voltage_grid"] = _observed_voltage_grid(project_id, workspace_id) if item["enabled"] else []
             item["x_output_bol"] = FUEL_CELL_BOL_OUTPUT
             item["x_output_eol"] = FUEL_CELL_EOL_OUTPUT
             item["y_input"] = FUEL_CELL_VOLTAGE_INPUT
@@ -85,9 +94,9 @@ def _plot_recipes(project_id: str, schema: dict[str, Any]) -> list[dict[str, Any
     return enriched
 
 
-def _fuel_cell_preset(project_id: str) -> dict[str, Any]:
-    schema = get_project_schema(project_id)
-    recipe = next((item for item in _plot_recipes(project_id, schema) if item.get("kind") == "fuel_cell_polarization"), None)
+def _fuel_cell_preset(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    schema = _project_schema(project_id, workspace_id)
+    recipe = next((item for item in _plot_recipes(project_id, schema, workspace_id) if item.get("kind") == "fuel_cell_polarization"), None)
     if not recipe:
         return {"enabled": False}
     return recipe
@@ -154,9 +163,9 @@ def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variab
 
 
 def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str | None = None, plot_recipe: dict[str, Any] | None = None, workspace_id: str | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
-    schema = get_project_schema(project_id)
+    schema = _project_schema(project_id, workspace_id)
     response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
-    recipes = [recipe for recipe in _plot_recipes(project_id, schema) if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
+    recipes = [recipe for recipe in _plot_recipes(project_id, schema, workspace_id) if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
     preset = dict(plot_recipe) if isinstance(plot_recipe, dict) else None
     if preset is not None and preset.get("kind") not in response_recipe_kinds:
         preset = None
@@ -207,9 +216,9 @@ def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str |
     return None, [f"Plot recipe kind is not supported yet: {preset.get('kind')}"], "unknown"
 
 
-def get_design_studio_state(project_id: str) -> dict[str, Any]:
-    schema = get_project_schema(project_id)
-    recipes = _plot_recipes(project_id, schema)
+def get_design_studio_state(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    schema = _project_schema(project_id, workspace_id)
+    recipes = _plot_recipes(project_id, schema, workspace_id)
     response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
     design_recipes = [recipe for recipe in recipes if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
     ui_config = schema.get("domain_metadata", {}).get("ui_config", {}) if isinstance(schema.get("domain_metadata"), dict) else {}
@@ -337,7 +346,7 @@ def _pareto_label(candidate_prediction: dict[str, float], pareto_predictions: li
 
 
 def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
-    schema = get_project_schema(project_id)
+    schema = _project_schema(project_id, workspace_id)
     raw_weights = payload.get("objective_weights") or _default_objective_weights(schema, project_id)
     objective_weights = {key: float(value) for key, value in raw_weights.items()}
     objectives = _selected_objectives(schema, objective_weights)
@@ -390,7 +399,7 @@ def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any], workspa
 
 
 def seed_batch_candidate(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
-    schema = get_project_schema(project_id)
+    schema = _project_schema(project_id, workspace_id)
     objective_weights = payload.get("objective_weights") or _default_objective_weights(schema, project_id)
     request = RecommendRequest(
         objective_weights={key: float(value) for key, value in objective_weights.items()},

@@ -434,6 +434,16 @@ def get_project_runtime_state(workspace_id: str, project_id: str) -> dict[str, A
             """,
             (workspace_id, project_id),
         )
+        candidate = fetch_one(
+            workspace_id,
+            """
+            SELECT * FROM models
+            WHERE workspace_id = %s AND project_id = %s AND status = 'candidate' AND NOT is_champion
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (workspace_id, project_id),
+        )
         artifacts = fetch_all(
             workspace_id,
             """
@@ -455,6 +465,7 @@ def get_project_runtime_state(workspace_id: str, project_id: str) -> dict[str, A
         "schema_manifest": schema,
         "training_run": training_run,
         "champion_model": champion,
+        "candidate_model": candidate,
         "artifacts": artifacts,
     }
 
@@ -494,10 +505,16 @@ def complete_training_run(
     mlflow_run_id: str | None,
     best_model_type: str | None,
     metrics: dict[str, Any] | None,
-    model_artifact_uri: str | None,
-    preprocessing_uri: str | None,
-    schema_uri: str | None,
+    model_artifact_uri: str | None = None,
+    preprocessing_uri: str | None = None,
+    schema_uri: str | None = None,
 ) -> None:
+    """Mark training execution complete without implicitly approving a champion.
+
+    Candidate and champion model records are written by explicit helpers below so
+    local/Railway challenger completion cannot accidentally become active serving
+    state.
+    """
     if not postgres_control_plane_enabled():
         return
     execute(
@@ -510,48 +527,104 @@ def complete_training_run(
         """,
         (mlflow_run_id, best_model_type, jsonb(metrics or {}), workspace_id, project_id, training_run_id),
     )
-    if model_artifact_uri:
-        model_id = f"mdl_{training_run_id}"
-        execute(
-            workspace_id,
-            """
-            UPDATE models
-            SET is_champion = false,
-                status = CASE WHEN status = 'champion' THEN 'archived' ELSE status END,
-                updated_at = now()
-            WHERE workspace_id = %s AND project_id = %s AND is_champion
-            """,
-            (workspace_id, project_id),
+
+
+def record_candidate_model(
+    *,
+    workspace_id: str,
+    project_id: str,
+    training_run_id: str,
+    model_name: str,
+    version: str,
+    artifact_uri: str,
+    preprocessing_uri: str | None,
+    schema_uri: str | None,
+    metrics: dict[str, Any] | None,
+) -> None:
+    """Record a reviewable candidate without making it active for serving."""
+    if not postgres_control_plane_enabled():
+        return
+    model_id = f"mdl_{training_run_id}_candidate"
+    execute(
+        workspace_id,
+        """
+        INSERT INTO models (
+            model_id, workspace_id, project_id, training_run_id, model_name, version, status,
+            artifact_s3_uri, preprocessing_s3_uri, schema_s3_uri, is_champion, metrics_json
         )
-        execute(
-            workspace_id,
-            """
-            INSERT INTO models (
-                model_id, workspace_id, project_id, training_run_id, model_name, version, status,
-                artifact_s3_uri, preprocessing_s3_uri, schema_s3_uri, is_champion, metrics_json
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, 'champion', %s, %s, %s, true, %s)
-            ON CONFLICT (model_id) DO UPDATE
-            SET status = 'champion', artifact_s3_uri = EXCLUDED.artifact_s3_uri,
-                preprocessing_s3_uri = EXCLUDED.preprocessing_s3_uri,
-                schema_s3_uri = EXCLUDED.schema_s3_uri,
-                is_champion = true,
-                metrics_json = EXCLUDED.metrics_json,
-                updated_at = now()
-            """,
-            (
-                model_id,
-                workspace_id,
-                project_id,
-                training_run_id,
-                f"doe_surrogate_{project_id}",
-                training_run_id,
-                model_artifact_uri,
-                preprocessing_uri,
-                schema_uri,
-                jsonb(metrics or {}),
-            ),
+        VALUES (%s, %s, %s, %s, %s, %s, 'candidate', %s, %s, %s, false, %s)
+        ON CONFLICT (model_id) DO UPDATE
+        SET status = 'candidate', artifact_s3_uri = EXCLUDED.artifact_s3_uri,
+            preprocessing_s3_uri = EXCLUDED.preprocessing_s3_uri,
+            schema_s3_uri = EXCLUDED.schema_s3_uri,
+            is_champion = false,
+            metrics_json = EXCLUDED.metrics_json,
+            updated_at = now()
+        """,
+        (model_id, workspace_id, project_id, training_run_id, model_name, version, artifact_uri, preprocessing_uri, schema_uri, jsonb(metrics or {})),
+    )
+
+
+def get_training_run_by_mlflow_run_id(workspace_id: str, project_id: str, mlflow_run_id: str) -> dict[str, Any] | None:
+    if not postgres_control_plane_enabled():
+        return None
+    return fetch_one(
+        workspace_id,
+        """
+        SELECT * FROM training_runs
+        WHERE workspace_id = %s AND project_id = %s AND mlflow_run_id = %s AND status = 'completed'
+        ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+        LIMIT 1
+        """,
+        (workspace_id, project_id, mlflow_run_id),
+    )
+
+
+def activate_champion_model(
+    *,
+    workspace_id: str,
+    project_id: str,
+    training_run_id: str,
+    model_name: str,
+    version: str,
+    artifact_uri: str,
+    preprocessing_uri: str | None,
+    schema_uri: str | None,
+    metrics: dict[str, Any] | None,
+) -> None:
+    """Explicitly activate a reconciled champion after MLflow alias verification."""
+    if not postgres_control_plane_enabled():
+        return
+    execute(
+        workspace_id,
+        """
+        UPDATE models
+        SET is_champion = false,
+            status = CASE WHEN status = 'champion' THEN 'archived' ELSE status END,
+            updated_at = now()
+        WHERE workspace_id = %s AND project_id = %s AND is_champion
+        """,
+        (workspace_id, project_id),
+    )
+    model_id = f"mdl_{training_run_id}_champion"
+    execute(
+        workspace_id,
+        """
+        INSERT INTO models (
+            model_id, workspace_id, project_id, training_run_id, model_name, version, status,
+            artifact_s3_uri, preprocessing_s3_uri, schema_s3_uri, is_champion, metrics_json
         )
+        VALUES (%s, %s, %s, %s, %s, %s, 'champion', %s, %s, %s, true, %s)
+        ON CONFLICT (model_id) DO UPDATE
+        SET status = 'champion', artifact_s3_uri = EXCLUDED.artifact_s3_uri,
+            preprocessing_s3_uri = EXCLUDED.preprocessing_s3_uri,
+            schema_s3_uri = EXCLUDED.schema_s3_uri,
+            is_champion = true,
+            metrics_json = EXCLUDED.metrics_json,
+            updated_at = now()
+        """,
+        (model_id, workspace_id, project_id, training_run_id, model_name, version, artifact_uri, preprocessing_uri, schema_uri, jsonb(metrics or {})),
+    )
 
 
 def fail_training_run(*, workspace_id: str, project_id: str, training_run_id: str, error_message: str) -> None:

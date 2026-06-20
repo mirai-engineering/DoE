@@ -153,6 +153,12 @@ class ExternalMlflowRunImport(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
+class ChampionReconcileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notes: str | None = Field(default=None, max_length=1000)
+
+
 class PredictResponse(BaseModel):
     project_id: str
     predictions: dict[str, float]

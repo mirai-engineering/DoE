@@ -83,12 +83,21 @@ def _artifact_dir(project_id: str, workspace_id: str | None = None) -> Path:
     imported_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id)
     if imported_dir is not None:
         return imported_dir
+    if workspace_id:
+        try:
+            if get_project_runtime_state(workspace_id, project_id):
+                raise ValueError(f"Model quality is awaiting a verified Mirai candidate/champion for project_id={project_id}")
+        except ValueError:
+            raise
+        except Exception:
+            pass
     intake_dir = _latest_intake_training_artifact_dir(project_id)
     if intake_dir is not None:
         return intake_dir
-    mlflow_dir = _latest_mlflow_training_artifact_dir(project_id)
-    if mlflow_dir is not None:
-        return mlflow_dir
+    if not workspace_id:
+        mlflow_dir = _latest_mlflow_training_artifact_dir(project_id)
+        if mlflow_dir is not None:
+            return mlflow_dir
     if project_id == REAL_PROJECT_ID and _is_complete_quality_artifact_dir(TRAINING_ARTIFACT_DIR):
         return TRAINING_ARTIFACT_DIR
     raise ValueError(f"Model quality is not available yet for project_id={project_id}; train the uploaded project first")
@@ -139,7 +148,9 @@ def _prediction_path(project_id: str, workspace_id: str | None = None) -> Path:
     artifact_dir = _artifact_dir(project_id, workspace_id)
     path = artifact_dir / "predictions.csv"
     if not path.exists():
-        mlflow_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id, include_predictions=True) or _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
+        mlflow_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id, include_predictions=True)
+        if mlflow_dir is None and not workspace_id:
+            mlflow_dir = _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
         if mlflow_dir is not None:
             path = mlflow_dir / "predictions.csv"
     return path
@@ -323,29 +334,25 @@ def get_active_model_metadata(project_id: str, workspace_id: str | None = None) 
     metadata = get_registered_model_metadata(project_id)
     artifact_dir = _artifact_dir(project_id, workspace_id)
     local_metadata = _read_json(artifact_dir / "metadata.json", default={})
-    metrics = _read_json(artifact_dir / "metrics_summary.json", default={})
-    aliases = metadata.get("aliases", {}) if isinstance(metadata.get("aliases"), dict) else {}
-    if aliases.get("champion"):
-        served_source = "champion"
-    elif aliases.get("challenger"):
-        served_source = "challenger"
-    elif _latest_intake_training_artifact_dir(project_id) is not None:
-        served_source = "session artifact"
-        best_model_name = str(local_metadata.get("best_model") or metrics.get("best_model_name") or metrics.get("best_model") or "session_model")
-        aliases = {
-            **aliases,
-            "challenger": {
-                "name": best_model_name,
-                "version": "session",
-                "run_id": None,
-                "source": "training_artifacts/latest",
-            },
-        }
-        metadata["aliases"] = aliases
+    runtime_state = get_project_runtime_state(workspace_id, project_id) if workspace_id else None
+    champion = runtime_state.get("champion_model") if isinstance(runtime_state, dict) else None
+    candidate = runtime_state.get("candidate_model") if isinstance(runtime_state, dict) else None
+    if champion:
+        served_source = "reconciled_champion"
+        lifecycle_status = "approved_champion_active"
+    elif candidate:
+        served_source = "candidate_review"
+        lifecycle_status = "candidate_ready_for_review"
     else:
-        served_source = "packaged artifact"
+        served_source = "packaged artifact" if not workspace_id else "awaiting_local_run_import"
+        lifecycle_status = "awaiting_local_run_import"
     metadata["local_metadata"] = local_metadata
     metadata["served_source"] = served_source
+    metadata["lifecycle_status"] = lifecycle_status
+    if champion:
+        metadata["mirai_champion_model"] = champion
+    if candidate:
+        metadata["mirai_candidate_model"] = candidate
     return metadata
 
 

@@ -9,6 +9,7 @@ import {
   getDomainMetadata,
   getPreprocessingEdaSummary,
   importExternalMlflowRun,
+  refreshApprovedChampion,
   getPreprocessingReport,
   getPreprocessingStatus,
   getTrainingStatus,
@@ -274,7 +275,10 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const selectedRecipe = metadataDraft?.ui_config?.plot_recipes?.find((recipe) => recipe.id === metadataDraft.ui_config?.selected_plot_recipe_id) ?? metadataDraft?.ui_config?.plot_recipes?.[0]
   const selectedX = (selectedRecipe?.x?.variable && inputOrSweepVariables.some((variable) => variable.name === selectedRecipe.x?.variable) ? selectedRecipe.x.variable : undefined) || inputOrSweepVariables[0]?.name || ''
   const selectedY = (selectedRecipe?.y?.variable && outputVariables.some((variable) => variable.name === selectedRecipe.y?.variable) ? selectedRecipe.y.variable : undefined) || outputVariables[0]?.name || ''
-  const trainingCompleted = trainingStatus?.['status'] === 'completed'
+  const lifecycleStatus = String(trainingStatus?.['status'] ?? trainingRequest?.status ?? '')
+  const candidateReady = lifecycleStatus === 'candidate_ready_for_review'
+  const championActive = lifecycleStatus === 'approved_champion_active'
+  const trainingCompleted = lifecycleStatus === 'completed' || candidateReady || championActive
 
   function updateMetadataDraft(updater: (draft: ProjectDomainMetadata) => void) {
     setMetadataDraft((current) => {
@@ -375,8 +379,18 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         notes: 'Imported from Preprocessing Review UI.',
       })
       setTrainingStatus(status)
-      setTrainingRequest((current) => current ? { ...current, status: 'completed' } : current)
-      setImportMessage('MLflow run imported and validated. Model Quality is now available from the canonical Mirai training state.')
+      setTrainingRequest((current) => current ? { ...current, status: 'candidate_ready_for_review' } : current)
+      setImportMessage('MLflow run imported and validated. Candidate is ready for review; promote champion in MLflow, then refresh the approved model in Mirai.')
+    })
+  }
+
+  async function handleRefreshApprovedChampion() {
+    if (!schema.project_id) return
+    await runAction('refresh-approved-champion', async () => {
+      const status = await refreshApprovedChampion(schema.project_id, { notes: 'Refreshed from Preprocessing Review UI after MLflow champion promotion.' })
+      setTrainingStatus(status)
+      setTrainingRequest((current) => current ? { ...current, status: 'approved_champion_active' } : current)
+      setImportMessage('Approved champion is active in Mirai. Model Quality and Design Studio now use the reconciled champion.')
     })
   }
 
@@ -387,6 +401,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
     if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
     if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
+    if (candidateReady) return { label: busy === 'refresh-approved-champion' ? 'Refreshing...' : 'Refresh approved model', disabled: Boolean(busy), run: handleRefreshApprovedChampion }
     return { label: 'Open model quality', disabled: false, run: onOpenModelQuality }
   })()
 
@@ -401,7 +416,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Prepare this project for training</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Confirm the metadata, run preprocessing, then start the recommended training path.</p>
           </div>
-          <StatusPill tone={trainingCompleted ? 'green' : actionTone(preprocessingStatus.status)}>{trainingCompleted ? 'training complete' : preprocessingStatus.status || 'not started'}</StatusPill>
+          <StatusPill tone={championActive || candidateReady ? 'green' : actionTone(preprocessingStatus.status)}>{championActive ? 'approved champion active' : candidateReady ? 'candidate ready for review' : trainingCompleted ? 'training complete' : preprocessingStatus.status || 'not started'}</StatusPill>
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -435,17 +450,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Next step</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{nextAction.label}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {trainingCompleted
-                ? 'Training artifacts are ready for review.'
+              {championActive
+                ? 'Approved champion is active for serving, Model Quality, and Design Studio.'
+                : candidateReady
+                  ? 'Candidate artifacts are ready for review. Promote the intended version to champion in MLflow, then refresh the approved model.'
+                  : trainingCompleted
+                    ? 'Training artifacts are ready for review.'
                 : !metadataApproved
                   ? 'Review the variable summary, then approve metadata.'
                   : !preprocessingComplete
                     ? 'Generate the canonical model table and evidence.'
-                    : !preprocessingApproved
-                      ? 'Review evidence, then approve training readiness.'
-                      : !trainingRequest
-                        ? 'Use the recommended training configuration.'
-                        : 'Run the approved training request.'}
+                      : !preprocessingApproved
+                        ? 'Review evidence, then approve training readiness.'
+                        : !trainingRequest
+                          ? 'Use the recommended training configuration.'
+                          : 'Run the approved training request or import a completed local MLflow run.'}
             </p>
           </div>
           <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
@@ -633,7 +652,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Recommended training</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Use the default Mirai training path unless this project needs a custom sweep.</p>
           </div>
-          <StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{trainingCompleted ? 'complete' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
+          <StatusPill tone={championActive || candidateReady ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{championActive ? 'approved champion active' : candidateReady ? 'candidate ready for review' : trainingCompleted ? 'complete' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
         </div>
 
         {trainingRequest && (
@@ -681,7 +700,23 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
         )}
-        {trainingCompleted && (
+        {candidateReady && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="font-semibold">Candidate ready for review</div>
+            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
+            <p className="mt-2">Promote the intended version to <code>champion</code> in MLflow, then refresh the approved model in Mirai.</p>
+            <button type="button" onClick={handleRefreshApprovedChampion} disabled={Boolean(busy)} className="mt-3 rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+              {busy === 'refresh-approved-champion' ? 'Refreshing...' : 'Refresh approved model'}
+            </button>
+          </div>
+        )}
+        {championActive && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <div className="font-semibold">Approved champion active</div>
+            <div className="mt-1">Champion model: {String((trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
+          </div>
+        )}
+        {trainingCompleted && !candidateReady && !championActive && (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
             <div className="font-semibold">Training completed</div>
             <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>

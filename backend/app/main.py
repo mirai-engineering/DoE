@@ -32,6 +32,7 @@ from .schemas import (
     PreprocessingApprovalRequest,
     TrainingRequestCreate,
     ExternalMlflowRunImport,
+    ChampionReconcileRequest,
     PredictResponse,
     RecommendRequest,
     RecommendResponse,
@@ -86,7 +87,7 @@ from .services.project_registry import (
     list_projects,
 )
 from .services.recommendation import recommend_experiments
-from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, start_training_request
+from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, reconcile_champion_model, start_training_request
 from .services.workspaces import list_workspaces
 
 
@@ -685,6 +686,32 @@ def project_schema(project_id: str, request: Request):
         _raise_api_error(exc)
 
 
+@app.post("/projects/{project_id}/models/refresh-approved-champion")
+def refresh_approved_champion(project_id: str, body: ChampionReconcileRequest, request: Request):
+    try:
+        workspace_id = _raise_if_no_workspace_access(request)
+        result = reconcile_champion_model(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            reconciled_by=_request_user_id(request) or "local-dev",
+            notes=body.notes,
+        )
+        clear_registry_cache()
+        log_audit(
+            workspace_id=workspace_id,
+            user_id=_request_user_id(request),
+            action="mlflow_champion_reconciled",
+            resource_type="project_model",
+            resource_id=project_id,
+            ip_address=request.client.host if request.client else None,
+            metadata={"project_id": project_id, "mlflow": result.get("mlflow", {})},
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Champion reconciliation failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
 @app.get("/projects/{project_id}/artifact-status")
 def project_artifact_status(project_id: str, request: Request):
     try:
@@ -709,7 +736,7 @@ def project_artifact_status(project_id: str, request: Request):
 
         quality_status = {"available": False, "message": "Model quality is unavailable until training/bootstrap produces complete quality artifacts."}
         try:
-            artifacts = get_artifact_summary(project_id)
+            artifacts = get_artifact_summary(project_id, workspace_id)
             quality_status = {
                 "available": True,
                 "message": "Model quality artifacts are available.",
@@ -860,9 +887,9 @@ def bo_config(project_id: str, request: BOConfigUpdate):
 
 
 @app.get("/projects/{project_id}/design-studio/state")
-def design_studio_state(project_id: str):
+def design_studio_state(project_id: str, request: Request):
     try:
-        return get_design_studio_state(project_id)
+        return get_design_studio_state(project_id, workspace_id=_authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Design Studio state failed for project_id=%s", project_id)
         _raise_api_error(exc)

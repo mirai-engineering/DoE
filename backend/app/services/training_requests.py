@@ -14,11 +14,11 @@ from typing import Any
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from .control_plane import complete_training_run, create_training_run, fail_training_run, get_project_storage_config
+from .control_plane import activate_champion_model, complete_training_run, create_training_run, fail_training_run, get_project_storage_config, get_training_run_by_mlflow_run_id, record_candidate_model
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_external_mlflow_model_version
+from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
@@ -490,16 +490,26 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     metrics = result.get("metrics_summary") if isinstance(result, dict) and isinstance(result.get("metrics_summary"), dict) else result if isinstance(result, dict) else {}
     mlflow_run_ids = result.get("mlflow_run_ids") if isinstance(result, dict) else None
     mlflow_run_id = mlflow_run_ids[0] if isinstance(mlflow_run_ids, list) and mlflow_run_ids else None
+    best_model_type = str(result.get("best_model_name") or result.get("best_model") or "unknown") if isinstance(result, dict) else "unknown"
+    run_metrics = metrics if isinstance(metrics, dict) else {}
     complete_training_run(
         workspace_id=workspace_id,
         project_id=project_id,
         training_run_id=training_request_id,
         mlflow_run_id=mlflow_run_id,
-        best_model_type=str(result.get("best_model_name") or result.get("best_model") or "unknown") if isinstance(result, dict) else "unknown",
-        metrics=metrics if isinstance(metrics, dict) else {},
-        model_artifact_uri=f"{artifact_prefix}model.onnx",
+        best_model_type=best_model_type,
+        metrics=run_metrics,
+    )
+    record_candidate_model(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        model_name=f"doe_surrogate_{project_id}",
+        version=training_request_id,
+        artifact_uri=f"{artifact_prefix}model.onnx",
         preprocessing_uri=f"{artifact_prefix}preprocessing.json",
         schema_uri=f"{artifact_prefix}schema.json",
+        metrics=run_metrics,
     )
     request["status"] = "completed"
     request["completed_at"] = completed["completed_at"]
@@ -566,32 +576,41 @@ def import_external_mlflow_run(
         artifact_s3_prefix=artifact_prefix,
         created_by=imported_by,
     )
+    import_metrics = {
+        **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
+        "mlflow_import": {
+            "run_id": mlflow_run_id,
+            "registered_model_name": verified.get("registered_model_name"),
+            "model_version": verified.get("model_version"),
+            "alias": verified.get("alias"),
+            "model_uri": verified.get("model_uri"),
+        },
+    }
     complete_training_run(
         workspace_id=workspace_id,
         project_id=project_id,
         training_run_id=training_request_id,
         mlflow_run_id=mlflow_run_id,
         best_model_type=str(verified.get("model_name") or "external_mlflow_model"),
-        metrics={
-            **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
-            "mlflow_import": {
-                "run_id": mlflow_run_id,
-                "registered_model_name": verified.get("registered_model_name"),
-                "model_version": verified.get("model_version"),
-                "alias": verified.get("alias"),
-                "model_uri": verified.get("model_uri"),
-            },
-        },
-        model_artifact_uri=str(mlflow_pointer["object_uri"]),
+        metrics=import_metrics,
+    )
+    record_candidate_model(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        model_name=str(verified.get("registered_model_name") or registered_model_name_for_project(project_id)),
+        version=str(verified.get("model_version") or training_request_id),
+        artifact_uri=str(mlflow_pointer["object_uri"]),
         preprocessing_uri=f"{artifact_prefix}preprocessing.json",
         schema_uri=f"{artifact_prefix}schema.json",
+        metrics=import_metrics,
     )
     completed = {
         "project_id": project_id,
         "dataset_id": dataset_id,
         "ingestion_session_id": session_id,
         "training_request_id": training_request_id,
-        "status": "completed",
+        "status": "candidate_ready_for_review",
         "stage": "external_mlflow_run_imported",
         "completed_at": _now(),
         "imported_by": imported_by,
@@ -602,7 +621,7 @@ def import_external_mlflow_run(
         "route_after_completion": f"/projects/{project_id}/model-quality",
     }
     write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", completed)
-    request["status"] = "completed"
+    request["status"] = "candidate_ready_for_review"
     request["completed_at"] = completed["completed_at"]
     request["execution"] = {
         **(request.get("execution") if isinstance(request.get("execution"), dict) else {}),
@@ -613,6 +632,61 @@ def import_external_mlflow_run(
     request["route_after_completion"] = completed["route_after_completion"]
     _write_training_request(project_id, dataset_id, session_id, request)
     return completed
+
+
+def reconcile_champion_model(*, workspace_id: str, project_id: str, reconciled_by: str = "Mirai admin", notes: str | None = None) -> dict[str, Any]:
+    """Refresh Mirai canonical state from a manually promoted MLflow champion."""
+    verified = verify_champion_mlflow_model(workspace_id=workspace_id, project_id=project_id)
+    mlflow_run_id = str(verified["mlflow_run_id"])
+    training_run = get_training_run_by_mlflow_run_id(workspace_id, project_id, mlflow_run_id)
+    if not training_run:
+        raise ValueError("MLflow champion run must be imported into Mirai as a reviewable candidate before reconciliation")
+
+    artifact_cache = download_run_artifacts(project_id, mlflow_run_id, include_quality=True, include_predictions=True)
+    training_run_id = str(training_run["training_run_id"])
+    metrics = {
+        **(training_run.get("metrics_json") if isinstance(training_run.get("metrics_json"), dict) else {}),
+        **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
+        "mlflow_import": {
+            "run_id": mlflow_run_id,
+            "registered_model_name": verified.get("registered_model_name"),
+            "model_version": verified.get("model_version"),
+            "alias": "champion",
+            "model_uri": verified.get("model_uri"),
+        },
+        "champion_reconciliation": {
+            "status": "approved_champion_active",
+            "reconciled_by": reconciled_by,
+            "reconciled_at": _now(),
+            "notes": notes or "",
+        },
+    }
+    storage_config = _project_storage_config_for_training(workspace_id, project_id)
+    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/mlflow-imports/{training_run_id}") + "/"
+    mlflow_pointer = durable_artifact_pointer_for_project(project_id, "mlflow_artifacts", workspace_id=workspace_id)
+    activate_champion_model(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_run_id,
+        model_name=str(verified.get("registered_model_name") or registered_model_name_for_project(project_id)),
+        version=str(verified.get("model_version") or training_run_id),
+        artifact_uri=str(mlflow_pointer["object_uri"]),
+        preprocessing_uri=f"{artifact_prefix}preprocessing.json",
+        schema_uri=f"{artifact_prefix}schema.json",
+        metrics=metrics,
+    )
+    return {
+        "project_id": project_id,
+        "workspace_id": workspace_id,
+        "training_run_id": training_run_id,
+        "status": "approved_champion_active",
+        "stage": "mlflow_champion_reconciled",
+        "reconciled_at": metrics["champion_reconciliation"]["reconciled_at"],
+        "reconciled_by": reconciled_by,
+        "notes": notes or "",
+        "mlflow": verified,
+        "artifact_cache": str(artifact_cache),
+    }
 
 
 def get_training_status(project_id: str, dataset_id: str, session_id: str, training_request_id: str) -> dict[str, Any]:

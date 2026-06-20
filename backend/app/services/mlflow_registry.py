@@ -203,38 +203,30 @@ def download_production_onnx(project_id: str, *, refresh: bool = False, workspac
         imported_model = _model_file_from_cache(dst)
         if imported_model is not None:
             return imported_model
-    selected: tuple[str, str, str] | None = None
-    for alias in ["champion", "challenger", "baseline"]:
-        try:
-            version = client.get_model_version_by_alias(registered_model_name, alias)
-            _assert_model_version_belongs_to_project(client, project_id, version)
-            selected = (registered_model_name, alias, str(version.version))
-            break
-        except Exception:
-            continue
-    if selected is None:
-        production_versions = [version for version in client.search_model_versions(f"name = '{registered_model_name}'") if version.current_stage == "Production"]
-        valid_production_versions = []
-        for version in production_versions:
+    if workspace_id is None:
+        # Legacy/offline reference path: historical tests and packaged demos can
+        # still resolve mutable MLflow aliases outside the authenticated runtime
+        # workspace flow. Production app routes pass workspace_id and therefore
+        # require reconciled Mirai champion state above.
+        selected: tuple[str, str, str] | None = None
+        for alias in ["champion", "challenger", "baseline"]:
             try:
+                version = client.get_model_version_by_alias(registered_model_name, alias)
                 _assert_model_version_belongs_to_project(client, project_id, version)
-                valid_production_versions.append(version)
+                selected = (registered_model_name, alias, str(version.version))
+                break
             except Exception:
                 continue
-        if valid_production_versions:
-            production_version = str(sorted(valid_production_versions, key=lambda item: int(item.version))[-1].version)
-            selected = (registered_model_name, "production", production_version)
-    if selected is None:
-        raise FileNotFoundError(f"No champion/challenger/baseline/Production MLflow model found for {registered_model_name}")
-    selected_model_name, alias, version = selected
-    dst = base / alias
-    if not _cache_matches(dst, version):
-        uri = f"models:/{selected_model_name}@{alias}" if alias in {"champion", "challenger", "baseline"} else f"models:/{selected_model_name}/Production"
-        _download_model_uri(uri, dst, mlflow, version=version)
-    cached_model = _model_file_from_cache(dst)
-    if cached_model is not None:
-        return cached_model
-    raise FileNotFoundError(f"No ONNX or sklearn model found in MLflow cache: {dst}")
+        if selected is not None:
+            selected_model_name, alias, version = selected
+            dst = base / alias
+            if not _cache_matches(dst, version):
+                uri = f"models:/{selected_model_name}@{alias}"
+                _download_model_uri(uri, dst, mlflow, version=version)
+            cached_model = _model_file_from_cache(dst)
+            if cached_model is not None:
+                return cached_model
+    raise FileNotFoundError(f"No reconciled Mirai champion model found for {registered_model_name}; refresh approved champion before serving")
 
 
 def download_aliased_run_artifacts(project_id: str, *, alias: str = "challenger", refresh: bool = False, include_quality: bool = False, include_predictions: bool = False) -> Path:
@@ -387,6 +379,69 @@ def verify_external_mlflow_model_version(
         "registered_model_name": expected_name,
         "model_version": str(version.version),
         "alias": resolved_alias,
+        "model_source": str(getattr(version, "source", "") or f"models:/{expected_name}/{version.version}"),
+        "model_uri": f"models:/{expected_name}/{version.version}",
+        "model_name": tags.get("model_name") or tags.get("model_family") or "external_mlflow_model",
+        "metrics": dict(run.data.metrics),
+        "tags": tags,
+        "training_manifest": manifest,
+    }
+
+
+def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
+    """Verify the manually promoted MLflow champion alias before Mirai activation."""
+    if not is_mlflow_project(project_id):
+        raise ValueError(f"Project {project_id!r} is not a valid MLflow project id")
+    mlflow = configure_mlflow()
+    from mlflow.tracking import MlflowClient
+
+    client = MlflowClient(tracking_uri=tracking_uri(), registry_uri=tracking_uri())
+    expected_name = registered_model_name_for_project(project_id)
+    version = client.get_model_version_by_alias(expected_name, "champion")
+    _assert_model_version_belongs_to_project(client, project_id, version)
+    run_id = str(getattr(version, "run_id", "") or "")
+    if not run_id:
+        raise FileNotFoundError(f"MLflow champion {expected_name}@champion has no source run id")
+    run = client.get_run(run_id)
+    if str(getattr(run.info, "status", "") or "") != "FINISHED":
+        raise ValueError("MLflow champion source run must be FINISHED")
+    tags = {str(key): str(value) for key, value in run.data.tags.items() if value is not None}
+    tags.update({str(key): str(value) for key, value in run.data.params.items() if value is not None and key not in tags})
+    actual_workspace = tags.get("workspace_id")
+    actual_project = tags.get("project_id") or tags.get("schema_project_id")
+    if actual_workspace != workspace_id or actual_project != project_id:
+        raise ValueError("MLflow champion identity does not match this Mirai workspace/project")
+
+    required_artifacts = {"schema.json", "preprocessing.json", "metadata.json", "metrics_summary.json", "candidate_comparison.csv", "predictions.csv", "training_manifest.json"}
+    available = {artifact.path for artifact in client.list_artifacts(run_id)}
+    missing = sorted(required_artifacts - available)
+    if missing:
+        raise FileNotFoundError("MLflow champion run is missing required artifacts: " + ", ".join(missing))
+
+    with tempfile.TemporaryDirectory() as model_tmp:
+        model_uri = f"models:/{expected_name}/{version.version}"
+        model_dst = Path(model_tmp) / "model"
+        _download_model_uri(model_uri, model_dst, mlflow, version=str(version.version))
+        if _model_file_from_cache(model_dst) is None:
+            raise FileNotFoundError(f"MLflow champion model {model_uri} did not contain an ONNX, model.pkl, or joblib artifact")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manifest_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="training_manifest.json", dst_path=tmpdir)
+        manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    manifest_workspace = str(manifest.get("workspace_id") or "")
+    manifest_project = str(manifest.get("project_id") or "")
+    if manifest_workspace != workspace_id or manifest_project != project_id:
+        raise ValueError("MLflow champion training_manifest identity does not match this Mirai workspace/project")
+    if not isinstance(manifest.get("source_checksums"), dict) or not manifest["source_checksums"]:
+        raise ValueError("MLflow champion training_manifest.json is missing source_checksums")
+
+    return {
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "mlflow_run_id": run_id,
+        "registered_model_name": expected_name,
+        "model_version": str(version.version),
+        "alias": "champion",
         "model_source": str(getattr(version, "source", "") or f"models:/{expected_name}/{version.version}"),
         "model_uri": f"models:/{expected_name}/{version.version}",
         "model_name": tags.get("model_name") or tags.get("model_family") or "external_mlflow_model",
