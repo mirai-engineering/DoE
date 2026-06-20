@@ -358,7 +358,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   ]
 
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
-  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest && Boolean(schema)
+  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
 
   async function handleExportApprovedPackage() {
     if (!selectedSession || !trainingRequest) return
