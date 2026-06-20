@@ -21,7 +21,7 @@ def test_design_curve_rows_ignores_non_response_recommended_recipes(monkeypatch)
     }
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
         return [{"y1": row["x1"] * 2} for row in rows], [], "model_v1"
 
     monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)

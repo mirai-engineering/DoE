@@ -120,13 +120,10 @@ def test_remote_mlflow_preflight_refuses_missing_or_local_config(monkeypatch: py
     with pytest.raises(runner.ExportedPackageError, match="MLFLOW_TRACKING_URI is required"):
         runner.preflight_remote_mlflow()
 
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:///tmp/mlruns")
-    with pytest.raises(runner.ExportedPackageError, match="must be remote"):
-        runner.preflight_remote_mlflow()
-
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-    with pytest.raises(runner.ExportedPackageError, match="must be remote"):
-        runner.preflight_remote_mlflow()
+    for uri in ["file:///tmp/mlruns", "sqlite:///tmp/mlflow.db", "postgresql://db.example.test/mlflow", "mysql://db.example.test/mlflow", "http://localhost:5000"]:
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+        with pytest.raises(runner.ExportedPackageError, match="remote http"):
+            runner.preflight_remote_mlflow()
 
 
 def test_run_training_refuses_before_outputs_or_local_mlruns_without_remote_mlflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

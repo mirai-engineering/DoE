@@ -143,6 +143,16 @@ class TrainingRequestCreate(BaseModel):
     notes: str | None = None
 
 
+class ExternalMlflowRunImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mlflow_run_id: str = Field(min_length=1, max_length=128)
+    registered_model_name: str | None = Field(default=None, max_length=256)
+    model_version: str | None = Field(default=None, max_length=64)
+    alias: str = Field(default="challenger", min_length=1, max_length=64)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
 class PredictResponse(BaseModel):
     project_id: str
     predictions: dict[str, float]

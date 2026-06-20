@@ -31,6 +31,7 @@ from .schemas import (
     PredictRequest,
     PreprocessingApprovalRequest,
     TrainingRequestCreate,
+    ExternalMlflowRunImport,
     PredictResponse,
     RecommendRequest,
     RecommendResponse,
@@ -85,7 +86,7 @@ from .services.project_registry import (
     list_projects,
 )
 from .services.recommendation import recommend_experiments
-from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, list_training_requests, start_training_request
+from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, start_training_request
 from .services.workspaces import list_workspaces
 
 
@@ -570,6 +571,46 @@ def data_intake_get_training_request_status(project_id: str, dataset_id: str, se
         _raise_api_error(exc)
 
 
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/training-requests/{training_request_id}/import-mlflow-run")
+def data_intake_import_external_mlflow_run(project_id: str, dataset_id: str, session_id: str, training_request_id: str, body: ExternalMlflowRunImport, request: Request):
+    try:
+        workspace_id = _raise_if_no_workspace_access(request)
+        result = import_external_mlflow_run(
+            project_id,
+            dataset_id,
+            session_id,
+            training_request_id,
+            mlflow_run_id=body.mlflow_run_id,
+            registered_model_name=body.registered_model_name,
+            model_version=body.model_version,
+            alias=body.alias,
+            imported_by=_request_user_id(request) or "local-dev",
+            notes=body.notes,
+        )
+        clear_registry_cache()
+        log_audit(
+            workspace_id=workspace_id,
+            user_id=_request_user_id(request),
+            action="external_mlflow_run_imported",
+            resource_type="training_request",
+            resource_id=training_request_id,
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "session_id": session_id,
+                "mlflow_run_id": body.mlflow_run_id,
+                "registered_model_name": body.registered_model_name,
+                "model_version": body.model_version,
+                "alias": body.alias,
+            },
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("External MLflow import failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
 @app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/training-requests/{training_request_id}/export-package")
 def data_intake_export_approved_training_package(project_id: str, dataset_id: str, session_id: str, training_request_id: str, request: Request):
     try:
@@ -714,9 +755,9 @@ def project_artifact_status(project_id: str, request: Request):
 
 
 @app.post("/projects/{project_id}/predict", response_model=PredictResponse)
-def predict(project_id: str, request: PredictRequest):
+def predict(project_id: str, request: PredictRequest, http_request: Request):
     try:
-        predictions, warnings, model_version = predict_rows(project_id, [request.inputs])
+        predictions, warnings, model_version = predict_rows(project_id, [request.inputs], workspace_id=_authorized_workspace_id(http_request))
         return PredictResponse(
             project_id=project_id,
             predictions=predictions[0],
@@ -729,9 +770,9 @@ def predict(project_id: str, request: PredictRequest):
 
 
 @app.post("/projects/{project_id}/batch-predict", response_model=BatchPredictResponse)
-def batch_predict(project_id: str, request: BatchPredictRequest):
+def batch_predict(project_id: str, request: BatchPredictRequest, http_request: Request):
     try:
-        predictions, warnings, model_version = predict_rows(project_id, request.inputs)
+        predictions, warnings, model_version = predict_rows(project_id, request.inputs, workspace_id=_authorized_workspace_id(http_request))
         return BatchPredictResponse(
             project_id=project_id,
             predictions=predictions,
@@ -828,27 +869,27 @@ def design_studio_state(project_id: str):
 
 
 @app.post("/projects/{project_id}/design-studio/predict")
-def design_studio_predict(project_id: str, request: dict):
+def design_studio_predict(project_id: str, request: dict, http_request: Request):
     try:
-        return predict_design(project_id, request)
+        return predict_design(project_id, request, workspace_id=_authorized_workspace_id(http_request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Design Studio prediction failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
 @app.post("/projects/{project_id}/design-studio/seed/batch")
-def design_studio_seed_batch(project_id: str, request: dict):
+def design_studio_seed_batch(project_id: str, request: dict, http_request: Request):
     try:
-        return seed_batch_candidate(project_id, request)
+        return seed_batch_candidate(project_id, request, workspace_id=_authorized_workspace_id(http_request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Design Studio batch seed failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
 @app.post("/projects/{project_id}/design-studio/pareto")
-def design_studio_pareto(project_id: str, request: dict):
+def design_studio_pareto(project_id: str, request: dict, http_request: Request):
     try:
-        return pareto_tradeoff_candidates(project_id, request)
+        return pareto_tradeoff_candidates(project_id, request, workspace_id=_authorized_workspace_id(http_request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Design Studio Pareto search failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -857,7 +898,7 @@ def design_studio_pareto(project_id: str, request: dict):
 @app.post("/projects/{project_id}/design-studio/export.zip")
 def design_studio_export(project_id: str, request: dict, http_request: Request):
     try:
-        payload = export_design_zip(project_id, request)
+        payload = export_design_zip(project_id, request, workspace_id=_authorized_workspace_id(http_request))
         log_audit(
             workspace_id=_authorized_workspace_id(http_request),
             user_id=_request_user_id(http_request),
@@ -887,9 +928,9 @@ def impact_summary(project_id: str):
 
 
 @app.get("/projects/{project_id}/model-quality/summary")
-def model_quality_summary(project_id: str):
+def model_quality_summary(project_id: str, request: Request):
     try:
-        return get_model_quality_summary(project_id)
+        return get_model_quality_summary(project_id, _authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality summary failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -905,18 +946,18 @@ def model_quality_latest_runs(project_id: str):
 
 
 @app.get("/projects/{project_id}/model-quality/metrics")
-def model_quality_metrics(project_id: str):
+def model_quality_metrics(project_id: str, request: Request):
     try:
-        return get_metrics(project_id)
+        return get_metrics(project_id, _authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality metrics failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
 @app.get("/projects/{project_id}/model-quality/preprocessing-report")
-def model_quality_preprocessing_report(project_id: str):
+def model_quality_preprocessing_report(project_id: str, request: Request):
     try:
-        return get_preprocessing_report(project_id)
+        return get_preprocessing_report(project_id, _authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality preprocessing report failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -933,7 +974,7 @@ def model_quality_artifacts(project_id: str, request: Request):
             resource_id=project_id,
             ip_address=request.client.host if request.client else None,
         )
-        return get_artifact_summary(project_id)
+        return get_artifact_summary(project_id, _authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality artifacts failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -942,12 +983,13 @@ def model_quality_artifacts(project_id: str, request: Request):
 @app.get("/projects/{project_id}/model-quality/predictions")
 def model_quality_predictions(
     project_id: str,
+    request: Request,
     model_name: str | None = None,
     splits: str | None = None,
     limit: int = Query(default=5000, ge=1, le=50000),
 ):
     try:
-        return get_predictions(project_id, model_name=model_name, splits=splits, limit=limit)
+        return get_predictions(project_id, model_name=model_name, splits=splits, limit=limit, workspace_id=_authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality predictions failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -956,7 +998,7 @@ def model_quality_predictions(
 @app.get("/projects/{project_id}/model-quality/predictions/export.zip")
 def model_quality_predictions_export(project_id: str, request: Request, model_name: str | None = None, splits: str | None = None):
     try:
-        payload = export_predictions_zip(project_id, model_name=model_name, splits=splits)
+        payload = export_predictions_zip(project_id, model_name=model_name, splits=splits, workspace_id=_authorized_workspace_id(request))
         log_audit(
             workspace_id=_authorized_workspace_id(request),
             user_id=_request_user_id(request),
@@ -978,9 +1020,9 @@ def model_quality_predictions_export(project_id: str, request: Request, model_na
 
 
 @app.get("/projects/{project_id}/model-quality/active-model")
-def model_quality_active_model(project_id: str):
+def model_quality_active_model(project_id: str, request: Request):
     try:
-        return get_active_model_metadata(project_id)
+        return get_active_model_metadata(project_id, _authorized_workspace_id(request))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Model quality active model failed for project_id=%s", project_id)
         _raise_api_error(exc)

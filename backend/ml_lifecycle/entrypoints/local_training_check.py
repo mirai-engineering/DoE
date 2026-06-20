@@ -17,10 +17,11 @@ from app.services.workspace_storage import (
 
 
 def _is_remote_tracking_uri(uri: str | None) -> bool:
-    if not uri or uri.startswith("file:"):
+    if not uri:
         return False
-    host = (urlparse(uri).hostname or "").lower()
-    return host not in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+    parsed = urlparse(uri)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme in {"http", "https"} and host not in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
 def _truthy(name: str) -> bool:
@@ -50,7 +51,7 @@ def main() -> None:
         artifact_bucket = os.getenv(f"MIRAI_{workspace_id.upper().replace('-', '_')}_S3_BUCKET") if workspace_id else None
 
         if require_remote_mlflow and not _is_remote_tracking_uri(tracking_uri):
-            raise WorkspaceStorageError("Remote MLflow is required, but MLFLOW_TRACKING_URI is missing or file-based")
+            raise WorkspaceStorageError("Remote MLflow is required, but MLFLOW_TRACKING_URI is not a remote http(s) service URL")
         if require_remote_artifacts and not artifact_bucket:
             raise WorkspaceStorageError("Remote artifacts are required, but MIRAI_<WORKSPACE>_S3_BUCKET is missing")
 

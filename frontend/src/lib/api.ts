@@ -386,6 +386,14 @@ export interface TrainingRequestResponse {
   [key: string]: unknown
 }
 
+export interface ExternalMlflowRunImportRequest {
+  mlflow_run_id: string
+  registered_model_name?: string
+  model_version?: string
+  alias: string
+  notes?: string
+}
+
 export interface PreprocessingEdaSummary {
   status: PreprocessingStatus
   summary: {
@@ -1068,6 +1076,15 @@ export async function getTrainingStatus(session: IngestionSessionResponse, train
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to load training status')
+  }
+}
+
+export async function importExternalMlflowRun(session: IngestionSessionResponse, trainingRequestId: string, payload: ExternalMlflowRunImportRequest): Promise<TrainingStatus> {
+  try {
+    const response = await api.post<TrainingStatus>(`${sessionPath(session)}/training-requests/${trainingRequestId}/import-mlflow-run`, payload)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to import MLflow run')
   }
 }
 

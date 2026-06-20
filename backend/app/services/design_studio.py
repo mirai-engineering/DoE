@@ -153,7 +153,7 @@ def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variab
     return {"selection": selection, "x_variable": x_variable, "output_variables": output_variables, "rows": rows}
 
 
-def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str | None = None, plot_recipe: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
+def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str | None = None, plot_recipe: dict[str, Any] | None = None, workspace_id: str | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
     schema = get_project_schema(project_id)
     response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
     recipes = [recipe for recipe in _plot_recipes(project_id, schema) if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
@@ -168,7 +168,7 @@ def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str |
     if preset.get("kind") == "fuel_cell_polarization":
         voltage_grid = preset["observed_voltage_grid"]
         sweep_rows = [{**inputs, FUEL_CELL_VOLTAGE_INPUT: float(voltage)} for voltage in voltage_grid]
-        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False)
+        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
         rows = [
             {
                 "operating_voltage": float(row[FUEL_CELL_VOLTAGE_INPUT]),
@@ -195,7 +195,7 @@ def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str |
         points = max(10, min(points, 200))
         grid = np.linspace(float(input_schema.get("min", 0)), float(input_schema.get("max", 1)), points)
         sweep_rows = [{**inputs, str(x_variable): float(value)} for value in grid]
-        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False)
+        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
         rows = []
         for row, pred in zip(sweep_rows, predictions, strict=True):
             next_row = {str(x_variable): float(row[str(x_variable)])}
@@ -232,10 +232,10 @@ def get_design_studio_state(project_id: str) -> dict[str, Any]:
     }
 
 
-def predict_design(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
     inputs = {key: float(value) for key, value in payload.get("inputs", {}).items()}
-    predictions, point_warnings, point_model_version = predict_rows(project_id, [inputs], warn_near_bounds=True)
-    curve, curve_warnings, curve_model_version = _curve_rows(project_id, inputs, payload.get("plot_recipe_id"), payload.get("plot_recipe"))
+    predictions, point_warnings, point_model_version = predict_rows(project_id, [inputs], warn_near_bounds=True, workspace_id=workspace_id)
+    curve, curve_warnings, curve_model_version = _curve_rows(project_id, inputs, payload.get("plot_recipe_id"), payload.get("plot_recipe"), workspace_id=workspace_id)
     curve_recipe = curve.get("recipe", {}) if isinstance(curve, dict) else {}
     comparison_x = ((curve_recipe.get("x") or {}).get("variable") if isinstance(curve_recipe, dict) else None) or FUEL_CELL_VOLTAGE_INPUT
     comparison_outputs = curve_recipe.get("y_variables") if isinstance(curve_recipe, dict) else None
@@ -336,7 +336,7 @@ def _pareto_label(candidate_prediction: dict[str, float], pareto_predictions: li
     return "Balanced tradeoff"
 
 
-def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
     schema = get_project_schema(project_id)
     raw_weights = payload.get("objective_weights") or _default_objective_weights(schema, project_id)
     objective_weights = {key: float(value) for key, value in raw_weights.items()}
@@ -353,7 +353,7 @@ def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any]) -> dict
     )
     max_results = max(1, min(int(payload.get("max_results", 12)), 25))
     candidates = _generate_candidates(schema, request)
-    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False)
+    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
     transformed = _objective_matrix(predictions, objectives)
     pareto_mask = _non_dominated_mask(transformed)
     frontier_indices = np.flatnonzero(pareto_mask)
@@ -389,7 +389,7 @@ def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any]) -> dict
     }
 
 
-def seed_batch_candidate(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def seed_batch_candidate(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
     schema = get_project_schema(project_id)
     objective_weights = payload.get("objective_weights") or _default_objective_weights(schema, project_id)
     request = RecommendRequest(
@@ -401,10 +401,10 @@ def seed_batch_candidate(project_id: str, payload: dict[str, Any]) -> dict[str, 
         random_seed=payload.get("random_seed", 13),
     )
     candidates = _generate_candidates(schema, request)
-    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False)
+    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
     scores = _score_predictions(schema, predictions, request.objective_weights)
     index = int(np.argsort(-scores)[0])
-    design = predict_design(project_id, {"inputs": candidates[index], "comparison_real_cell": payload.get("comparison_real_cell"), "plot_recipe_id": payload.get("plot_recipe_id"), "plot_recipe": payload.get("plot_recipe")})
+    design = predict_design(project_id, {"inputs": candidates[index], "comparison_real_cell": payload.get("comparison_real_cell"), "plot_recipe_id": payload.get("plot_recipe_id"), "plot_recipe": payload.get("plot_recipe")}, workspace_id=workspace_id)
     design["seed"] = {
         "source": "batch_search",
         "score": float(scores[index]),
@@ -422,8 +422,8 @@ def _csv_from_records(rows: list[dict[str, Any]]) -> str:
     return pd.DataFrame(rows).to_csv(index=False)
 
 
-def export_design_zip(project_id: str, payload: dict[str, Any]) -> bytes:
-    prediction = predict_design(project_id, payload)
+def export_design_zip(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> bytes:
+    prediction = predict_design(project_id, payload, workspace_id=workspace_id)
     inputs = prediction["inputs"]
     selected_point = prediction["predictions_at_selected_point"]
     curve_rows = (prediction.get("curve") or {}).get("rows", [])

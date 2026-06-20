@@ -8,6 +8,7 @@ import {
   exportApprovedTrainingPackage,
   getDomainMetadata,
   getPreprocessingEdaSummary,
+  importExternalMlflowRun,
   getPreprocessingReport,
   getPreprocessingStatus,
   getTrainingStatus,
@@ -157,6 +158,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [trainingRequest, setTrainingRequest] = useState<TrainingRequestResponse | null>(null)
   const [trainingStatus, setTrainingStatus] = useState<Record<string, unknown> | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
+  const [mlflowImport, setMlflowImport] = useState({ runId: '', registeredModelName: '', modelVersion: '', alias: 'challenger' })
+  const [importMessage, setImportMessage] = useState<string | null>(null)
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfiguration>(() => defaultTrainingConfiguration(schema))
   const [metadataStatus, setMetadataStatus] = useState<DomainMetadataStatus | null>(null)
   const [metadataDraft, setMetadataDraft] = useState<ProjectDomainMetadata | null>(null)
@@ -358,6 +361,22 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     await runAction('export-package', async () => {
       await exportApprovedTrainingPackage(selectedSession, trainingRequest.training_request_id)
       setExportMessage('Approved training package export started. Check your downloads folder.')
+    })
+  }
+
+  async function handleImportExternalMlflowRun() {
+    if (!selectedSession || !trainingRequest || !mlflowImport.runId.trim()) return
+    await runAction('import-mlflow-run', async () => {
+      const status = await importExternalMlflowRun(selectedSession, trainingRequest.training_request_id, {
+        mlflow_run_id: mlflowImport.runId.trim(),
+        registered_model_name: mlflowImport.registeredModelName.trim() || undefined,
+        model_version: mlflowImport.modelVersion.trim() || undefined,
+        alias: mlflowImport.alias.trim() || 'challenger',
+        notes: 'Imported from Preprocessing Review UI.',
+      })
+      setTrainingStatus(status)
+      setTrainingRequest((current) => current ? { ...current, status: 'completed' } : current)
+      setImportMessage('MLflow run imported and validated. Model Quality is now available from the canonical Mirai training state.')
     })
   }
 
@@ -639,10 +658,33 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
         )}
+        {selectedSession && preprocessingApproved && trainingRequest && !trainingCompleted && (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <div className="font-semibold text-slate-950">Import completed MLflow training run</div>
+                <p className="mt-1 leading-6">Use this when training was run locally or on-prem from an approved Mirai package. Mirai verifies the MLflow run tags and required artifacts before marking this request complete.</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Run ID must match this project, dataset, session, and training request.</p>
+                {importMessage && <p className="mt-2 text-emerald-700">{importMessage}</p>}
+              </div>
+              <div className="grid w-full gap-3 lg:w-[30rem]">
+                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="MLflow run ID" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                <div className="grid gap-3 md:grid-cols-3">
+                  <input value={mlflowImport.alias} onChange={(event) => setMlflowImport((current) => ({ ...current, alias: event.target.value }))} placeholder="Alias, e.g. challenger" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Version optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                  <input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                </div>
+                <button type="button" onClick={handleImportExternalMlflowRun} disabled={!mlflowImport.runId.trim() || Boolean(busy)} className="rounded-full border border-slate-950 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-950 disabled:opacity-45">
+                  {busy === 'import-mlflow-run' ? 'Importing...' : 'Import and validate MLflow run'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {trainingCompleted && (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
             <div className="font-semibold">Training completed</div>
-            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? '—')}</div>
+            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
           </div>
         )}
 

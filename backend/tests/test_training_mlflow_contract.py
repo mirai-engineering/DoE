@@ -17,8 +17,8 @@ def test_demo_mlflow_contract_rejects_local_tracking_when_required(monkeypatch):
     monkeypatch.setenv("MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW", "1")
     monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS", raising=False)
 
-    for tracking_uri in ["file:///tmp/mlruns", "http://localhost:5000", "http://127.0.0.1:5000"]:
-        with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI points to local MLflow"):
+    for tracking_uri in ["file:///tmp/mlruns", "sqlite:///tmp/mlflow.db", "postgresql://db.example.test/mlflow", "mysql://db.example.test/mlflow", "http://localhost:5000", "http://127.0.0.1:5000"]:
+        with pytest.raises(RuntimeError, match="remote http"):
             generic_train._assert_demo_mlflow_contract(  # noqa: SLF001
                 tracking_uri=tracking_uri,
                 artifact_location="s3://mirai-fuel-cells-demo/workspaces/fraunhofer/projects/fuel-cell/mlflow-artifacts",

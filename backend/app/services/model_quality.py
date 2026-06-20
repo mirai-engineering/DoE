@@ -10,8 +10,9 @@ import zipfile
 
 import pandas as pd
 
+from .control_plane import get_project_runtime_state
 from .data_intake import list_ingestion_sessions, session_workspace
-from .mlflow_registry import durable_artifact_pointer_for_project, download_aliased_run_artifacts, get_registered_model_metadata, tracking_uri
+from .mlflow_registry import durable_artifact_pointer_for_project, download_aliased_run_artifacts, download_run_artifacts, get_registered_model_metadata, tracking_uri
 from .workspace_storage import local_object_storage_root
 
 
@@ -61,7 +62,27 @@ def _latest_mlflow_training_artifact_dir(project_id: str, *, include_predictions
     return path if _is_complete_quality_artifact_dir(path) else None
 
 
-def _artifact_dir(project_id: str) -> Path:
+def _imported_mlflow_training_artifact_dir(project_id: str, workspace_id: str | None, *, include_predictions: bool = False) -> Path | None:
+    if not workspace_id:
+        return None
+    try:
+        runtime_state = get_project_runtime_state(workspace_id, project_id)
+    except Exception:
+        return None
+    training_run = runtime_state.get("training_run") if isinstance(runtime_state, dict) else None
+    if not isinstance(training_run, dict) or training_run.get("status") != "completed" or not training_run.get("mlflow_run_id"):
+        return None
+    try:
+        path = download_run_artifacts(project_id, str(training_run["mlflow_run_id"]), include_quality=True, include_predictions=include_predictions)
+    except Exception:
+        return None
+    return path if _is_complete_quality_artifact_dir(path) else None
+
+
+def _artifact_dir(project_id: str, workspace_id: str | None = None) -> Path:
+    imported_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id)
+    if imported_dir is not None:
+        return imported_dir
     intake_dir = _latest_intake_training_artifact_dir(project_id)
     if intake_dir is not None:
         return intake_dir
@@ -106,19 +127,19 @@ def get_latest_runs(project_id: str, max_results: int = 10) -> list[dict[str, An
         return []
 
 
-def get_metrics(project_id: str) -> dict[str, Any]:
-    return _read_json(_artifact_dir(project_id) / "metrics_summary.json", default={})
+def get_metrics(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    return _read_json(_artifact_dir(project_id, workspace_id) / "metrics_summary.json", default={})
 
 
-def get_preprocessing_report(project_id: str) -> dict[str, Any]:
-    return _read_json(_artifact_dir(project_id) / "preprocessing_report.json", default={})
+def get_preprocessing_report(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    return _read_json(_artifact_dir(project_id, workspace_id) / "preprocessing_report.json", default={})
 
 
-def _prediction_path(project_id: str) -> Path:
-    artifact_dir = _artifact_dir(project_id)
+def _prediction_path(project_id: str, workspace_id: str | None = None) -> Path:
+    artifact_dir = _artifact_dir(project_id, workspace_id)
     path = artifact_dir / "predictions.csv"
     if not path.exists():
-        mlflow_dir = _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
+        mlflow_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id, include_predictions=True) or _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
         if mlflow_dir is not None:
             path = mlflow_dir / "predictions.csv"
     return path
@@ -133,8 +154,8 @@ def _display_path(path: Path) -> str:
     return str(path)
 
 
-def get_artifact_summary(project_id: str) -> dict[str, Any]:
-    artifact_dir = _artifact_dir(project_id)
+def get_artifact_summary(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    artifact_dir = _artifact_dir(project_id, workspace_id)
     summary = _read_json(artifact_dir / "artifact_summary.json", default={})
     if not summary:
         files = sorted(_display_path(path) for path in artifact_dir.rglob("*") if path.is_file()) if artifact_dir.exists() else []
@@ -148,7 +169,7 @@ def get_artifact_summary(project_id: str) -> dict[str, Any]:
     if durable_pointers:
         summary["durable_artifact_pointers"] = durable_pointers
         summary["durable_state_note"] = "Railway mode should resolve durable state from Postgres artifact pointers and object storage, not from backend/mlruns copied into the image."
-    predictions_path = _prediction_path(project_id)
+    predictions_path = _prediction_path(project_id, workspace_id)
     if predictions_path.exists():
         summary["predictions_artifact"] = str(predictions_path)
         summary["prediction_diagnostics_available"] = True
@@ -157,8 +178,8 @@ def get_artifact_summary(project_id: str) -> dict[str, Any]:
     return summary
 
 
-def _load_predictions_frame(project_id: str) -> pd.DataFrame:
-    path = _prediction_path(project_id)
+def _load_predictions_frame(project_id: str, workspace_id: str | None = None) -> pd.DataFrame:
+    path = _prediction_path(project_id, workspace_id)
     if not path.exists():
         raise FileNotFoundError("Prediction diagnostics are not available yet. Run real-data training to generate predictions.csv.")
     return pd.read_csv(path)
@@ -185,8 +206,8 @@ def _filter_predictions(frame: pd.DataFrame, *, model_name: str | None = None, s
     return filtered, truncated
 
 
-def get_predictions(project_id: str, *, model_name: str | None = None, splits: str | None = None, limit: int = 5000) -> dict[str, Any]:
-    frame = _load_predictions_frame(project_id)
+def get_predictions(project_id: str, *, model_name: str | None = None, splits: str | None = None, limit: int = 5000, workspace_id: str | None = None) -> dict[str, Any]:
+    frame = _load_predictions_frame(project_id, workspace_id)
     filtered, truncated = _filter_predictions(frame, model_name=model_name, splits=splits, limit=limit)
     return {
         "project_id": project_id,
@@ -264,8 +285,8 @@ def _predictions_long(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def export_predictions_zip(project_id: str, *, model_name: str | None = None, splits: str | None = None) -> bytes:
-    frame = _load_predictions_frame(project_id)
+def export_predictions_zip(project_id: str, *, model_name: str | None = None, splits: str | None = None, workspace_id: str | None = None) -> bytes:
+    frame = _load_predictions_frame(project_id, workspace_id)
     filtered, _ = _filter_predictions(frame, model_name=model_name, splits=splits, limit=None)
     long_frame = _predictions_long(filtered)
     readme = f"""Mirai DoE prediction diagnostics export
@@ -298,9 +319,9 @@ Training-run predictions are generated during the training/evaluation run. Futur
     return buffer.getvalue()
 
 
-def get_active_model_metadata(project_id: str) -> dict[str, Any]:
+def get_active_model_metadata(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     metadata = get_registered_model_metadata(project_id)
-    artifact_dir = _artifact_dir(project_id)
+    artifact_dir = _artifact_dir(project_id, workspace_id)
     local_metadata = _read_json(artifact_dir / "metadata.json", default={})
     metrics = _read_json(artifact_dir / "metrics_summary.json", default={})
     aliases = metadata.get("aliases", {}) if isinstance(metadata.get("aliases"), dict) else {}
@@ -328,8 +349,8 @@ def get_active_model_metadata(project_id: str) -> dict[str, Any]:
     return metadata
 
 
-def get_candidate_comparison(project_id: str) -> list[dict[str, Any]]:
-    path = _artifact_dir(project_id) / "candidate_comparison.csv"
+def get_candidate_comparison(project_id: str, workspace_id: str | None = None) -> list[dict[str, Any]]:
+    path = _artifact_dir(project_id, workspace_id) / "candidate_comparison.csv"
     if not path.exists():
         return []
     return pd.read_csv(path).to_dict(orient="records")
@@ -362,17 +383,17 @@ def save_scientist_review(project_id: str, payload: dict[str, Any]) -> dict[str,
     return _write_json(SCIENTIST_REVIEW_DIR / f"{project_id}.json", updated)
 
 
-def get_model_quality_summary(project_id: str) -> dict[str, Any]:
+def get_model_quality_summary(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     return {
         "project_id": project_id,
         "quality_label": "all-cells MVP",
-        "metrics": get_metrics(project_id),
-        "preprocessing_report": get_preprocessing_report(project_id),
-        "artifact_summary": get_artifact_summary(project_id),
-        "active_model": get_active_model_metadata(project_id),
+        "metrics": get_metrics(project_id, workspace_id),
+        "preprocessing_report": get_preprocessing_report(project_id, workspace_id),
+        "artifact_summary": get_artifact_summary(project_id, workspace_id),
+        "active_model": get_active_model_metadata(project_id, workspace_id),
         "scientist_review": get_scientist_review(project_id),
         "latest_runs": get_latest_runs(project_id),
-        "candidate_comparison": get_candidate_comparison(project_id),
+        "candidate_comparison": get_candidate_comparison(project_id, workspace_id),
         "ai_preprocessing_assistant": {
             "status": "placeholder_not_active",
             "message": "AI preprocessing assistant is a future placeholder. No autonomous preprocessing is active yet.",

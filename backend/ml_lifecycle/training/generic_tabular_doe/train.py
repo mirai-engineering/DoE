@@ -36,10 +36,10 @@ def _remote_artifacts_required() -> bool:
     return _truthy_env("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS")
 
 
-def _is_local_tracking_uri(tracking_uri: str) -> bool:
+def _is_remote_tracking_uri(tracking_uri: str) -> bool:
     parsed = urlparse(tracking_uri)
     host = (parsed.hostname or "").lower()
-    return tracking_uri.startswith("file:") or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+    return parsed.scheme in {"http", "https"} and host not in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
 def _is_remote_artifact_location(artifact_location: str | None) -> bool:
@@ -48,9 +48,9 @@ def _is_remote_artifact_location(artifact_location: str | None) -> bool:
 
 
 def _assert_demo_mlflow_contract(*, tracking_uri: str, artifact_location: str | None) -> None:
-    if _remote_mlflow_required() and _is_local_tracking_uri(tracking_uri):
+    if _remote_mlflow_required() and not _is_remote_tracking_uri(tracking_uri):
         raise RuntimeError(
-            "MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW is enabled, but MLFLOW_TRACKING_URI points to local MLflow. "
+            "MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW is enabled, but MLFLOW_TRACKING_URI is not a remote http(s) MLflow service URL. "
             "Set MLFLOW_TRACKING_URI to the Railway MLflow URL for demo training."
         )
     if _remote_artifacts_required() and not _is_remote_artifact_location(artifact_location):
@@ -79,7 +79,7 @@ def _use_mlflow_artifact_proxy() -> bool:
     This keeps local/on-prem exported-package training from requiring direct S3
     credentials. The remote MLflow server owns S3 access via --serve-artifacts.
     """
-    return _remote_mlflow_required() and _remote_artifacts_required() and not _is_local_tracking_uri(_tracking_uri())
+    return _remote_mlflow_required() and _remote_artifacts_required() and _is_remote_tracking_uri(_tracking_uri())
 
 
 def _experiment_artifact_location(project_id: str) -> str | None:

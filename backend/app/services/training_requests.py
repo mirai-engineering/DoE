@@ -18,7 +18,7 @@ from .control_plane import complete_training_run, create_training_run, fail_trai
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .mlflow_registry import registered_model_name_for_project
+from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
@@ -505,6 +505,111 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     request["completed_at"] = completed["completed_at"]
     request["result"] = result
     request["activation"] = activation
+    request["route_after_completion"] = completed["route_after_completion"]
+    _write_training_request(project_id, dataset_id, session_id, request)
+    return completed
+
+
+def import_external_mlflow_run(
+    project_id: str,
+    dataset_id: str,
+    session_id: str,
+    training_request_id: str,
+    *,
+    mlflow_run_id: str,
+    registered_model_name: str | None = None,
+    model_version: str | None = None,
+    alias: str = "challenger",
+    imported_by: str = "Mirai admin",
+    notes: str | None = None,
+) -> dict[str, Any]:
+    request = get_training_request(project_id, dataset_id, session_id, training_request_id)
+    report = get_preprocessing_review_report(project_id, dataset_id, session_id)
+    if report.get("approval", {}).get("status") != "approved_for_training":
+        raise ValueError("Preprocessing must be approved before importing external MLflow training")
+    session = get_ingestion_session(project_id, dataset_id, session_id)
+    workspace_id = str(session.get("workspace_id") or "mirai-engineering")
+    verified = verify_external_mlflow_model_version(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        training_request_id=training_request_id,
+        mlflow_run_id=mlflow_run_id,
+        registered_model_name=registered_model_name,
+        model_version=model_version,
+        alias=alias,
+    )
+    approved_package = build_approved_training_package(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        training_request_id=training_request_id,
+    )
+    expected_checksums = approved_package.manifest.get("source_checksums") if isinstance(approved_package.manifest, dict) else None
+    actual_manifest = verified.get("training_manifest") if isinstance(verified.get("training_manifest"), dict) else {}
+    actual_checksums = actual_manifest.get("source_checksums") if isinstance(actual_manifest, dict) else None
+    if actual_checksums != expected_checksums:
+        raise ValueError("MLflow training_manifest source_checksums do not match the approved Mirai training package")
+    # Populate the local MLflow artifact cache now so Model Quality/Design Studio
+    # fail at import time if the remote run is incomplete or inaccessible.
+    artifact_cache = download_run_artifacts(project_id, mlflow_run_id, include_quality=True, include_predictions=True)
+    storage_config = _project_storage_config_for_training(workspace_id, project_id)
+    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/mlflow-imports/{training_request_id}") + "/"
+    mlflow_pointer = durable_artifact_pointer_for_project(project_id, "mlflow_artifacts", workspace_id=workspace_id)
+    create_training_run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        dataset_id=dataset_id,
+        artifact_s3_prefix=artifact_prefix,
+        created_by=imported_by,
+    )
+    complete_training_run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_request_id,
+        mlflow_run_id=mlflow_run_id,
+        best_model_type=str(verified.get("model_name") or "external_mlflow_model"),
+        metrics={
+            **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
+            "mlflow_import": {
+                "run_id": mlflow_run_id,
+                "registered_model_name": verified.get("registered_model_name"),
+                "model_version": verified.get("model_version"),
+                "alias": verified.get("alias"),
+                "model_uri": verified.get("model_uri"),
+            },
+        },
+        model_artifact_uri=str(mlflow_pointer["object_uri"]),
+        preprocessing_uri=f"{artifact_prefix}preprocessing.json",
+        schema_uri=f"{artifact_prefix}schema.json",
+    )
+    completed = {
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "ingestion_session_id": session_id,
+        "training_request_id": training_request_id,
+        "status": "completed",
+        "stage": "external_mlflow_run_imported",
+        "completed_at": _now(),
+        "imported_by": imported_by,
+        "notes": notes or "",
+        "mlflow": verified,
+        "artifact_cache": str(artifact_cache),
+        "model_quality_project_id": project_id,
+        "route_after_completion": f"/projects/{project_id}/model-quality",
+    }
+    write_status(project_id, dataset_id, session_id, f"training_{training_request_id}", completed)
+    request["status"] = "completed"
+    request["completed_at"] = completed["completed_at"]
+    request["execution"] = {
+        **(request.get("execution") if isinstance(request.get("execution"), dict) else {}),
+        "mode": "external_mlflow_import",
+        "message": "Completed by importing a verified external MLflow training run.",
+    }
+    request["mlflow_import"] = verified
     request["route_after_completion"] = completed["route_after_completion"]
     _write_training_request(project_id, dataset_id, session_id, request)
     return completed

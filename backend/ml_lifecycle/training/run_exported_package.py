@@ -180,10 +180,10 @@ def load_exported_package(package_dir: Path | str) -> ExportedPackage:
     )
 
 
-def _is_local_tracking_uri(uri: str) -> bool:
+def _is_remote_tracking_uri(uri: str) -> bool:
     parsed = urlparse(uri)
     host = (parsed.hostname or "").lower()
-    return uri.startswith("file:") or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+    return parsed.scheme in {"http", "https"} and host not in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
 def preflight_remote_mlflow() -> str:
@@ -194,8 +194,8 @@ def preflight_remote_mlflow() -> str:
         raise ExportedPackageError("Set MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW=true so training cannot fall back to local mlruns")
     if not _truthy_env("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS"):
         raise ExportedPackageError("Set MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS=true so artifacts must be remote")
-    if _is_local_tracking_uri(tracking_uri):
-        raise ExportedPackageError(f"MLFLOW_TRACKING_URI must be remote, not local: {tracking_uri}")
+    if not _is_remote_tracking_uri(tracking_uri):
+        raise ExportedPackageError(f"MLFLOW_TRACKING_URI must be a remote http(s) MLflow service URL: {tracking_uri}")
     try:
         from mlflow.tracking import MlflowClient
 

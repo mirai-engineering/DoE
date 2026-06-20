@@ -14,8 +14,9 @@ def predict_rows(
     rows: list[dict[str, float]],
     *,
     warn_near_bounds: bool = True,
+    workspace_id: str | None = None,
 ) -> tuple[list[dict[str, float]], list[str], str]:
-    model = get_model_bundle(project_id)
+    model = get_model_bundle(project_id, workspace_id)
 
     raw_features, warnings = rows_to_feature_matrix(
         model.schema,
@@ -23,10 +24,10 @@ def predict_rows(
         warn_near_bounds=warn_near_bounds,
     )
     if getattr(model, "model_kind", "onnx_scaled") in {"sklearn_raw", "onnx_raw"}:
-        outputs = predict(project_id, raw_features)
+        outputs = predict(project_id, raw_features, workspace_id)
     else:
         features = transform_inputs(raw_features, model.preprocessing)
-        scaled_outputs = predict(project_id, features)
+        scaled_outputs = predict(project_id, features, workspace_id)
         outputs = inverse_transform_outputs(scaled_outputs, model.preprocessing)
 
     names = output_names(model.schema)

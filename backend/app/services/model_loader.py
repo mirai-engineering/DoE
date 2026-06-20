@@ -35,15 +35,20 @@ class ProjectModel:
 _MODEL_CACHE: dict[str, ProjectModel] = {}
 
 
-def load_model(project_id: str) -> ProjectModel:
-    cached = _MODEL_CACHE.get(project_id)
+def _cache_key(project_id: str, workspace_id: str | None = None) -> str:
+    return f"{workspace_id or '_default'}::{project_id}"
+
+
+def load_model(project_id: str, workspace_id: str | None = None) -> ProjectModel:
+    cache_key = _cache_key(project_id, workspace_id)
+    cached = _MODEL_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    schema = get_project_schema(project_id)
-    metadata = get_project_metadata(project_id)
-    preprocessing = get_project_preprocessing(project_id)
-    model_path = get_project_model_path(project_id)
+    schema = get_project_schema(project_id, workspace_id)
+    metadata = get_project_metadata(project_id, workspace_id)
+    preprocessing = get_project_preprocessing(project_id, workspace_id)
+    model_path = get_project_model_path(project_id, workspace_id)
 
     if model_path.suffix.lower() in {".joblib", ".pkl"}:
         logger.info("Loading sklearn/joblib-compatible model for project_id=%s from %s", project_id, model_path)
@@ -59,7 +64,7 @@ def load_model(project_id: str) -> ProjectModel:
             estimator=estimator,
             model_kind="sklearn_raw",
         )
-        _MODEL_CACHE[project_id] = model
+        _MODEL_CACHE[cache_key] = model
         return model
 
     logger.info("Loading ONNX model for project_id=%s from %s", project_id, model_path)
@@ -79,7 +84,7 @@ def load_model(project_id: str) -> ProjectModel:
         preprocessing=preprocessing,
         model_kind=model_kind,
     )
-    _MODEL_CACHE[project_id] = model
+    _MODEL_CACHE[cache_key] = model
     logger.info(
         "Loaded model for project_id=%s input=%s output=%s providers=%s",
         project_id,
@@ -107,15 +112,15 @@ def are_models_loaded() -> bool:
     projects = [project for project in list_projects() if is_packaged_project(project["id"])]
     if not projects:
         return False
-    return all(project["id"] in _MODEL_CACHE for project in projects)
+    return all(any(key.endswith(f"::{project['id']}") for key in _MODEL_CACHE) for project in projects)
 
 
-def get_model_bundle(project_id: str) -> ProjectModel:
-    return load_model(project_id)
+def get_model_bundle(project_id: str, workspace_id: str | None = None) -> ProjectModel:
+    return load_model(project_id, workspace_id)
 
 
-def predict(project_id: str, input_matrix: np.ndarray) -> np.ndarray:
-    model = load_model(project_id)
+def predict(project_id: str, input_matrix: np.ndarray, workspace_id: str | None = None) -> np.ndarray:
+    model = load_model(project_id, workspace_id)
     features = np.ascontiguousarray(input_matrix, dtype=np.float32)
     if model.model_kind == "sklearn_raw":
         if model.estimator is None:

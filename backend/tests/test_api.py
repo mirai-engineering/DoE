@@ -1024,6 +1024,113 @@ def test_fraunhofer_member_can_export_approved_training_package(tmp_path, monkey
     assert audit_events[0]["metadata"]["package_sha256"]
 
 
+def test_import_external_mlflow_run_completes_canonical_training_state(tmp_path, monkeypatch):
+    from app.services import training_requests
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch)
+    calls = {"create": [], "complete": []}
+
+    expected_checksums = {"model_table.csv": "model-table-sha", "schema.json": "schema-sha"}
+    monkeypatch.setattr(
+        training_requests,
+        "verify_external_mlflow_model_version",
+        lambda **kwargs: {
+            **kwargs,
+            "registered_model_name": f"doe_surrogate_{session['project_id']}",
+            "model_version": "7",
+            "alias": "challenger",
+            "model_uri": f"models:/doe_surrogate_{session['project_id']}/7",
+            "model_name": "mlp",
+            "metrics": {"validation_weighted_normalized_rmse": 0.12},
+            "training_manifest": {"source_checksums": expected_checksums},
+        },
+    )
+    monkeypatch.setattr(
+        training_requests,
+        "build_approved_training_package",
+        lambda **kwargs: training_requests.ApprovedTrainingPackage(
+            filename="approved.zip",
+            content=b"approved",
+            sha256="approved-sha",
+            size_bytes=8,
+            manifest={"source_checksums": expected_checksums},
+        ),
+    )
+    artifact_cache = tmp_path / "mlflow-cache"
+    artifact_cache.mkdir()
+    monkeypatch.setattr(training_requests, "download_run_artifacts", lambda *args, **kwargs: artifact_cache)
+    from app.services.workspace_storage import WorkspaceStorageConfig
+
+    monkeypatch.setattr(
+        training_requests,
+        "_project_storage_config_for_training",
+        lambda workspace_id, project_id: WorkspaceStorageConfig(workspace_id=workspace_id, mode="s3", bucket="mirai-demo", prefix=f"workspaces/{workspace_id}/projects/{project_id}"),
+    )
+    monkeypatch.setattr(
+        training_requests,
+        "durable_artifact_pointer_for_project",
+        lambda project_id, artifact_kind, workspace_id=None: {"object_uri": f"s3://mirai-demo/workspaces/{workspace_id}/projects/{project_id}/mlflow-artifacts/doe_surrogate_{project_id}"},
+    )
+    monkeypatch.setattr(training_requests, "create_training_run", lambda **kwargs: calls["create"].append(kwargs))
+    monkeypatch.setattr(training_requests, "complete_training_run", lambda **kwargs: calls["complete"].append(kwargs))
+
+    result = training_requests.import_external_mlflow_run(
+        session["project_id"],
+        session["dataset_id"],
+        session["ingestion_session_id"],
+        session["training_request_id"],
+        mlflow_run_id="85fa3553087141589115f987b8cfeaa4",
+        alias="challenger",
+        imported_by="test-admin",
+    )
+
+    assert result["status"] == "completed"
+    assert result["stage"] == "external_mlflow_run_imported"
+    assert result["mlflow"]["mlflow_run_id"] == "85fa3553087141589115f987b8cfeaa4"
+    assert calls["create"][0]["training_run_id"] == session["training_request_id"]
+    assert calls["create"][0]["artifact_s3_prefix"].endswith("/mlflow-imports/train_req_export/")
+    assert calls["complete"][0]["mlflow_run_id"] == "85fa3553087141589115f987b8cfeaa4"
+    assert calls["complete"][0]["model_artifact_uri"].startswith("s3://mirai-demo/workspaces/fraunhofer/projects/")
+    assert calls["complete"][0]["metrics"]["mlflow_import"]["model_version"] == "7"
+    status_path = Path(training_requests.session_workspace(session["project_id"], session["dataset_id"], session["ingestion_session_id"])["status"]) / f"training_{session['training_request_id']}.json"
+    assert json.loads(status_path.read_text())["status"] == "completed"
+
+
+def test_fraunhofer_member_can_import_external_mlflow_run(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    session = _prepare_export_fixture(tmp_path, monkeypatch)
+    _auth_fraunhofer(monkeypatch)
+    monkeypatch.setattr(main_module, "list_projects", lambda workspace_id=None: [{"id": session["project_id"], "workspace_id": "fraunhofer"}] if workspace_id == "fraunhofer" else [])
+    audit_events = []
+    monkeypatch.setattr(main_module, "log_audit", lambda **kwargs: audit_events.append(kwargs))
+    monkeypatch.setattr(
+        main_module,
+        "import_external_mlflow_run",
+        lambda *args, **kwargs: {
+            "project_id": args[0],
+            "dataset_id": args[1],
+            "ingestion_session_id": args[2],
+            "training_request_id": args[3],
+            "status": "completed",
+            "mlflow": {"mlflow_run_id": kwargs["mlflow_run_id"], "alias": kwargs["alias"]},
+        },
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.post(
+            f"/data-intake/projects/{session['project_id']}/datasets/{session['dataset_id']}/sessions/{session['ingestion_session_id']}/training-requests/{session['training_request_id']}/import-mlflow-run",
+            headers={"Authorization": "Bearer valid-test-token"},
+            json={"mlflow_run_id": "85fa3553087141589115f987b8cfeaa4", "alias": "challenger"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert response.json()["mlflow"]["alias"] == "challenger"
+    assert audit_events[0]["action"] == "external_mlflow_run_imported"
+    assert audit_events[0]["resource_id"] == session["training_request_id"]
+
+
 def test_export_approved_training_package_unassigned_user_gets_no_workspace_403(tmp_path, monkeypatch):
     session = _prepare_export_fixture(tmp_path, monkeypatch)
     monkeypatch.setenv("CLERK_AUTH_REQUIRED", "true")

@@ -7,7 +7,7 @@ from pathlib import Path
 from .control_plane import get_project_runtime_state, list_workspace_projects
 from .data_intake import list_ingestion_sessions, read_project_metadata, read_status, session_workspace
 from .domain_metadata import apply_variable_metadata_to_schema, attach_domain_metadata, infer_template_id
-from .mlflow_registry import download_aliased_run_artifacts, download_production_onnx, is_mlflow_project, registered_model_name_for_project, tracking_uri
+from .mlflow_registry import download_aliased_run_artifacts, download_production_onnx, download_run_artifacts, is_mlflow_project, registered_model_name_for_project, tracking_uri
 from .workspace_storage import local_object_storage_root
 from .workspaces import get_workspace
 
@@ -196,6 +196,20 @@ def _latest_ingestion_artifact_dir(project_id: str) -> Path | None:
     return artifact_dir if artifact_dir.exists() else None
 
 
+def _imported_mlflow_artifact_dir(project_id: str, workspace_id: str | None) -> Path | None:
+    if not workspace_id or not is_mlflow_project(project_id):
+        return None
+    try:
+        runtime_state = get_project_runtime_state(workspace_id, project_id)
+        training_run = runtime_state.get("training_run") if isinstance(runtime_state, dict) else None
+        run_id = training_run.get("mlflow_run_id") if isinstance(training_run, dict) and training_run.get("status") == "completed" else None
+        if run_id:
+            return download_run_artifacts(project_id, str(run_id), include_quality=True, include_predictions=False)
+    except Exception as exc:  # noqa: BLE001 - fallback remains available for non-imported projects.
+        logger.info("Could not resolve imported MLflow run artifacts for %s: %s", project_id, exc)
+    return None
+
+
 def _latest_mlflow_artifact_dir(project_id: str) -> Path | None:
     if not is_mlflow_project(project_id):
         return None
@@ -206,8 +220,8 @@ def _latest_mlflow_artifact_dir(project_id: str) -> Path | None:
         return None
 
 
-def _latest_project_artifact_dir(project_id: str) -> Path | None:
-    return _latest_ingestion_artifact_dir(project_id) or _latest_mlflow_artifact_dir(project_id)
+def _latest_project_artifact_dir(project_id: str, workspace_id: str | None = None) -> Path | None:
+    return _latest_ingestion_artifact_dir(project_id) or _imported_mlflow_artifact_dir(project_id, workspace_id) or _latest_mlflow_artifact_dir(project_id)
 
 
 def _best_model_name(artifact_dir: Path) -> str:
@@ -317,7 +331,7 @@ def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict
             schema = _battery_placeholder_schema()
             return attach_domain_metadata(schema, template_id="generic_tabular_doe", approval_status="pending_bootstrap")
         session = _latest_ingestion_project(project_id)
-        artifact_dir = _latest_project_artifact_dir(project_id)
+        artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
         if not session and artifact_dir is None:
             raise
         base_schema_path = REAL_REFERENCE_ARTIFACT_DIR / "schema.json"
@@ -351,8 +365,8 @@ def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict
 
 
 @lru_cache(maxsize=32)
-def get_project_metadata(project_id: str) -> dict:
-    artifact_dir = _latest_project_artifact_dir(project_id)
+def get_project_metadata(project_id: str, workspace_id: str | None = None) -> dict:
+    artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
     if artifact_dir is not None:
         metadata_path = artifact_dir / "metadata.json"
         best_model = _best_model_name(artifact_dir)
@@ -370,8 +384,8 @@ def get_project_metadata(project_id: str) -> dict:
 
 
 @lru_cache(maxsize=32)
-def get_project_preprocessing(project_id: str) -> dict:
-    artifact_dir = _latest_project_artifact_dir(project_id)
+def get_project_preprocessing(project_id: str, workspace_id: str | None = None) -> dict:
+    artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
     if artifact_dir is not None:
         preprocessing_path = artifact_dir / "preprocessing.json"
         if not preprocessing_path.exists():
@@ -384,11 +398,11 @@ def get_project_preprocessing(project_id: str) -> dict:
     return _read_json(preprocessing_path)
 
 
-def get_project_model_path(project_id: str) -> Path:
-    artifact_dir = _latest_project_artifact_dir(project_id)
+def get_project_model_path(project_id: str, workspace_id: str | None = None) -> Path:
+    artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
     if is_mlflow_project(project_id) and os.getenv("DOE_DISABLE_MLFLOW_MODEL_LOADING", "").lower() not in {"1", "true", "yes"}:
         try:
-            return download_production_onnx(project_id)
+            return download_production_onnx(project_id, workspace_id=workspace_id)
         except Exception as exc:  # noqa: BLE001 - fall back to object-store runtime state with explicit logging.
             logger.warning("Could not resolve MLflow aliased model for %s: %s", project_id, exc)
 
