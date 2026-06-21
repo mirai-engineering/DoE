@@ -117,15 +117,21 @@ model_table.csv
 
 It does not import PEM/fuel-cell constants.
 
-The MVP generic trainer fits baseline/linear/Ridge/MLP tabular candidates and writes:
+The MVP generic trainer fits baseline/linear/Ridge/MLP tabular candidates and writes/logs:
 
 ```text
 training_artifacts/latest/metrics_summary.json
 training_artifacts/latest/metadata.json
+training_artifacts/latest/predictions.csv
+training_artifacts/latest/candidate_comparison.csv
+training_artifacts/latest/model.onnx
 training_artifacts/latest/models/*.joblib
+training_artifacts/latest/models/*.onnx
 ```
 
-The PEM fuel-cell project remains available as the `fuel_cell` template/demo path, but the generic path is now contract-driven.
+The selected model version is registered in MLflow with an ONNX artifact. After an app dev promotes that version to alias `champion`, Mirai uses **Load champion model** as the single activation step for serving.
+
+The live path is generic contract-driven; fuel-cell-specific extractors/adapters are not part of the runtime intake path.
 
 ## 6. Downstream contract use
 
@@ -133,9 +139,10 @@ Downstream pages should use the approved schema and metadata consistently:
 
 - Design Studio controls from `schema.inputs`
 - objective/output controls from `schema.outputs`
-- Model Quality diagnostics from generic defaults and approved grouping variables
-- domain plots from approved `plot_recipes`
-- prediction/recommendation/export behavior from the uploaded project schema
+- Model Quality diagnostics from static `predictions.csv` and approved grouping variables
+- generic Design Studio response plots from served champion predictions plus training-data overlays from `predictions.csv`
+- domain plots only from approved `plot_recipes`
+- prediction/recommendation/export behavior from the uploaded project schema and loaded ONNX champion
 
 ## Validation strategy
 

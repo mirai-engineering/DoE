@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import logging
 import os
 from typing import Any
@@ -470,6 +471,46 @@ def get_project_runtime_state(workspace_id: str, project_id: str) -> dict[str, A
     }
 
 
+def upsert_schema_manifest(
+    *,
+    workspace_id: str,
+    project_id: str,
+    schema: dict[str, Any],
+    manifest_object_uri: str,
+    validation_status: str = "approved",
+) -> None:
+    if not postgres_control_plane_enabled():
+        return
+    inputs = [str(item.get("name") or item.get("variable_id")) for item in schema.get("inputs", []) if isinstance(item, dict) and (item.get("name") or item.get("variable_id"))]
+    outputs = [str(item.get("name") or item.get("variable_id")) for item in schema.get("outputs", []) if isinstance(item, dict) and (item.get("name") or item.get("variable_id"))]
+    unit_map = {
+        str(item.get("name") or item.get("variable_id")): str(item.get("unit") or "")
+        for item in [*schema.get("inputs", []), *schema.get("outputs", [])]
+        if isinstance(item, dict) and (item.get("name") or item.get("variable_id"))
+    }
+    schema_version = str(schema.get("schema_id") or schema.get("schema_version") or "runtime")
+    schema_id = f"{project_id}_{hashlib.sha256(f'{workspace_id}:{project_id}:{schema_version}'.encode('utf-8')).hexdigest()[:12]}"
+    execute(
+        workspace_id,
+        """
+        INSERT INTO schema_manifests (
+            schema_id, workspace_id, project_id, manifest_object_uri,
+            input_columns, output_columns, unit_map, schema_json, validation_status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (schema_id) DO UPDATE
+        SET manifest_object_uri = EXCLUDED.manifest_object_uri,
+            input_columns = EXCLUDED.input_columns,
+            output_columns = EXCLUDED.output_columns,
+            unit_map = EXCLUDED.unit_map,
+            schema_json = EXCLUDED.schema_json,
+            validation_status = EXCLUDED.validation_status,
+            updated_at = now()
+        """,
+        (schema_id, workspace_id, project_id, manifest_object_uri, jsonb(inputs), jsonb(outputs), jsonb(unit_map), jsonb(schema), validation_status),
+    )
+
+
 def create_training_run(
     *,
     workspace_id: str,
@@ -592,7 +633,7 @@ def activate_champion_model(
     schema_uri: str | None,
     metrics: dict[str, Any] | None,
 ) -> None:
-    """Explicitly activate a reconciled champion after MLflow alias verification."""
+    """Explicitly activate a loaded champion after MLflow alias verification."""
     if not postgres_control_plane_enabled():
         return
     execute(

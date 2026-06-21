@@ -58,7 +58,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [primaryOutputName, setPrimaryOutputName] = useState('')
   const [secondaryOutputName, setSecondaryOutputName] = useState('')
   const [sweepPointCount, setSweepPointCount] = useState('60')
+  const [sweepRangeMin, setSweepRangeMin] = useState('')
+  const [sweepRangeMax, setSweepRangeMax] = useState('')
   const [responseAxesSwapped, setResponseAxesSwapped] = useState(false)
+  const [trainingOverlayGroupBy, setTrainingOverlayGroupBy] = useState('')
   const [objectiveMode, setObjectiveMode] = useState('')
   const [objectiveWeights, setObjectiveWeights] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -95,16 +98,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         weights: { [output.name]: weight },
       }
     })
-    const outputNames = new Set(schema.outputs.map((output) => output.name))
-    const fuelCellBalanced = ['bol_current_density', 'eol_current_density', 'ecsa_loss'].every((name) => outputNames.has(name))
-      ? [{
-          id: 'balanced:fuel-cell',
-          label: 'Balanced fuel-cell performance',
-          description: 'Favor high BoL/EoL current density while penalizing ECSA loss.',
-          weights: { bol_current_density: 0.4, eol_current_density: 0.4, ecsa_loss: -0.2 },
-        }]
-      : []
-    return [...singleOutputPresets, ...fuelCellBalanced, { id: 'custom', label: 'Custom weights', description: 'Choose your own tradeoff across outputs.', weights: {} }]
+    return [...singleOutputPresets, { id: 'custom', label: 'Custom weights', description: 'Choose your own tradeoff across outputs.', weights: {} }]
   }, [schema.outputs])
   const selectedObjectiveWeights = useMemo(() => {
     if (objectiveMode === 'custom') return numericObjectiveWeights(objectiveWeights)
@@ -126,7 +120,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     return {
       id: recipeId || `dynamic_${xVariable}_${yVariable}`,
       label: `${schema.outputs.find((output) => output.name === yVariable)?.label ?? yVariable} vs ${schema.inputs.find((input) => input.name === xVariable)?.label ?? xVariable}`,
-      description: 'Scientist-selected response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+      description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
       kind: 'scatter_response',
       template_id: 'generic_tabular_doe',
       safe: true,
@@ -137,6 +131,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       filters: [],
       group_by: null,
       points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
+      x_min: sweepRangeMin === '' ? undefined : Number(sweepRangeMin),
+      x_max: sweepRangeMax === '' ? undefined : Number(sweepRangeMax),
     } as PlotRecipe & { points: number }
   }
 
@@ -170,7 +166,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         : {
             id: defaultPlotRecipeId || `dynamic_${defaultSweep}_${defaultOutput}`,
             label: `${schema.outputs.find((output) => output.name === defaultOutput)?.label ?? defaultOutput} vs ${schema.inputs.find((input) => input.name === defaultSweep)?.label ?? defaultSweep}`,
-            description: 'Scientist-selected response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+            description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
             kind: 'scatter_response',
             template_id: 'generic_tabular_doe',
             safe: true,
@@ -186,6 +182,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       setInputs(defaultInputs)
       setSelectedPlotRecipeId(defaultPlotRecipeId)
       setSweepInputName(defaultSweep)
+      setSweepRangeMin('')
+      setSweepRangeMax('')
       setPrimaryOutputName(defaultOutput)
       setSecondaryOutputName('')
       setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, plot_recipe_id: defaultPlotRecipeId || undefined, ...(defaultDynamicRecipe ? { plot_recipe: defaultDynamicRecipe } : {}) }))
@@ -204,7 +202,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     setPredicting(true)
     setError(null)
     try {
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, comparison_real_cell: selectedRealCellPayload, ...requestPlotPayload(plotRecipeId) }))
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, comparison_real_cell: selectedRealCellPayload, training_overlay_group_by: trainingOverlayGroupBy || undefined, ...requestPlotPayload(plotRecipeId) }))
       setHasPendingInputChanges(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to predict design')
@@ -232,6 +230,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         objective_weights: selectedObjectiveWeights,
         n_candidates: 3000,
         comparison_real_cell: selectedRealCellPayload,
+        training_overlay_group_by: trainingOverlayGroupBy || undefined,
         ...requestPlotPayload(),
       })
       setPrediction(seeded)
@@ -265,6 +264,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         n_candidates: 3000,
         max_results: 12,
         comparison_real_cell: selectedRealCellPayload,
+        training_overlay_group_by: trainingOverlayGroupBy || undefined,
         ...requestPlotPayload(),
       }))
     } catch (err) {
@@ -286,6 +286,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       const blob = await exportDesignStudioZip(schema.project_id, {
         inputs: numericInputs,
         comparison_real_cell: selectedRealCellPayload,
+        training_overlay_group_by: trainingOverlayGroupBy || undefined,
         comparison_candidate: savedComparison?.inputs,
         ...requestPlotPayload(),
       })
@@ -338,10 +339,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const curveRows = asRecord(prediction?.curve).rows as Array<Record<string, unknown>> | undefined ?? []
   const comparisonCurveRows = asRecord(savedComparison?.curve).rows as Array<Record<string, unknown>> | undefined ?? []
   const realCurveRows = asRecord(prediction?.comparison_real_cell).rows as Array<Record<string, unknown>> | undefined ?? []
+  const trainingOverlayRows = asRecord(prediction?.training_overlay).rows as Array<Record<string, unknown>> | undefined ?? []
+  const metadataVariables = schema.metadata?.all_variables ?? schema.domain_metadata?.all_variables ?? schema.metadata?.variables ?? schema.domain_metadata?.variables ?? []
+  const trainingOverlayGroupOptions = Array.from(new Set(metadataVariables
+    .filter((variable) => ['group', 'metadata', 'context'].includes(variable.role))
+    .map((variable) => variable.name)
+    .filter(Boolean)))
   const activeModel = asRecord(state?.active_model)
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
-  const challenger = asRecord(aliases.challenger)
   const defaultObjectiveName = Object.keys(state?.default_objective_weights ?? {})[0]
   const emphasizedOutputs = new Set(Object.entries(selectedObjectiveWeights).filter(([, value]) => Math.abs(value) > 1e-12).map(([name]) => name))
   const curveKind = asString(asRecord(curveRecipe).kind) || selectedPlotRecipe?.kind || ''
@@ -379,16 +385,24 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed'][index % 4], width: 3 },
         })),
         ...genericCurveYVariables
-          .filter((variable) => realCurveRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
-          .map((variable, index) => ({
-            name: `Observed ${schema.outputs.find((output) => output.name === variable)?.label || variable}`,
-            x: realCurveRows.map((row) => asNumber(row[responseAxesSwapped ? `${variable}_true` : curveXAxisVariable])),
-            y: realCurveRows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : `${variable}_true`])),
-            type: 'scatter',
-            mode: 'lines+markers',
-            line: { color: ['#334155', '#92400e', '#0f766e', '#6d28d9'][index % 4], width: 2, dash: 'dot' },
-            visible: realCurveRows.length ? true : 'legendonly',
-          })),
+          .filter((variable) => trainingOverlayRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
+          .flatMap((variable, index) => {
+            const groupValues = trainingOverlayGroupBy
+              ? Array.from(new Set(trainingOverlayRows.map((row) => asString(row[trainingOverlayGroupBy])).filter(Boolean)))
+              : ['Training data']
+            return groupValues.map((groupValue, groupIndex) => {
+              const rows = trainingOverlayGroupBy ? trainingOverlayRows.filter((row) => asString(row[trainingOverlayGroupBy]) === groupValue) : trainingOverlayRows
+              return {
+                name: `${schema.outputs.find((output) => output.name === variable)?.label || variable} · ${groupValue}`,
+                x: rows.map((row) => asNumber(row[responseAxesSwapped ? `${variable}_true` : curveXAxisVariable])),
+                y: rows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : `${variable}_true`])),
+                type: 'scatter',
+                mode: 'markers',
+                marker: { color: ['#334155', '#92400e', '#0f766e', '#6d28d9', '#be123c'][((index + groupIndex) % 5)], size: 7, opacity: 0.62 },
+                visible: trainingOverlayRows.length ? true : 'legendonly',
+              }
+            })
+          }),
       ])
   const responseCurveLayout = curveKind === 'fuel_cell_polarization'
     ? asPlotLayout({ ...plotLayoutBase, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', height: 470, xaxis: { title: { text: 'Current density / A cm⁻²' }, zeroline: false }, yaxis: { title: { text: 'Cell voltage / V' }, zeroline: false } })
@@ -412,7 +426,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Served-model predictions</span>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Champion: {asString(champion.version) || 'not set'}</span>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Challenger: {asString(challenger.version) || 'not set'}</span>
           {defaultObjectiveName && <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-800">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
         </div>
       </section>
@@ -436,12 +449,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold text-slate-950">Scientist response plot</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose one input to sweep while the other current design settings stay fixed. Then plot one or two predicted outputs from the selected project&apos;s challenger model.</p>
+                  <h3 className="font-semibold text-slate-950">Generic response plot</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose one input to sweep while the other current design settings stay fixed. Then plot one or two predicted outputs from the loaded champion model and overlay training points from predictions.csv.</p>
                 </div>
                 <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-5">
+              <div className="mt-4 grid gap-3 md:grid-cols-7">
                 <label className="text-sm font-semibold text-slate-700">
                   Sweep input
                   <select value={sweepInputName} onChange={(event) => setSweepInputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
@@ -462,7 +475,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
-                  Sweep points
+                  Range min
+                  <input type="number" value={sweepRangeMin} onChange={(event) => setSweepRangeMin(event.target.value)} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.min ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Range max
+                  <input type="number" value={sweepRangeMax} onChange={(event) => setSweepRangeMax(event.target.value)} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.max ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Points
                   <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => setSweepPointCount(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="rounded-2xl border border-slate-200 bg-[#fbfaf5] px-3 py-2 text-sm font-semibold text-slate-700">
@@ -473,7 +494,16 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
-              <p className="mt-3 text-xs leading-5 text-slate-500">Changing these controls updates the next generated response curve. Use <strong>Switch axes</strong> for visuals such as fuel-cell polarization curves, where current density is conventionally shown on X and voltage on Y even when the model predicts current from voltage.</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-[18rem_1fr] md:items-center">
+                <label className="text-sm font-semibold text-slate-700">
+                  Training overlay grouping
+                  <select value={trainingOverlayGroupBy} onChange={(event) => setTrainingOverlayGroupBy(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <option value="">No grouping</option>
+                    {trainingOverlayGroupOptions.map((name) => <option key={name} value={name}>{metadataVariables.find((variable) => variable.name === name)?.label || name}</option>)}
+                  </select>
+                </label>
+                <p className="text-xs leading-5 text-slate-500">Changing these controls updates the next generated response curve. Use <strong>Switch axes</strong> for alternate scientific conventions. Training overlays come from static predictions.csv measured columns.</p>
+              </div>
             </div>
           )}
         </section>
@@ -506,7 +536,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             <ModelMap
               inputs={schema.inputs}
               outputs={schema.outputs}
-              modelName={prediction?.model_version || asString(challenger.version) || asString(champion.version) || 'active surrogate model'}
+              modelName={prediction?.model_version || asString(champion.version) || 'loaded champion'}
             />
 
             <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
@@ -523,7 +553,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
               {hasPendingInputChanges && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions and the polarization curve below.
+                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions and the response plot below.
                 </div>
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
@@ -679,8 +709,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </section>
 
             <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
-              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Overlay a measured real-cell curve, save a comparison candidate, or export a complete design package." />
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr_0.8fr] lg:items-end">
+              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the response plot settings." />
+              <div className="mt-5 grid gap-4 lg:grid-cols-3 lg:items-end">
+                {curveKind === 'fuel_cell_polarization' && (
                 <label className="text-sm font-semibold text-slate-700">
                   Measured real-cell overlay
                   <select value={selectedRealCell} onChange={(event) => setSelectedRealCell(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
@@ -692,6 +723,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     ))}
                   </select>
                 </label>
+                )}
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                   Save current as comparison
                 </button>
@@ -735,8 +767,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             />
             <p className="mt-3 rounded-2xl bg-[#fbfaf5] px-4 py-3 text-sm leading-6 text-slate-600">
               {curveKind === 'fuel_cell_polarization'
-                ? 'Dashed curves are served-model predictions for the current design. Dotted curves are a saved candidate comparison. Solid measured curves come from the selected real experiment.'
-                : 'Predicted traces come from the served challenger model. Observed traces, when selected, come from training predictions.csv rows for the chosen cell/RH/split and use *_true measured columns.'}
+                ? 'Dashed curves are served-model predictions for the current design. Dotted curves are a saved candidate comparison. Solid measured curves appear only for metadata-declared domain recipes.'
+                : 'Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns.'}
             </p>
           </section>
 

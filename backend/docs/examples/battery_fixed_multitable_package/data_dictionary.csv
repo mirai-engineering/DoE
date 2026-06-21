@@ -1,0 +1,18 @@
+table,path,source_name,variable_id,ui_label,role,dtype,unit,required,allowed_min,allowed_max,direction,description,join_key,split_hint,plot_role
+experiments,experiments.csv,experiment_id,experiment_id,Experiment ID,id,string,,true,,,,Required experiment primary key,experiment_id,,
+experiments,experiments.csv,campaign_id,campaign_id,Campaign,group,string,,false,,,,Campaign or batch grouping key,campaign_id,group_key,color
+experiments,experiments.csv,cell_format,cell_format,Cell format,metadata,categorical,,false,,,,Battery cell format metadata,,,
+experiments,experiments.csv,chemistry,chemistry,Chemistry,metadata,categorical,,false,,,,Battery chemistry metadata,,,
+experiments,experiments.csv,operator,operator,Operator,metadata,string,,false,,,,Technician/operator metadata,,,
+conditions,conditions.csv,condition_id,condition_id,Condition ID,id,string,,true,,,,Condition primary key,condition_id,,
+conditions,conditions.csv,experiment_id,experiment_id,Experiment ID,id,string,,true,,,,Foreign key to experiments.csv,experiment_id,,
+conditions,conditions.csv,Charge rate (C),charge_rate_c,Charge rate,input,float,C,true,0,5,,Client-native source column mapped to Mirai variable id,,,x_axis
+conditions,conditions.csv,Discharge rate (C),discharge_rate_c,Discharge rate,input,float,C,true,0,5,,Discharge C-rate,,,color
+conditions,conditions.csv,Temperature setpoint (°C),temperature_setpoint_c,Temperature setpoint,input,float,degC,true,-20,80,,Thermal chamber setpoint,,,facet
+conditions,conditions.csv,Electrolyte additive wt%,electrolyte_additive_wt_pct,Electrolyte additive,input,float,wt%,false,0,10,,Electrolyte additive concentration,,,
+conditions,conditions.csv,Formation cycles,formation_cycles,Formation cycles,input,int,cycles,false,0,20,,Formation protocol cycle count,,,
+results,results.csv,result_id,result_id,Result ID,id,string,,true,,,,Result primary key,result_id,,
+results,results.csv,condition_id,condition_id,Condition ID,id,string,,true,,,,Foreign key to conditions.csv,condition_id,,
+results,results.csv,Capacity retention after 100 cycles (%),capacity_retention_100_cycles_pct,Capacity retention 100 cycles,output,float,%,true,0,100,maximize,Primary battery lifetime KPI,,,y_axis
+results,results.csv,DCIR growth after 100 cycles (%),dcir_growth_100_cycles_pct,DCIR growth 100 cycles,output,float,%,true,0,200,minimize,Resistance growth KPI,,,
+results,results.csv,Energy density (Wh/kg),energy_density_wh_kg,Energy density,output,float,Wh/kg,false,0,500,maximize,Cell-level gravimetric energy density,,,

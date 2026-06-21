@@ -153,10 +153,17 @@ class ExternalMlflowRunImport(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
-class ChampionReconcileRequest(BaseModel):
+class ChampionLoadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    mlflow_run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    registered_model_name: str | None = Field(default=None, max_length=256)
+    model_version: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=1000)
+
+
+class ChampionReconcileRequest(ChampionLoadRequest):
+    """Backward-compatible request shape for the old refresh-approved route."""
 
 
 class PredictResponse(BaseModel):

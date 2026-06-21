@@ -338,7 +338,7 @@ def get_active_model_metadata(project_id: str, workspace_id: str | None = None) 
     champion = runtime_state.get("champion_model") if isinstance(runtime_state, dict) else None
     candidate = runtime_state.get("candidate_model") if isinstance(runtime_state, dict) else None
     if champion:
-        served_source = "reconciled_champion"
+        served_source = "loaded_champion"
         lifecycle_status = "approved_champion_active"
     elif candidate:
         served_source = "candidate_review"

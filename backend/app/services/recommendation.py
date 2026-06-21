@@ -93,12 +93,12 @@ def _score_predictions(
     return scores
 
 
-def recommend_experiments(project_id: str, request: RecommendRequest) -> RecommendResponse:
-    schema = get_project_schema(project_id)
+def recommend_experiments(project_id: str, request: RecommendRequest, workspace_id: str | None = None) -> RecommendResponse:
+    schema = get_project_schema(project_id, workspace_id)
     top_k = min(request.top_k, request.n_candidates)
 
     candidates = _generate_candidates(schema, request)
-    predictions, _, model_version = predict_rows(project_id, candidates, warn_near_bounds=False)
+    predictions, _, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
     scores = _score_predictions(schema, predictions, request.objective_weights)
 
     top_indices = np.argsort(-scores)[:top_k]

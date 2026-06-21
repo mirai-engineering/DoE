@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Plot from 'react-plotly.js'
 import type { ModelQualityPredictionsResponse, ModelQualitySummary, ProjectSchema } from '../lib/api'
-import { getModelQualityPredictions, getModelQualityPredictionsExportUrl, getModelQualitySummary, saveScientistReview } from '../lib/api'
+import { getModelQualityPredictions, getModelQualityPredictionsExportUrl, getModelQualitySummary } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
 import { Alert, PanelHeader } from './ui'
 
@@ -148,7 +148,6 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
   const [predictionLoading, setPredictionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [predictionError, setPredictionError] = useState<string | null>(null)
-  const [savingReview, setSavingReview] = useState(false)
   const modelQualityConfig = asRecord(schema.domain_metadata?.ui_config?.model_quality)
   const approvedTemplateId = asString(schema.domain_metadata?.template_id)
   const isFuelCellTemplate = approvedTemplateId === 'fuel_cell'
@@ -196,23 +195,6 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
     loadPredictions()
   }, [schema.project_id])
 
-  async function review(decision: string) {
-    setSavingReview(true)
-    try {
-      await saveScientistReview(schema.project_id, {
-        status: decision === 'approved' ? 'reviewed' : 'needs_revision',
-        decision,
-        reviewer: 'scientist',
-        notes: decision === 'approved' ? 'Scientist approved smoke model review.' : 'Scientist requested review changes.',
-      })
-      await loadSummary()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to save review')
-    } finally {
-      setSavingReview(false)
-    }
-  }
-
   const metrics = asRecord(summary?.metrics)
   const models = asRecord(metrics.models)
   const modelEntries = useMemo(() => Object.entries(models), [models])
@@ -226,7 +208,6 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
   const champion = asRecord(aliases.champion)
   const challenger = asRecord(aliases.challenger)
   const preprocessing = asRecord(summary?.preprocessing_report)
-  const reviewState = asRecord(summary?.scientist_review)
   const assistant = asRecord(summary?.ai_preprocessing_assistant)
   // TODO: Pass active BO/recommendation objective weights here when Model Quality has access to them.
   const objectiveWeights: Record<string, number> | undefined = undefined
@@ -248,6 +229,20 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
   const predictionRows = predictions?.rows ?? []
   const diagnosticModelOptions = useMemo(() => uniqueStrings(predictionRows, 'model_name'), [predictionRows])
   const selectedDiagnosticModel = diagnosticModel || bestModelName || diagnosticModelOptions[0] || ''
+  const predictionColumns = predictions?.columns ?? []
+  const predictionOutputOptions = useMemo(
+    () => schema.outputs.filter((output) => predictionColumns.includes(`${output.name}_true`) && predictionColumns.includes(`${output.name}_pred`)),
+    [predictionColumns, schema.outputs],
+  )
+  useEffect(() => {
+    if (!predictionOutputOptions.length) return
+    if (!predictionOutputOptions.some((output) => output.name === diagnosticOutput)) {
+      setDiagnosticOutput(predictionOutputOptions[0].name)
+    }
+  }, [diagnosticOutput, predictionOutputOptions])
+  const activeDiagnosticOutput = predictionOutputOptions.some((output) => output.name === diagnosticOutput)
+    ? diagnosticOutput
+    : predictionOutputOptions[0]?.name || ''
   const diagnosticRows = useMemo(() => {
     const splitSet = new Set(diagnosticSplit.split(',').map((item) => item.trim()).filter(Boolean))
     return predictionRows.filter((row) => {
@@ -264,8 +259,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
     .filter((row) => !selectedPolarizationCell || asString(row.cell_id) === selectedPolarizationCell)
     .filter((row) => !selectedPolarizationRh || asNumber(row.operating_rh) === Number(selectedPolarizationRh))
     .sort((a, b) => (asNumber(a.operating_voltage) ?? 0) - (asNumber(b.operating_voltage) ?? 0)), [diagnosticRows, selectedPolarizationCell, selectedPolarizationRh])
-  const outputMeta = schema.outputs.find((output) => output.name === diagnosticOutput) ?? schema.outputs[0]
-  const outputLabel = outputMeta?.label || diagnosticOutput
+  const outputMeta = schema.outputs.find((output) => output.name === activeDiagnosticOutput) ?? predictionOutputOptions[0] ?? schema.outputs[0]
+  const outputLabel = outputMeta?.label || activeDiagnosticOutput
   const outputUnit = outputMeta?.unit || ''
   const diagnosticSplitLabel = diagnosticSplit
     .split(',')
@@ -273,8 +268,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
     .filter(Boolean)
     .join(' + ')
   const polarizationContext = `Cell ${selectedPolarizationCell || '-'}, RH ${selectedPolarizationRh || '-'}% — ${diagnosticSplitLabel || 'selected splits'}`
-  const parityRows = diagnosticRows.filter((row) => asNumber(row[`${diagnosticOutput}_true`]) !== undefined && asNumber(row[`${diagnosticOutput}_pred`]) !== undefined)
-  const residualXAxisColumn = isFuelCellTemplate && predictions?.columns.includes('operating_voltage') ? 'operating_voltage' : `${diagnosticOutput}_pred`
+  const parityRows = diagnosticRows.filter((row) => asNumber(row[`${activeDiagnosticOutput}_true`]) !== undefined && asNumber(row[`${activeDiagnosticOutput}_pred`]) !== undefined)
+  const residualXAxisColumn = isFuelCellTemplate && predictions?.columns.includes('operating_voltage') ? 'operating_voltage' : `${activeDiagnosticOutput}_pred`
   const residualXAxisLabel = isFuelCellTemplate ? 'Operating voltage / V' : `Predicted ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}`
   const groupCandidates = ['split', defaultDiagnosticGroup, 'cell_id', 'operating_rh'].filter((value, index, array) => value && array.indexOf(value) === index && (value === 'split' || predictions?.columns.includes(value)))
   const exportUrl = getModelQualityPredictionsExportUrl(schema.project_id, { model_name: selectedDiagnosticModel || undefined, splits: diagnosticSplit })
@@ -297,8 +292,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
         <PanelHeader
           eyebrow="Model Quality"
-          title="Training credibility and preprocessing review"
-          description="Inspect split metrics, preprocessing artifacts, active model version, and scientist review status before trusting DoE recommendations."
+          title="Training credibility and validation diagnostics"
+          description="Inspect split metrics, preprocessing artifacts, active champion version, and prediction diagnostics before trusting DoE recommendations."
         />
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           All-cells MVP workflow. Splits are grouped by cell_id, three cells are reserved exclusively for BO replay, and acceptance thresholds are provisional/report-only.
@@ -349,34 +344,17 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">MLflow lifecycle</div>
-              <div className="mt-2 text-xl font-semibold text-slate-950">Champion is manual</div>
-              <p className="mt-1 text-sm leading-6 text-slate-500">Promote a champion in MLflow UI, then refresh this page. The backend serves champion before challenger.</p>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">MLflow approval</div>
+              <div className="mt-2 text-xl font-semibold text-slate-950">Champion alias is approval</div>
+              <p className="mt-1 text-sm leading-6 text-slate-500">Promote a version to <code>champion</code> in MLflow, then use Load champion model in Mirai. Serving uses the loaded ONNX champion only.</p>
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scientist review</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Mirai serving</div>
               <div className="mt-2 text-xl font-semibold text-slate-950">
-                {asString(reviewState.status) || 'pending_review'}
+                {asString(activeModel.served_source) === 'loaded_champion' ? 'Champion loaded' : 'Not active'}
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={savingReview}
-                  onClick={() => review('approved')}
-                  className="rounded-full bg-[#526949] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Mark reviewed
-                </button>
-                <button
-                  type="button"
-                  disabled={savingReview}
-                  onClick={() => review('needs_revision')}
-                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  Needs revision
-                </button>
-              </div>
+              <p className="mt-1 text-sm leading-6 text-slate-500">Design Studio and prediction APIs require an active loaded champion.</p>
             </div>
           </section>
 
@@ -663,8 +641,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   </label>
                   <label className="text-sm font-semibold text-slate-700">
                     Output
-                    <select value={diagnosticOutput} onChange={(event) => setDiagnosticOutput(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                      {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}</option>)}
+                    <select value={activeDiagnosticOutput} onChange={(event) => setDiagnosticOutput(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      {predictionOutputOptions.map((output) => <option key={output.name} value={output.name}>{output.label}</option>)}
                     </select>
                   </label>
                   {isFuelCellTemplate && (
@@ -685,14 +663,22 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   )}
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
+                {!predictionOutputOptions.length && (
+                  <Alert
+                    tone="error"
+                    title="Prediction outputs missing"
+                    messages={[`predictions.csv does not contain *_true and *_pred columns for the approved schema outputs: ${schema.outputs.map((output) => output.label || output.name).join(', ') || 'none'}. Load a champion model with complete predictions.csv artifacts.`]}
+                  />
+                )}
+
+                {!!predictionOutputOptions.length && <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Source: training-run predictions</span>
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Model: {selectedDiagnosticModel || '-'}</span>
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Splits: {diagnosticSplitLabel || '-'}</span>
                   <span className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-800">BO replay: train + validation</span>
-                </div>
+                </div>}
 
-                {isFuelCellTemplate ? (
+                {!!predictionOutputOptions.length && (isFuelCellTemplate ? (
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
                     <strong>Fuel-cell recipe:</strong> polarization curves are plotted as current density on the x-axis and voltage on the y-axis. BO replay uses train + validation rows; test remains reserved for model-quality metrics.
                   </div>
@@ -700,18 +686,18 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
                     <strong>Generic diagnostics:</strong> default plots use parity, residuals vs predicted value, residuals grouped by approved metadata, and metrics by output/split.
                   </div>
-                )}
+                ))}
 
-                <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+                {!!predictionOutputOptions.length && <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
                   <summary className="cursor-pointer select-none font-semibold text-slate-900">How to read these diagnostics</summary>
                   <ul className="mt-3 list-disc space-y-2 pl-5 leading-6">
                     {isFuelCellTemplate && <li><strong>Polarization curve:</strong> checks whether the surrogate reproduces the physical BoL/EoL curve shape at a fixed RH and cell condition.</li>}
                     <li><strong>Parity plot:</strong> compares measured values with predicted values; points near the diagonal are better.</li>
                     <li><strong>Residual plot:</strong> reveals systematic bias; for generic projects the default x-axis is the predicted value.</li>
                   </ul>
-                </details>
+                </details>}
 
-                <div className="mt-6 grid gap-6 xl:grid-cols-2">
+                {!!predictionOutputOptions.length && <div className="mt-6 grid gap-6 xl:grid-cols-2">
                   {isFuelCellTemplate && (
                   <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
                     <div className="mb-2 flex items-center justify-between gap-3">
@@ -790,15 +776,15 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       data={asPlotData([
                         {
                           name: 'Predictions',
-                          x: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_true`])),
-                          y: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_pred`])),
+                          x: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_true`])),
+                          y: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_pred`])),
                           customdata: parityRows.map((row) => [asString(row.cell_id), asString(row.split), asNumber(row.operating_rh), asNumber(row.operating_voltage)]),
                           hovertemplate: `<b>${outputLabel}</b><br>Cell: %{customdata[0]}<br>Split: %{customdata[1]}<br>RH: %{customdata[2]}%<br>Voltage: %{customdata[3]:.3f} V<br>Measured: %{x:.4g} ${outputUnit}<br>Predicted: %{y:.4g} ${outputUnit}<extra></extra>`,
                           type: 'scatter',
                           mode: 'markers',
                           marker: { color: parityRows.map((row) => asString(row.split) === 'test' ? '#dc2626' : asString(row.split) === 'validation' ? '#2563eb' : '#64748b'), size: 8, opacity: 0.78 },
                         },
-                        { name: 'Ideal prediction', x: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_true`])), y: parityRows.map((row) => asNumber(row[`${diagnosticOutput}_true`])), type: 'scatter', mode: 'lines', line: { color: '#0f172a', dash: 'dot', width: 2 } },
+                        { name: 'Ideal prediction', x: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_true`])), y: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_true`])), type: 'scatter', mode: 'lines', line: { color: '#0f172a', dash: 'dot', width: 2 } },
                       ])}
                       layout={asPlotLayout({ ...plotLayoutBase, height: 390, xaxis: { title: { text: `Measured ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false }, yaxis: { title: { text: `Predicted ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false } })}
                       config={plotConfig}
@@ -830,8 +816,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                           return {
                             name: groupValue,
                             x: rows.map((row) => asNumber(row[residualXAxisColumn])),
-                            y: rows.map((row) => asNumber(row[`${diagnosticOutput}_residual`])),
-                            customdata: rows.map((row) => [asString(row.cell_id), asString(row.split), asNumber(row.operating_rh), asNumber(row[`${diagnosticOutput}_true`]), asNumber(row[`${diagnosticOutput}_pred`])]),
+                            y: rows.map((row) => asNumber(row[`${activeDiagnosticOutput}_residual`])),
+                            customdata: rows.map((row) => [asString(row.cell_id), asString(row.split), asNumber(row.operating_rh), asNumber(row[`${activeDiagnosticOutput}_true`]), asNumber(row[`${activeDiagnosticOutput}_pred`])]),
                             hovertemplate: `<b>${outputLabel} residual</b><br>Cell: %{customdata[0]}<br>Split: %{customdata[1]}<br>RH: %{customdata[2]}%<br>Voltage: %{x:.3f} V<br>Measured: %{customdata[3]:.4g} ${outputUnit}<br>Predicted: %{customdata[4]:.4g} ${outputUnit}<br>Residual: %{y:.4g} ${outputUnit}<extra></extra>`,
                             type: 'scatter' as const,
                             mode: 'markers' as const,
@@ -849,10 +835,10 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       Positive residuals mean the model underpredicted the measured value. Negative residuals mean the model overpredicted it. The dotted line marks no error.
                     </p>
                   </div>
-                </div>
+                </div>}
 
                 <p className="mt-4 text-xs leading-5 text-slate-500">
-                  DoE live predictions are intentionally not mixed into these validation plots yet. When scientists generate candidates on the fly, those predictions should be labeled as served-model predictions and compared separately from training-run diagnostics.
+                  DoE live predictions are intentionally not mixed into these validation plots yet. Generated Design Studio predictions should be labeled as served-model predictions and compared separately from training-run diagnostics.
                 </p>
               </>
             )}
@@ -863,7 +849,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               <PanelHeader
                 eyebrow="Preprocessing"
                 title="Preprocessing aftermath"
-                description="Fit-on-train imputation and scaling artifacts available for scientist review."
+                description="Fit-on-train imputation and scaling artifacts available for model-quality inspection."
               />
               <dl className="mt-5 space-y-3 text-sm">
                 <div>
@@ -876,7 +862,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 </div>
                 <div>
                   <dt className="font-semibold text-slate-700">Review status</dt>
-                  <dd className="text-slate-600">{asString(preprocessing.review_status) || 'pending_scientist_review'}</dd>
+                  <dd className="text-slate-600">{asString(preprocessing.review_status) || 'pending_preprocessing_approval'}</dd>
                 </div>
               </dl>
             </div>
@@ -885,7 +871,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               <PanelHeader
                 eyebrow="AI preprocessing assistant"
                 title="Placeholder only"
-                description="Future AI agent will propose transformations with rationale for scientist approval. Not active yet."
+                description="Future AI agent will propose transformations with rationale for app-dev approval. Not active yet."
                 dark
               />
               <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">

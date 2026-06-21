@@ -394,7 +394,10 @@ export interface ExternalMlflowRunImportRequest {
   notes?: string
 }
 
-export interface ChampionReconcileRequest {
+export interface ChampionLoadRequest {
+  mlflow_run_id?: string
+  registered_model_name?: string
+  model_version?: string
   notes?: string
 }
 
@@ -607,7 +610,6 @@ export interface ModelQualitySummary {
   preprocessing_report: Record<string, unknown>
   artifact_summary: Record<string, unknown>
   active_model: Record<string, unknown>
-  scientist_review: Record<string, unknown>
   latest_runs: Array<Record<string, unknown>>
   candidate_comparison?: Array<Record<string, unknown>>
   ai_preprocessing_assistant: Record<string, unknown>
@@ -657,6 +659,7 @@ export interface DesignStudioPrediction {
   curve?: Record<string, unknown> | null
   warnings: string[]
   comparison_real_cell?: Record<string, unknown> | null
+  training_overlay?: Record<string, unknown> | null
   seed?: Record<string, unknown>
 }
 
@@ -1092,13 +1095,17 @@ export async function importExternalMlflowRun(session: IngestionSessionResponse,
   }
 }
 
-export async function refreshApprovedChampion(projectId: string, payload: ChampionReconcileRequest = {}): Promise<TrainingStatus> {
+export async function loadChampionModel(projectId: string, payload: ChampionLoadRequest = {}): Promise<TrainingStatus> {
   try {
-    const response = await api.post<TrainingStatus>(`/projects/${projectId}/models/refresh-approved-champion`, payload)
+    const response = await api.post<TrainingStatus>(`/projects/${projectId}/models/load-champion-model`, payload)
     return response.data
   } catch (error) {
-    throw normalizeError(error, 'Unable to refresh approved champion')
+    throw normalizeError(error, 'Unable to load champion model')
   }
+}
+
+export async function refreshApprovedChampion(projectId: string, payload: ChampionLoadRequest = {}): Promise<TrainingStatus> {
+  return loadChampionModel(projectId, payload)
 }
 
 function filenameFromContentDisposition(header?: string): string | null {
@@ -1343,20 +1350,5 @@ export async function getBusinessImpactSummary(projectId: string): Promise<Busin
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to load business impact summary')
-  }
-}
-
-export async function saveScientistReview(
-  projectId: string,
-  request: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await api.post<Record<string, unknown>>(
-      `/projects/${projectId}/model-quality/scientist-review`,
-      request,
-    )
-    return response.data
-  } catch (error) {
-    throw normalizeError(error, 'Unable to save scientist review')
   }
 }

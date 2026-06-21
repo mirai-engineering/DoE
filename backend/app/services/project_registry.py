@@ -447,7 +447,7 @@ def get_project_model_path(project_id: str, workspace_id: str | None = None) -> 
         except Exception as exc:  # noqa: BLE001 - runtime projects must not silently serve challenger/session artifacts.
             if _has_runtime_project(workspace_id, project_id):
                 raise
-            logger.warning("Could not resolve reconciled MLflow champion for %s: %s", project_id, exc)
+            logger.warning("Could not resolve loaded MLflow champion for %s: %s", project_id, exc)
 
     if artifact_dir is not None:
         schema_path = artifact_dir / "schema.json"

@@ -31,15 +31,16 @@ backend/ml_lifecycle/
     generic_tabular_doe/
       contract.py          # Mirai manifest/data-dictionary/model_table validation
       preprocessing.py     # canonical tables, validation reports, splits, preprocessing artifacts
-    fuel_cell_doe_demo/    # historical/offline fuel-cell migration/reference scripts
-    extractors/            # historical helpers; not a runtime lifecycle selector
+    extractors/            # generic extractor extension point
 
   training/
     generic_tabular_doe/
-      train.py             # generic sklearn surrogate candidates/evaluation/MLflow
-    fuel_cell_doe_demo/    # historical fuel-cell-specific training reference only
+      train.py             # generic sklearn/PyTorch candidates, ONNX export, MLflow
     common/
       model_definitions.py # shared model classes, e.g. TabularMLP
+
+  deprecated_fuel_cell_reference/
+    README.md              # quarantined historical reference code; not live runtime
 
   entrypoints/
     validate_manifest.py
@@ -47,7 +48,7 @@ backend/ml_lifecycle/
     train_project.py
 ```
 
-Runtime services must use `generic_tabular_doe` validation, preprocessing, and training. Any remaining `fuel_cell_doe_demo` code is retained only for historical/offline migration or reference until it can be removed.
+Runtime services must use `generic_tabular_doe` validation, preprocessing, and training. Fuel-cell-specific extractor/training code is quarantined under `deprecated_fuel_cell_reference` and must not be imported by the live app.
 
 ## Customer/project separation
 

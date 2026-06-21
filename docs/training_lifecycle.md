@@ -1,6 +1,6 @@
 # Mirai Training Lifecycle
 
-Mirai has one core preprocessing/training engine and two execution adapters.
+Mirai has one generic preprocessing/training engine and two execution adapters.
 
 ## Core engine
 
@@ -10,9 +10,7 @@ backend/ml_lifecycle/
   training/generic_tabular_doe/train.py::train_generic_project(...)
 ```
 
-Do not delete `backend/ml_lifecycle/`. It is the shared lifecycle engine for both managed and local execution.
-
-Historical fuel-cell modules remain as reference/offline migration code and are not removed in this cleanup.
+`generic_tabular_doe` is the live lifecycle path. Uploaded ZIP packages are expected to be Mirai contract packages with project-specific inputs, outputs, labels, ranges, and metadata.
 
 ## Canonical lifecycle
 
@@ -22,14 +20,14 @@ approved preprocessing
   -> execution pending
   -> train_generic_project(...)
        via Railway OR local exported package
-  -> MLflow candidate run/model
-  -> Mirai verifies/imports candidate
-  -> Candidate ready for review
-  -> operator manually promotes MLflow alias: champion
-  -> Mirai refreshes/reconciles approved champion
+  -> remote MLflow run/model version
+  -> app dev promotes intended MLflow model version to alias: champion
+  -> Mirai Load champion model
   -> Approved champion active
-  -> serving / Design Studio use champion only
+  -> Model Quality + Design Studio use the loaded champion
 ```
+
+The single user-visible activation action is **Load champion model**. There is no separate user-facing sync step.
 
 ## Execution adapters
 
@@ -42,10 +40,10 @@ Mirai UI
   -> backend/app/services/training_requests.py::start_training_request(...)
   -> train_generic_project(...)
   -> canonical training_runs row
-  -> reviewable candidate model state
+  -> MLflow model version awaiting champion approval
 ```
 
-Railway execution invokes the same generic engine. It must not create an active serving champion unless the champion reconciliation step has happened.
+Railway execution invokes the same generic engine. It must not create an active serving champion until the selected MLflow model version has the `champion` alias and **Load champion model** succeeds.
 
 ### B. Local/on-prem execution
 
@@ -55,74 +53,63 @@ Mirai UI
   -> export approved package
   -> local MacBook/on-prem runs run_exported_package.py
   -> train_generic_project(...)
-  -> remote MLflow candidate run/model
-  -> Import MLflow run in Mirai
-  -> Candidate ready for review
+  -> remote MLflow run/model version
+  -> app dev promotes selected model version to champion in MLflow
+  -> Load champion model in Mirai
 ```
 
-Local training must not write directly to Railway Postgres. It logs to remote MLflow and then Mirai imports only after backend verification.
+Local training must not write directly to Railway Postgres. It logs to remote MLflow. Mirai only activates serving after backend verification during **Load champion model**.
 
-## Candidate import contract
+## Load champion model contract
 
-The import path reuses:
+The activation path is:
 
 ```text
-POST /data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/training-requests/{training_request_id}/import-mlflow-run
-backend/app/services/training_requests.py::import_external_mlflow_run(...)
-backend/app/services/mlflow_registry.py::verify_external_mlflow_model_version(...)
+POST /projects/{project_id}/models/load-champion-model
+backend/app/services/training_requests.py::load_champion_model(...)
+backend/app/services/mlflow_registry.py::verify_champion_mlflow_model(...)
 ```
 
-Import verifies:
+Load champion verifies:
 
-- `workspace_id`
-- `project_id`
-- `dataset_id`
-- `session_id` / `ingestion_session_id`
-- `training_request_id`
-- MLflow run ID
-- registered model name/version/alias
-- run status is `FINISHED`
+- current MLflow registered model alias is `champion`
+- optional selected run/version/model fields match that current champion
+- `workspace_id` and `project_id` match the Mirai project
+- source run status is `FINISHED`
 - required artifacts exist:
   - `schema.json`
   - `preprocessing.json`
+  - `metadata.json`
   - `metrics_summary.json`
   - `candidate_comparison.csv`
   - `predictions.csv`
   - `training_manifest.json`
-- manifest source checksums match the approved Mirai export package
+- `training_manifest.json` contains matching project identity and source checksums
+- the MLflow model artifact contains a required ONNX model for serving
 
-A successful import records candidate state as reviewable. It does not make the model active for serving.
+On success, Mirai:
 
-## Champion reconciliation
+- downloads/caches the run artifacts and ONNX model
+- backfills the runtime schema manifest when missing
+- creates or updates the completed `training_runs` row
+- creates or updates the active `models` champion row
+- clears runtime schema/model caches
 
-Manual MLflow promotion is the source of approval for now:
-
-```text
-MLflow registered model alias = champion
-```
-
-After promotion, an operator refreshes Mirai:
-
-```text
-POST /projects/{project_id}/models/refresh-approved-champion
-```
-
-The backend verifies the MLflow `champion` alias, workspace/project identity, source run status, required artifacts, and that the champion run was already imported into Mirai. Only then does Mirai update the canonical champion model row.
-
-Mirai does not automatically promote challengers based on metrics.
+Mirai does not automatically promote challengers based on metrics. Manual MLflow alias promotion remains the MVP approval source.
 
 ## App behavior
 
 | State | UI behavior | Serving behavior |
 | --- | --- | --- |
-| No imported local run | `Awaiting local-run import` / training request pending | No local challenger is served |
-| Imported challenger | `Candidate ready for review` | Model Quality can review candidate artifacts if complete; Design Studio/serving still require champion |
-| Champion promoted in MLflow but not refreshed in Mirai | Operator must click/call refresh | Not active in Mirai yet |
-| Champion reconciled in Mirai | `Approved champion active` | Prediction and Design Studio use the reconciled champion only |
+| Training request pending | App-dev training/export controls visible | No model served |
+| MLflow run exists but no champion loaded | **Load champion model** app-dev step is available | Prediction and batch recommendations fail closed |
+| Champion loaded in Mirai | `Champion loaded` / `Approved champion active` | Prediction and Design Studio use the loaded ONNX champion only |
+
+Model Quality uses static training artifacts such as `metrics_summary.json`, `candidate_comparison.csv`, and `predictions.csv`. Design Studio uses the served champion for live deterministic predictions and can overlay training points from `predictions.csv`.
 
 ## Operator how-to
 
-1. In Mirai, upload data and approve preprocessing.
+1. In Mirai, upload a Mirai contract ZIP and approve metadata/preprocessing.
 2. Create a training request.
 3. Export the approved training package.
 4. On the local/on-prem machine, use direnv and run exported-package training:
@@ -134,21 +121,20 @@ Mirai does not automatically promote challengers based on metrics.
    ```
 
 5. Inspect the remote MLflow run and registered model.
-6. Confirm the selected candidate is registered as `challenger`.
-7. In Mirai, import the MLflow run for the matching training request.
-8. Review Model Quality candidate artifacts.
-9. In MLflow, manually promote the intended registered model version to alias `champion`.
-10. In Mirai, click **Refresh approved model** or call:
+6. In MLflow, manually promote the intended registered model version to alias `champion`.
+7. In Mirai, click **Load champion model** or call:
 
-    ```text
-    POST /projects/{project_id}/models/refresh-approved-champion
-    ```
+   ```text
+   POST /projects/{project_id}/models/load-champion-model
+   ```
 
-11. Confirm the UI shows `Approved champion active` and Design Studio/prediction endpoints use the reconciled champion.
+8. Confirm the UI shows `Champion loaded` / `Approved champion active`.
+9. Confirm Model Quality plots populate from `predictions.csv`.
+10. Confirm Design Studio predictions and batch recommendations use the loaded champion.
 
 ## Cleanup notes
 
-Retained:
+Retained live paths:
 
 ```text
 backend/ml_lifecycle/ingesting/generic_tabular_doe/
@@ -156,11 +142,4 @@ backend/ml_lifecycle/training/generic_tabular_doe/
 backend/ml_lifecycle/training/run_exported_package.py
 ```
 
-Deferred cleanup candidates only:
-
-```text
-backend/ml_lifecycle/ingesting/fuel_cell_doe_demo/
-backend/ml_lifecycle/training/fuel_cell_doe_demo/
-backend/ml_lifecycle/entrypoints/*real_fuel_cell*
-backend/ml_lifecycle/ingesting/extractors/pem_cell_zip_bundle.py
-```
+Fuel-cell-specific extractor/adapter paths are not part of the generic live path and should remain removed or quarantined once tests confirm uploaded pilot ZIPs are Mirai contract packages.

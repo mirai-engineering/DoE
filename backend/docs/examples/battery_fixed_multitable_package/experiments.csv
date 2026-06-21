@@ -1,0 +1,4 @@
+experiment_id,campaign_id,cell_format,chemistry,operator
+BAT-EXP-001,BAT-QA-2026-01,pouch,NMC811,Alex
+BAT-EXP-002,BAT-QA-2026-01,pouch,NMC811,Sam
+BAT-EXP-003,BAT-QA-2026-02,cylindrical,LFP,Riley

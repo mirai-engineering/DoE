@@ -44,3 +44,30 @@ def test_design_predictions_artifact_uses_lazy_prediction_path(monkeypatch, tmp_
 
     assert list(frame.columns) == ["project_id", "model_name", "y1_true", "y1_pred"]
     assert len(frame) == 1
+
+
+def test_recommendations_fail_without_loaded_champion_and_pass_with_workspace(monkeypatch):
+    from app.services import recommendation
+    from app.schemas import RecommendRequest
+
+    schema = {
+        "inputs": [{"name": "x1", "min": 0, "max": 1}],
+        "outputs": [{"name": "y1", "direction": "maximize"}],
+    }
+    monkeypatch.setattr(recommendation, "get_project_schema", lambda project_id, workspace_id=None: schema)
+
+    def fake_predict_rows(project_id, rows, *, warn_near_bounds=True, workspace_id=None):
+        if workspace_id is None:
+            raise FileNotFoundError("load champion model before serving")
+        return [{"y1": row["x1"]} for row in rows], [], "champion-v1"
+
+    monkeypatch.setattr(recommendation, "predict_rows", fake_predict_rows)
+    request = RecommendRequest(objective_weights={"y1": 1.0}, n_candidates=16, top_k=3, random_seed=1)
+
+    import pytest
+    with pytest.raises(FileNotFoundError, match="load champion"):
+        recommendation.recommend_experiments("demo_project", request)
+
+    result = recommendation.recommend_experiments("demo_project", request, workspace_id="fraunhofer")
+    assert result.model_version == "champion-v1"
+    assert len(result.recommendations) == 3

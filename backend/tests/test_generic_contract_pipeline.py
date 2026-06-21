@@ -96,7 +96,7 @@ def test_generic_training_logs_each_candidate_and_registers_only_best(tmp_path: 
     challenger = client.get_model_version_by_alias("doe_surrogate_generic_widget_mlflow", "challenger")
     assert challenger.version == versions[0].version
     logged_models = client.search_logged_models([experiment.experiment_id])
-    assert {model.name for model in logged_models} == {"sklearn_pipeline"}
+    assert {model.name for model in logged_models} == {"sklearn_pipeline", "onnx_model"}
     mlp_run = next(run for run in runs if run.data.tags.get("model_name") == "mlp")
     artifacts_for_mlp = client.list_artifacts(mlp_run.info.run_id, "onnx")
     assert {artifact.path for artifact in artifacts_for_mlp} == {"onnx/mlp.onnx", "onnx/mlp_onnx_report.json"}

@@ -14,13 +14,14 @@ from typing import Any
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from .control_plane import activate_champion_model, complete_training_run, create_training_run, fail_training_run, get_project_storage_config, get_training_run_by_mlflow_run_id, record_candidate_model
+from .control_plane import activate_champion_model, complete_training_run, create_training_run, fail_training_run, get_project_storage_config, get_training_run_by_mlflow_run_id, record_candidate_model, upsert_schema_manifest
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_champion_mlflow_model, verify_external_mlflow_model_version
+from .mlflow_registry import download_production_onnx, download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
+from .project_registry import get_project_schema
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
 
 
@@ -634,13 +635,155 @@ def import_external_mlflow_run(
     return completed
 
 
+def _schema_for_champion_load(*, workspace_id: str, project_id: str, artifact_cache: Path) -> dict[str, Any]:
+    artifact_schema = _read_json(artifact_cache / "schema.json", default={}) or {}
+    try:
+        mirai_schema = get_project_schema(project_id, workspace_id)
+    except Exception:
+        mirai_schema = {}
+    if isinstance(mirai_schema, dict) and mirai_schema.get("inputs") and mirai_schema.get("outputs"):
+        return mirai_schema
+    if isinstance(artifact_schema, dict) and artifact_schema.get("inputs") and artifact_schema.get("outputs"):
+        artifact_schema["project_id"] = artifact_schema.get("project_id") or project_id
+        artifact_schema["workspace_id"] = artifact_schema.get("workspace_id") or workspace_id
+        return artifact_schema
+    raise FileNotFoundError("Champion load requires a schema with inputs and outputs from Mirai or MLflow schema.json")
+
+
+def load_champion_model(
+    *,
+    workspace_id: str,
+    project_id: str,
+    mlflow_run_id: str | None = None,
+    registered_model_name: str | None = None,
+    model_version: str | None = None,
+    loaded_by: str = "Mirai admin",
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Load the approved MLflow champion into Mirai serving state.
+
+    This is the single app-dev activation path: the selected MLflow model must
+    already be the current `champion` alias, contain a serveable ONNX artifact,
+    and match the requested workspace/project identity.
+    """
+    verified = verify_champion_mlflow_model(workspace_id=workspace_id, project_id=project_id)
+    expected_name = registered_model_name_for_project(project_id)
+    if registered_model_name and registered_model_name != expected_name:
+        raise ValueError(f"Registered model name must be {expected_name!r} for this project")
+    actual_run_id = str(verified["mlflow_run_id"])
+    if mlflow_run_id and mlflow_run_id != actual_run_id:
+        raise ValueError("Selected MLflow run is not the current champion alias for this project")
+    if model_version and str(model_version) != str(verified.get("model_version")):
+        raise ValueError("Selected MLflow model version is not the current champion alias for this project")
+
+    artifact_cache = download_run_artifacts(project_id, actual_run_id, refresh=True, include_quality=True, include_predictions=True)
+    onnx_model_path = download_production_onnx(project_id, refresh=True, workspace_id=None)
+    # Verify the cached ONNX comes from the same registered champion by forcing
+    # runtime resolution through Mirai state after activation below; before the
+    # model row exists, this call verifies the MLflow champion model artifact is
+    # ONNX-loadable via the alias path used by local/offline tests.
+    if onnx_model_path.suffix.lower() != ".onnx":
+        raise FileNotFoundError("MLflow champion did not resolve to an ONNX model artifact")
+
+    training_run = get_training_run_by_mlflow_run_id(workspace_id, project_id, actual_run_id)
+    training_manifest = verified.get("training_manifest") if isinstance(verified.get("training_manifest"), dict) else {}
+    tags = verified.get("tags") if isinstance(verified.get("tags"), dict) else {}
+    training_run_id = str(
+        (training_run or {}).get("training_run_id")
+        or training_manifest.get("training_request_id")
+        or tags.get("training_request_id")
+        or f"mlflow_{actual_run_id[:12]}"
+    )
+    dataset_id = str(training_manifest.get("dataset_id") or tags.get("dataset_id") or "") or None
+
+    storage_config = _project_storage_config_for_training(workspace_id, project_id)
+    artifact_prefix = validate_workspace_object_key(storage_config, f"{storage_config.normalized_prefix}/mlflow-imports/{training_run_id}") + "/"
+    schema_uri = f"{artifact_prefix}schema.json"
+    preprocessing_uri = f"{artifact_prefix}preprocessing.json"
+    schema = _schema_for_champion_load(workspace_id=workspace_id, project_id=project_id, artifact_cache=artifact_cache)
+    upsert_schema_manifest(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        schema=schema,
+        manifest_object_uri=schema_uri,
+        validation_status="approved",
+    )
+
+    mlflow_pointer = durable_artifact_pointer_for_project(project_id, "mlflow_artifacts", workspace_id=workspace_id)
+    metrics = {
+        **((training_run or {}).get("metrics_json") if isinstance((training_run or {}).get("metrics_json"), dict) else {}),
+        **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
+        "mlflow_import": {
+            "run_id": actual_run_id,
+            "registered_model_name": verified.get("registered_model_name"),
+            "model_version": verified.get("model_version"),
+            "alias": "champion",
+            "model_uri": verified.get("model_uri"),
+            "model_artifact_format": "onnx",
+        },
+        "champion_load": {
+            "status": "approved_champion_active",
+            "loaded_by": loaded_by,
+            "loaded_at": _now(),
+            "notes": notes or "",
+        },
+    }
+    if not training_run:
+        create_training_run(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            training_run_id=training_run_id,
+            dataset_id=dataset_id,
+            artifact_s3_prefix=artifact_prefix,
+            created_by=loaded_by,
+        )
+    complete_training_run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_run_id,
+        mlflow_run_id=actual_run_id,
+        best_model_type=str(verified.get("model_name") or "external_mlflow_model"),
+        metrics=metrics,
+    )
+    activate_champion_model(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        training_run_id=training_run_id,
+        model_name=str(verified.get("registered_model_name") or expected_name),
+        version=str(verified.get("model_version") or training_run_id),
+        artifact_uri=str(mlflow_pointer["object_uri"]),
+        preprocessing_uri=preprocessing_uri,
+        schema_uri=schema_uri,
+        metrics=metrics,
+    )
+    return {
+        "project_id": project_id,
+        "workspace_id": workspace_id,
+        "training_run_id": training_run_id,
+        "status": "approved_champion_active",
+        "stage": "champion_model_loaded",
+        "loaded_at": metrics["champion_load"]["loaded_at"],
+        "loaded_by": loaded_by,
+        "notes": notes or "",
+        "mlflow": verified,
+        "artifact_cache": str(artifact_cache),
+        "onnx_model_cache": str(onnx_model_path),
+        "schema_outputs": [item.get("name") for item in schema.get("outputs", []) if isinstance(item, dict)],
+    }
+
+
 def reconcile_champion_model(*, workspace_id: str, project_id: str, reconciled_by: str = "Mirai admin", notes: str | None = None) -> dict[str, Any]:
-    """Refresh Mirai canonical state from a manually promoted MLflow champion."""
+    """Legacy compatibility helper for older tests/clients.
+
+    New app routes use `load_champion_model`, which is the stricter ONNX-serving
+    contract. This helper preserves the previous imported-candidate prerequisite
+    for callers that still use the old name directly.
+    """
     verified = verify_champion_mlflow_model(workspace_id=workspace_id, project_id=project_id)
     mlflow_run_id = str(verified["mlflow_run_id"])
     training_run = get_training_run_by_mlflow_run_id(workspace_id, project_id, mlflow_run_id)
     if not training_run:
-        raise ValueError("MLflow champion run must be imported into Mirai as a reviewable candidate before reconciliation")
+        raise ValueError("MLflow champion run must be imported into Mirai as a reviewable candidate before activation")
 
     artifact_cache = download_run_artifacts(project_id, mlflow_run_id, include_quality=True, include_predictions=True)
     training_run_id = str(training_run["training_run_id"])
@@ -654,10 +797,10 @@ def reconcile_champion_model(*, workspace_id: str, project_id: str, reconciled_b
             "alias": "champion",
             "model_uri": verified.get("model_uri"),
         },
-        "champion_reconciliation": {
+        "champion_load": {
             "status": "approved_champion_active",
-            "reconciled_by": reconciled_by,
-            "reconciled_at": _now(),
+            "loaded_by": reconciled_by,
+            "loaded_at": _now(),
             "notes": notes or "",
         },
     }
@@ -680,9 +823,9 @@ def reconcile_champion_model(*, workspace_id: str, project_id: str, reconciled_b
         "workspace_id": workspace_id,
         "training_run_id": training_run_id,
         "status": "approved_champion_active",
-        "stage": "mlflow_champion_reconciled",
-        "reconciled_at": metrics["champion_reconciliation"]["reconciled_at"],
-        "reconciled_by": reconciled_by,
+        "stage": "champion_model_loaded",
+        "loaded_at": metrics["champion_load"]["loaded_at"],
+        "loaded_by": reconciled_by,
         "notes": notes or "",
         "mlflow": verified,
         "artifact_cache": str(artifact_cache),

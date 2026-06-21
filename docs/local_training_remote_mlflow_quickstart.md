@@ -55,6 +55,7 @@ Training should:
 
 - fail closed if `MLFLOW_TRACKING_URI` is empty or local;
 - log run artifacts to remote MLflow;
+- export/register the selected model as ONNX for serving;
 - register a model named like:
 
 ```text
@@ -62,6 +63,8 @@ doe_surrogate_<project_id>
 ```
 
 - attach project identity metadata/tags so the app can safely resolve the model for the matching workspace/project.
+
+After training, promote the intended model version to MLflow alias `champion`, then in Mirai use the app-dev **Load champion model** step. This single action verifies artifacts and identity, loads the ONNX champion, backfills runtime schema state when needed, and unlocks Model Quality/Design Studio serving.
 
 ## 4. Verify locally
 

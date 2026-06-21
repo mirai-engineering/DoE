@@ -125,6 +125,37 @@ def get_real_cell_options(project_id: str) -> dict[str, Any]:
     return {"project_id": project_id, "real_cell_options": rows}
 
 
+def _training_overlay(project_id: str, x_variable: str | None, output_variables: list[str] | None, group_by: str | None = None, workspace_id: str | None = None) -> dict[str, Any] | None:
+    if not x_variable or not output_variables:
+        return None
+    try:
+        frame = _predictions_artifact(project_id, workspace_id)
+    except FileNotFoundError:
+        return None
+    true_columns = [f"{name}_true" for name in output_variables if f"{name}_true" in frame.columns]
+    if x_variable not in frame.columns or not true_columns:
+        return None
+    columns = [x_variable, *true_columns]
+    if group_by and group_by in frame.columns:
+        columns.append(group_by)
+    if "split" in frame.columns and "split" not in columns:
+        columns.append("split")
+    subset = frame[columns].dropna(subset=[x_variable, *true_columns]).drop_duplicates().sort_values(x_variable)
+    if len(subset) > 1200:
+        subset = subset.iloc[np.linspace(0, len(subset) - 1, 1200).round().astype(int)]
+    rows = []
+    for _, row in subset.iterrows():
+        item: dict[str, Any] = {str(x_variable): float(row[x_variable])}
+        for column in true_columns:
+            item[column] = float(row[column])
+        if group_by and group_by in row:
+            item[group_by] = str(row[group_by])
+        if "split" in row:
+            item["split"] = str(row["split"])
+        rows.append(item)
+    return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "rows": rows}
+
+
 def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variable: str | None = None, output_variables: list[str] | None = None) -> dict[str, Any] | None:
     if not selection:
         return None
@@ -202,7 +233,11 @@ def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str |
             return None, ["Selected response plot is missing a valid sweep input or output variable."], "unknown"
         points = int(preset.get("points") or 60)
         points = max(10, min(points, 200))
-        grid = np.linspace(float(input_schema.get("min", 0)), float(input_schema.get("max", 1)), points)
+        min_value = float(preset.get("x_min") if preset.get("x_min") is not None else input_schema.get("min", 0))
+        max_value = float(preset.get("x_max") if preset.get("x_max") is not None else input_schema.get("max", 1))
+        if min_value > max_value:
+            min_value, max_value = max_value, min_value
+        grid = np.linspace(min_value, max_value, points)
         sweep_rows = [{**inputs, str(x_variable): float(value)} for value in grid]
         predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
         rows = []
@@ -252,7 +287,15 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
         y_variable = (curve_recipe.get("y") or {}).get("variable")
         series_variables = [item.get("variable") for item in curve_recipe.get("series", []) if isinstance(item, dict) and item.get("variable")]
         comparison_outputs = [item for item in [y_variable, *series_variables] if item]
-    comparison = _real_cell_curve(project_id, payload.get("comparison_real_cell"), str(comparison_x), [str(item) for item in comparison_outputs] if comparison_outputs else None)
+    comparison_output_names = [str(item) for item in comparison_outputs] if comparison_outputs else None
+    comparison = _real_cell_curve(project_id, payload.get("comparison_real_cell"), str(comparison_x), comparison_output_names)
+    training_overlay = _training_overlay(
+        project_id,
+        str(comparison_x),
+        comparison_output_names,
+        group_by=str(payload.get("training_overlay_group_by") or "") or None,
+        workspace_id=workspace_id,
+    )
     return {
         "project_id": project_id,
         "source": "served_model_prediction",
@@ -262,6 +305,7 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
         "curve": curve,
         "warnings": [*point_warnings, *curve_warnings],
         "comparison_real_cell": comparison,
+        "training_overlay": training_overlay,
     }
 
 

@@ -115,6 +115,17 @@ def are_models_loaded() -> bool:
     return all(any(key.endswith(f"::{project['id']}") for key in _MODEL_CACHE) for project in projects)
 
 
+def clear_model_cache(project_id: str | None = None, workspace_id: str | None = None) -> None:
+    if project_id is None:
+        _MODEL_CACHE.clear()
+        return
+    cache_key = _cache_key(project_id, workspace_id)
+    _MODEL_CACHE.pop(cache_key, None)
+    if workspace_id is None:
+        for key in [key for key in _MODEL_CACHE if key.endswith(f"::{project_id}")]:
+            _MODEL_CACHE.pop(key, None)
+
+
 def get_model_bundle(project_id: str, workspace_id: str | None = None) -> ProjectModel:
     return load_model(project_id, workspace_id)
 

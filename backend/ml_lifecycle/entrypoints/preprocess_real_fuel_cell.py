@@ -1,7 +1,11 @@
-from __future__ import annotations
+"""Deprecated fuel-cell-specific entrypoint.
 
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.preprocess import *  # noqa: F401,F403
-from ml_lifecycle.ingesting.fuel_cell_doe_demo.preprocess import main
+The live Mirai app uses generic_tabular_doe and Mirai contract ZIP packages only.
+"""
+
+
+def main() -> None:
+    raise SystemExit("Deprecated fuel-cell entrypoint is quarantined; use generic_tabular_doe contract/training flow.")
 
 
 if __name__ == "__main__":

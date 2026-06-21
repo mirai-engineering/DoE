@@ -182,11 +182,10 @@ docs/railway-level-2-pilot.md
 │   │   ├── MLFLOW_README.md
 │   │   ├── ingesting/
 │   │   │   ├── generic_tabular_doe/        # Generic contract validation/preprocessing
-│   │   │   ├── extractors/                 # Historical/offline migration helpers
-│   │   │   └── fuel_cell_doe_demo/         # Historical/offline fuel-cell reference scripts
+│   │   │   └── extractors/                 # Generic extractor extension point
 │   │   ├── training/
-│   │   │   ├── generic_tabular_doe/        # Generic candidate training + MLflow
-│   │   │   └── fuel_cell_doe_demo/         # Historical/offline fuel-cell reference scripts
+│   │   │   └── generic_tabular_doe/        # Generic candidate training + ONNX/MLflow
+│   │   ├── deprecated_fuel_cell_reference/ # Quarantined historical reference code
 │   │   └── entrypoints/                    # CLI entrypoints for lifecycle steps
 │   ├── tests/
 │   ├── pyproject.toml

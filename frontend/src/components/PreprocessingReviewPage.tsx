@@ -8,8 +8,7 @@ import {
   exportApprovedTrainingPackage,
   getDomainMetadata,
   getPreprocessingEdaSummary,
-  importExternalMlflowRun,
-  refreshApprovedChampion,
+  loadChampionModel,
   getPreprocessingReport,
   getPreprocessingStatus,
   getTrainingStatus,
@@ -368,29 +367,18 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
-  async function handleImportExternalMlflowRun() {
-    if (!selectedSession || !trainingRequest || !mlflowImport.runId.trim()) return
-    await runAction('import-mlflow-run', async () => {
-      const status = await importExternalMlflowRun(selectedSession, trainingRequest.training_request_id, {
-        mlflow_run_id: mlflowImport.runId.trim(),
+  async function handleLoadChampionModel() {
+    if (!schema?.project_id) return
+    await runAction('load-champion-model', async () => {
+      const status = await loadChampionModel(schema.project_id, {
+        mlflow_run_id: mlflowImport.runId.trim() || undefined,
         registered_model_name: mlflowImport.registeredModelName.trim() || undefined,
         model_version: mlflowImport.modelVersion.trim() || undefined,
-        alias: mlflowImport.alias.trim() || 'challenger',
-        notes: 'Imported from Preprocessing Review UI.',
+        notes: 'Loaded from Preprocessing Review UI after MLflow champion approval.',
       })
       setTrainingStatus(status)
-      setTrainingRequest((current) => current ? { ...current, status: 'candidate_ready_for_review' } : current)
-      setImportMessage('MLflow run imported and validated. Candidate is ready for review; promote champion in MLflow, then refresh the approved model in Mirai.')
-    })
-  }
-
-  async function handleRefreshApprovedChampion() {
-    if (!schema?.project_id) return
-    await runAction('refresh-approved-champion', async () => {
-      const status = await refreshApprovedChampion(schema.project_id, { notes: 'Refreshed from Preprocessing Review UI after MLflow champion promotion.' })
-      setTrainingStatus(status)
       setTrainingRequest((current) => current ? { ...current, status: 'approved_champion_active' } : current)
-      setImportMessage('Approved champion is active in Mirai. Model Quality and Design Studio now use the reconciled champion.')
+      setImportMessage('Champion model loaded. Model Quality and Design Studio now use the served champion.')
     })
   }
 
@@ -401,7 +389,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
     if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
     if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
-    if (candidateReady) return { label: busy === 'refresh-approved-champion' ? 'Refreshing...' : 'Refresh approved model', disabled: Boolean(busy), run: handleRefreshApprovedChampion }
+    if (candidateReady || trainingCompleted) return { label: busy === 'load-champion-model' ? 'Loading...' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
     return { label: 'Open model quality', disabled: false, run: onOpenModelQuality }
   })()
 
@@ -416,7 +404,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Prepare this project for training</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Confirm the metadata, run preprocessing, then start the recommended training path.</p>
           </div>
-          <StatusPill tone={championActive || candidateReady ? 'green' : actionTone(preprocessingStatus.status)}>{championActive ? 'approved champion active' : candidateReady ? 'candidate ready for review' : trainingCompleted ? 'training complete' : preprocessingStatus.status || 'not started'}</StatusPill>
+          <StatusPill tone={championActive ? 'green' : trainingCompleted ? 'amber' : actionTone(preprocessingStatus.status)}>{championActive ? 'champion loaded' : trainingCompleted ? 'ready to load champion' : preprocessingStatus.status || 'not started'}</StatusPill>
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -453,7 +441,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               {championActive
                 ? 'Approved champion is active for serving, Model Quality, and Design Studio.'
                 : candidateReady
-                  ? 'Candidate artifacts are ready for review. Promote the intended version to champion in MLflow, then refresh the approved model.'
+                  ? 'Training artifacts are ready. Promote the intended version to champion in MLflow, then load the champion model here.'
                   : trainingCompleted
                     ? 'Training artifacts are ready for review.'
                 : !metadataApproved
@@ -652,7 +640,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Recommended training</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Use the default Mirai training path unless this project needs a custom sweep.</p>
           </div>
-          <StatusPill tone={championActive || candidateReady ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{championActive ? 'approved champion active' : candidateReady ? 'candidate ready for review' : trainingCompleted ? 'complete' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
+          <StatusPill tone={championActive ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{championActive ? 'champion loaded' : trainingCompleted ? 'ready to load champion' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
         </div>
 
         {trainingRequest && (
@@ -666,7 +654,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
-                <div className="font-semibold">Export approved training package</div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">Export approved training package</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">App dev step</span></div>
                 <p className="mt-1 leading-6">Download the approved, versioned dataset package for authorized local or on-premise training. Export activity is recorded in the project audit trail.</p>
                 <p className="mt-2 font-semibold leading-6">This package leaves the managed Mirai environment. Store and handle it according to your workspace data-governance policy.</p>
                 {exportMessage && <p className="mt-2 text-emerald-800">{exportMessage}</p>}
@@ -677,37 +665,26 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
         )}
-        {selectedSession && preprocessingApproved && trainingRequest && !trainingCompleted && (
+        {selectedSession && preprocessingApproved && trainingRequest && !championActive && (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
-                <div className="font-semibold text-slate-950">Import completed MLflow training run</div>
-                <p className="mt-1 leading-6">Use this when training was run locally or on-prem from an approved Mirai package. Mirai verifies the MLflow run tags and required artifacts before marking this request complete.</p>
-                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Run ID must match this project, dataset, session, and training request.</p>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">App dev step</span></div>
+                <p className="mt-1 leading-6">After local or on-prem training, promote the approved MLflow model version to <code>champion</code>, then load it here. Mirai verifies identity, required artifacts, ONNX serving, and activates the champion in one step.</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Optional fields must match the current MLflow champion for this project.</p>
                 {importMessage && <p className="mt-2 text-emerald-700">{importMessage}</p>}
               </div>
               <div className="grid w-full gap-3 lg:w-[30rem]">
-                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="MLflow run ID" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
-                <div className="grid gap-3 md:grid-cols-3">
-                  <input value={mlflowImport.alias} onChange={(event) => setMlflowImport((current) => ({ ...current, alias: event.target.value }))} placeholder="Alias, e.g. challenger" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
-                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Version optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="Champion MLflow run ID optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                <div className="grid gap-3 md:grid-cols-2">
+                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Champion version optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
                   <input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
                 </div>
-                <button type="button" onClick={handleImportExternalMlflowRun} disabled={!mlflowImport.runId.trim() || Boolean(busy)} className="rounded-full border border-slate-950 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-950 disabled:opacity-45">
-                  {busy === 'import-mlflow-run' ? 'Importing...' : 'Import and validate MLflow run'}
+                <button type="button" onClick={handleLoadChampionModel} disabled={Boolean(busy)} className="rounded-full border border-slate-950 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-950 disabled:opacity-45">
+                  {busy === 'load-champion-model' ? 'Loading...' : 'Load champion model'}
                 </button>
               </div>
             </div>
-          </div>
-        )}
-        {candidateReady && (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-            <div className="font-semibold">Candidate ready for review</div>
-            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
-            <p className="mt-2">Promote the intended version to <code>champion</code> in MLflow, then refresh the approved model in Mirai.</p>
-            <button type="button" onClick={handleRefreshApprovedChampion} disabled={Boolean(busy)} className="mt-3 rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
-              {busy === 'refresh-approved-champion' ? 'Refreshing...' : 'Refresh approved model'}
-            </button>
           </div>
         )}
         {championActive && (

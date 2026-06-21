@@ -148,17 +148,33 @@ def _cache_matches(dst: Path, version: str | None) -> bool:
     return marker.exists() and marker.read_text(encoding="utf-8").strip() == str(version)
 
 
+def _onnx_cache_matches(dst: Path, version: str | None) -> bool:
+    if not dst.exists() or not list(dst.rglob("*.onnx")):
+        return False
+    if version is None:
+        return True
+    marker = dst / ".model_version"
+    return marker.exists() and marker.read_text(encoding="utf-8").strip() == str(version)
+
+
 def _candidate_runtime_workspaces() -> list[str]:
     configured = os.getenv("MIRAI_TENANT_WORKSPACE_IDS") or os.getenv("MIRAI_ALLOWED_WORKSPACE_IDS")
     values = [item.strip() for item in configured.split(",") if item.strip()] if configured else ["fraunhofer", "test-client-isolated"]
     return list(dict.fromkeys(values))
 
 
-def _model_file_from_cache(dst: Path) -> Path | None:
+def _onnx_model_file_from_cache(dst: Path) -> Path | None:
     candidates = sorted(dst.rglob("*.onnx"))
-    if candidates:
-        preferred = [path for path in candidates if path.name == "model.onnx"]
-        return preferred[0] if preferred else candidates[0]
+    if not candidates:
+        return None
+    preferred = [path for path in candidates if path.name == "model.onnx"]
+    return preferred[0] if preferred else candidates[0]
+
+
+def _model_file_from_cache(dst: Path) -> Path | None:
+    onnx_candidate = _onnx_model_file_from_cache(dst)
+    if onnx_candidate is not None:
+        return onnx_candidate
     sklearn_candidates = sorted([*dst.rglob("model.pkl"), *dst.rglob("*.joblib")])
     if sklearn_candidates:
         preferred = [path for path in sklearn_candidates if path.name == "model.pkl"]
@@ -198,16 +214,17 @@ def download_production_onnx(project_id: str, *, refresh: bool = False, workspac
     if imported is not None:
         imported_uri, imported_run_id = imported
         dst = base / "imported" / imported_run_id
-        if not _cache_matches(dst, imported_run_id):
+        if not _onnx_cache_matches(dst, imported_run_id):
             _download_model_uri(imported_uri, dst, mlflow, version=imported_run_id)
-        imported_model = _model_file_from_cache(dst)
+        imported_model = _onnx_model_file_from_cache(dst)
         if imported_model is not None:
             return imported_model
+        raise FileNotFoundError(f"Reconciled Mirai champion model {imported_uri} did not contain a required ONNX artifact")
     if workspace_id is None:
         # Legacy/offline reference path: historical tests and packaged demos can
         # still resolve mutable MLflow aliases outside the authenticated runtime
         # workspace flow. Production app routes pass workspace_id and therefore
-        # require reconciled Mirai champion state above.
+        # require loaded Mirai champion state above.
         selected: tuple[str, str, str] | None = None
         for alias in ["champion", "challenger", "baseline"]:
             try:
@@ -226,7 +243,7 @@ def download_production_onnx(project_id: str, *, refresh: bool = False, workspac
             cached_model = _model_file_from_cache(dst)
             if cached_model is not None:
                 return cached_model
-    raise FileNotFoundError(f"No reconciled Mirai champion model found for {registered_model_name}; refresh approved champion before serving")
+    raise FileNotFoundError(f"No loaded Mirai champion model found for {registered_model_name}; load champion model before serving")
 
 
 def download_aliased_run_artifacts(project_id: str, *, alias: str = "challenger", refresh: bool = False, include_quality: bool = False, include_predictions: bool = False) -> Path:
@@ -422,8 +439,8 @@ def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
         model_uri = f"models:/{expected_name}/{version.version}"
         model_dst = Path(model_tmp) / "model"
         _download_model_uri(model_uri, model_dst, mlflow, version=str(version.version))
-        if _model_file_from_cache(model_dst) is None:
-            raise FileNotFoundError(f"MLflow champion model {model_uri} did not contain an ONNX, model.pkl, or joblib artifact")
+        if _onnx_model_file_from_cache(model_dst) is None:
+            raise FileNotFoundError(f"MLflow champion model {model_uri} did not contain a required ONNX artifact for serving")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         manifest_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="training_manifest.json", dst_path=tmpdir)

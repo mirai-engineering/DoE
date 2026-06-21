@@ -342,12 +342,25 @@ def _log_generic_mlflow(
                 mlflow.sklearn.log_model(
                     joblib.load(candidate["model_path"]),
                     name="sklearn_pipeline",
-                    registered_model_name=registered_name if is_selected else None,
+                    registered_model_name=None,
                     metadata={"quality_label": "generic_tabular_doe", "model_family": model_family, "model_name": model_name},
                     tags=lifecycle_tags,
                     model_type=model_family,
                 )
                 if is_selected:
+                    if not onnx_path or not Path(str(onnx_path)).exists():
+                        raise FileNotFoundError(f"Selected model {model_name} is missing required ONNX export for MLflow registration")
+                    import onnx
+
+                    onnx_model = onnx.load(str(onnx_path), load_external_data=True)
+                    mlflow.onnx.log_model(
+                        onnx_model,
+                        name="onnx_model",
+                        registered_model_name=registered_name,
+                        metadata={"quality_label": "generic_tabular_doe", "model_family": model_family, "model_name": model_name},
+                        tags=lifecycle_tags,
+                        model_type=model_family,
+                    )
                     versions = client.search_model_versions(f"name = '{registered_name}' and run_id = '{run.info.run_id}'")
                     if versions:
                         version = sorted(versions, key=lambda item: int(item.version))[-1]
@@ -593,6 +606,109 @@ def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *
     return report
 
 
+def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.DataFrame) -> dict[str, Any]:
+    """Export simple sklearn generic candidates as raw-feature ONNX models.
+
+    The generic training candidates are intentionally constrained to mean baseline,
+    linear regression, and ridge wrapped in SimpleImputer + MinMaxScaler. This
+    exporter mirrors that fitted pipeline with a tiny Torch module so every
+    selected champion-capable candidate can be served through ONNX.
+    """
+    import torch
+    import torch.nn as nn
+
+    onnx_path.parent.mkdir(parents=True, exist_ok=True)
+    sample = sample_x.apply(pd.to_numeric, errors="coerce")
+    dummy_input = torch.tensor(sample.fillna(0.0).head(min(len(sample), 8)).to_numpy(dtype=np.float32), dtype=torch.float32)
+    if dummy_input.numel() == 0:
+        dummy_input = torch.zeros((1, sample_x.shape[1]), dtype=torch.float32)
+
+    steps = getattr(model, "named_steps", {})
+    imputer = steps.get("simpleimputer")
+    scaler = steps.get("minmaxscaler")
+    estimator = next((steps.get(name) for name in ("linearregression", "ridge", "dummyregressor") if steps.get(name) is not None), None)
+    if imputer is None or scaler is None or estimator is None:
+        raise TypeError("Generic sklearn ONNX export only supports SimpleImputer + MinMaxScaler + linear/ridge/baseline pipelines")
+
+    input_median = np.asarray(imputer.statistics_, dtype=np.float32)
+    input_scale = np.asarray(scaler.scale_, dtype=np.float32)
+    input_offset = np.asarray(scaler.min_, dtype=np.float32)
+
+    if isinstance(estimator, DummyRegressor):
+        constant = np.asarray(estimator.constant_, dtype=np.float32).reshape(1, -1)
+
+        class _SklearnModule(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("constant", torch.tensor(constant, dtype=torch.float32))
+
+            def forward(self, raw_features):  # noqa: ANN001 - torch export signature
+                return self.constant.repeat(raw_features.shape[0], 1)
+
+    elif isinstance(estimator, (LinearRegression, Ridge)):
+        coef = np.asarray(estimator.coef_, dtype=np.float32)
+        if coef.ndim == 1:
+            coef = coef.reshape(1, -1)
+        intercept = np.asarray(estimator.intercept_, dtype=np.float32).reshape(1, -1)
+
+        class _SklearnModule(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("input_median", torch.tensor(input_median, dtype=torch.float32))
+                self.register_buffer("input_scale", torch.tensor(input_scale, dtype=torch.float32))
+                self.register_buffer("input_offset", torch.tensor(input_offset, dtype=torch.float32))
+                self.register_buffer("coef", torch.tensor(coef, dtype=torch.float32))
+                self.register_buffer("intercept", torch.tensor(intercept, dtype=torch.float32))
+
+            def forward(self, raw_features):  # noqa: ANN001 - torch export signature
+                clean = torch.where(torch.isnan(raw_features), self.input_median, raw_features)
+                scaled_features = clean * self.input_scale + self.input_offset
+                return torch.matmul(scaled_features, self.coef.t()) + self.intercept
+
+    else:
+        raise TypeError(f"Unsupported generic sklearn estimator for ONNX export: {type(estimator).__name__}")
+
+    module = _SklearnModule().eval()
+    with torch.no_grad():
+        torch.onnx.export(
+            module,
+            dummy_input,
+            str(onnx_path),
+            input_names=["raw_features"],
+            output_names=["raw_outputs"],
+            dynamic_axes={"raw_features": {0: "batch"}, "raw_outputs": {0: "batch"}},
+            opset_version=17,
+            dynamo=False,
+        )
+    try:
+        import onnx
+
+        onnx_model = onnx.load(str(onnx_path), load_external_data=True)
+        onnx.checker.check_model(onnx_model)
+        onnx.save_model(onnx_model, str(onnx_path), save_as_external_data=False)
+        sidecar_path = onnx_path.with_suffix(onnx_path.suffix + ".data")
+        if sidecar_path.exists():
+            sidecar_path.unlink()
+    except ImportError:
+        pass
+    report: dict[str, Any] = {"path": str(onnx_path), "input_name": "raw_features", "output_name": "raw_outputs", "opset_version": 17, "verified": False}
+    try:
+        import onnxruntime as ort
+
+        session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        onnx_pred = session.run([session.get_outputs()[0].name], {session.get_inputs()[0].name: dummy_input.numpy()})[0]
+        python_pred = np.asarray(model.predict(sample.head(len(dummy_input))), dtype=np.float32)
+        if python_pred.ndim == 1:
+            python_pred = python_pred.reshape(-1, 1)
+        max_abs_diff = float(np.max(np.abs(python_pred - np.asarray(onnx_pred, dtype=np.float32))))
+        report.update({"verified": True, "max_abs_diff": max_abs_diff, "sample_rows": int(len(dummy_input))})
+        if max_abs_diff > 1e-4:
+            raise RuntimeError(f"Generic sklearn ONNX verification failed; max diff {max_abs_diff:.3e} exceeds tolerance")
+    except ImportError:
+        report["verification_warning"] = "onnxruntime unavailable; ONNX checker passed but runtime parity was not verified"
+    return report
+
+
 def _candidate_models(config: dict[str, Any] | None = None) -> list[tuple[str, Any]]:
     config = config or {}
     models: list[tuple[str, Any]] = [("mean_baseline", DummyRegressor(strategy="mean")), ("mvlr", LinearRegression())]
@@ -655,11 +771,13 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         metric = _metrics(y_val, val_pred, outputs)
         path = models_dir / f"{name}.joblib"
         candidate_payload: dict[str, Any] = {"model_name": name, "model_family": name.split("_")[0], "validation": metric, "model_path": str(path)}
+        onnx_path = models_dir / f"{name}.onnx"
         if isinstance(model, GenericTorchMLPRegressor):
-            onnx_path = models_dir / f"{name}.onnx"
             onnx_report = _export_generic_mlp_onnx(model, onnx_path, sample_x=x_val)
-            _write_json(models_dir / f"{name}_onnx_report.json", onnx_report)
-            candidate_payload.update({"onnx_path": str(onnx_path), "onnx_report_path": str(models_dir / f"{name}_onnx_report.json"), "onnx_verified": bool(onnx_report.get("verified")), "onnx_max_abs_diff": onnx_report.get("max_abs_diff")})
+        else:
+            onnx_report = _export_generic_sklearn_onnx(model, onnx_path, sample_x=x_val)
+        _write_json(models_dir / f"{name}_onnx_report.json", onnx_report)
+        candidate_payload.update({"onnx_path": str(onnx_path), "onnx_report_path": str(models_dir / f"{name}_onnx_report.json"), "onnx_verified": bool(onnx_report.get("verified")), "onnx_max_abs_diff": onnx_report.get("max_abs_diff")})
         joblib.dump(model, path)
         candidates.append(candidate_payload)
     best = min(candidates, key=lambda c: c["validation"].get("weighted_normalized_rmse") if c["validation"].get("weighted_normalized_rmse") is not None else float("inf"))

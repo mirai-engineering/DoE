@@ -32,6 +32,7 @@ from .schemas import (
     PreprocessingApprovalRequest,
     TrainingRequestCreate,
     ExternalMlflowRunImport,
+    ChampionLoadRequest,
     ChampionReconcileRequest,
     PredictResponse,
     RecommendRequest,
@@ -51,7 +52,7 @@ from .services.control_plane import account_capabilities, assign_workspace_stora
 from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
 from .services.fantasy_rollout import run_fantasy_rollout
-from .services.model_loader import are_models_loaded, load_all_models
+from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
 from .services.mlflow_registry import durable_artifact_pointer_for_project
 from .services.model_quality import (
     get_active_model_metadata,
@@ -87,7 +88,7 @@ from .services.project_registry import (
     list_projects,
 )
 from .services.recommendation import recommend_experiments
-from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, reconcile_champion_model, start_training_request
+from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, load_champion_model, reconcile_champion_model, start_training_request
 from .services.workspaces import list_workspaces
 
 
@@ -686,29 +687,46 @@ def project_schema(project_id: str, request: Request):
         _raise_api_error(exc)
 
 
+def _load_champion_for_request(project_id: str, body: ChampionLoadRequest, request: Request):
+    workspace_id = _raise_if_no_workspace_access(request)
+    result = load_champion_model(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        mlflow_run_id=body.mlflow_run_id,
+        registered_model_name=body.registered_model_name,
+        model_version=body.model_version,
+        loaded_by=_request_user_id(request) or "local-dev",
+        notes=body.notes,
+    )
+    clear_registry_cache()
+    clear_model_cache(project_id, workspace_id)
+    log_audit(
+        workspace_id=workspace_id,
+        user_id=_request_user_id(request),
+        action="mlflow_champion_loaded",
+        resource_type="project_model",
+        resource_id=project_id,
+        ip_address=request.client.host if request.client else None,
+        metadata={"project_id": project_id, "mlflow": result.get("mlflow", {})},
+    )
+    return result
+
+
+@app.post("/projects/{project_id}/models/load-champion-model")
+def load_approved_champion_model(project_id: str, body: ChampionLoadRequest, request: Request):
+    try:
+        return _load_champion_for_request(project_id, body, request)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Load champion model failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
 @app.post("/projects/{project_id}/models/refresh-approved-champion")
 def refresh_approved_champion(project_id: str, body: ChampionReconcileRequest, request: Request):
     try:
-        workspace_id = _raise_if_no_workspace_access(request)
-        result = reconcile_champion_model(
-            workspace_id=workspace_id,
-            project_id=project_id,
-            reconciled_by=_request_user_id(request) or "local-dev",
-            notes=body.notes,
-        )
-        clear_registry_cache()
-        log_audit(
-            workspace_id=workspace_id,
-            user_id=_request_user_id(request),
-            action="mlflow_champion_reconciled",
-            resource_type="project_model",
-            resource_id=project_id,
-            ip_address=request.client.host if request.client else None,
-            metadata={"project_id": project_id, "mlflow": result.get("mlflow", {})},
-        )
-        return result
+        return _load_champion_for_request(project_id, body, request)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
-        logger.exception("Champion reconciliation failed for project_id=%s", project_id)
+        logger.exception("Load champion model failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
@@ -814,9 +832,10 @@ def batch_predict(project_id: str, request: BatchPredictRequest, http_request: R
 @app.post("/projects/{project_id}/recommend", response_model=RecommendResponse)
 def recommend(project_id: str, request: RecommendRequest, http_request: Request):
     try:
-        result = recommend_experiments(project_id, request)
+        workspace_id = _authorized_workspace_id(http_request)
+        result = recommend_experiments(project_id, request, workspace_id=workspace_id)
         log_audit(
-            workspace_id=_authorized_workspace_id(http_request),
+            workspace_id=workspace_id,
             user_id=_request_user_id(http_request),
             action="recommendations_generated",
             resource_type="project",

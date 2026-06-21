@@ -1,0 +1,4 @@
+condition_id,experiment_id,Charge rate (C),Discharge rate (C),Temperature setpoint (°C),Electrolyte additive wt%,Formation cycles
+BAT-COND-001,BAT-EXP-001,0.5,1.0,25,1.5,3
+BAT-COND-002,BAT-EXP-002,1.0,1.0,35,2.0,3
+BAT-COND-003,BAT-EXP-003,0.8,1.5,30,0.8,5
