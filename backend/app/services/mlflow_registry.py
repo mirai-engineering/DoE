@@ -414,11 +414,25 @@ def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
 
     client = MlflowClient(tracking_uri=tracking_uri(), registry_uri=tracking_uri())
     expected_name = registered_model_name_for_project(project_id)
-    version = client.get_model_version_by_alias(expected_name, "champion")
-    _assert_model_version_belongs_to_project(client, project_id, version)
+    try:
+        version = client.get_model_version_by_alias(expected_name, "champion")
+    except Exception as exc:
+        raise FileNotFoundError(
+            f"MLflow champion alias is missing for registered model {expected_name!r}. "
+            f"In the MLflow UI, open experiment {project_id!r}, find registered model {expected_name!r}, "
+            "and manually assign alias 'champion' to the approved version before using Load champion model."
+        ) from exc
+    try:
+        _assert_model_version_belongs_to_project(client, project_id, version)
+    except Exception as exc:
+        raise ValueError(
+            f"MLflow champion alias points to the wrong registered model or missing project metadata. "
+            f"Expected registered model {expected_name!r} with run/version tags project_id={project_id!r}. "
+            "Check the model version tags and source run tags in the MLflow UI."
+        ) from exc
     run_id = str(getattr(version, "run_id", "") or "")
     if not run_id:
-        raise FileNotFoundError(f"MLflow champion {expected_name}@champion has no source run id")
+        raise FileNotFoundError(f"MLflow champion {expected_name}@champion has no source run id; check the model version source in the MLflow UI")
     run = client.get_run(run_id)
     if str(getattr(run.info, "status", "") or "") != "FINISHED":
         raise ValueError("MLflow champion source run must be FINISHED")
@@ -427,20 +441,29 @@ def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
     actual_workspace = tags.get("workspace_id")
     actual_project = tags.get("project_id") or tags.get("schema_project_id")
     if actual_workspace != workspace_id or actual_project != project_id:
-        raise ValueError("MLflow champion identity does not match this Mirai workspace/project")
+        raise ValueError(
+            "MLflow champion identity does not match this Mirai workspace/project. "
+            f"Expected workspace_id={workspace_id!r}, project_id={project_id!r}; "
+            f"source run has workspace_id={actual_workspace!r}, project_id={actual_project!r}. "
+            "Check the champion version's source run tags in the MLflow UI."
+        )
 
     required_artifacts = {"schema.json", "preprocessing.json", "metadata.json", "metrics_summary.json", "candidate_comparison.csv", "predictions.csv", "training_manifest.json"}
     available = {artifact.path for artifact in client.list_artifacts(run_id)}
     missing = sorted(required_artifacts - available)
     if missing:
-        raise FileNotFoundError("MLflow champion run is missing required artifacts: " + ", ".join(missing))
+        raise FileNotFoundError(
+            "MLflow champion run is missing required artifacts: "
+            + ", ".join(missing)
+            + f". Open MLflow run {run_id!r} for registered model {expected_name!r}@champion and verify the exported package/local training logged schema, preprocessing, metrics, predictions, and training_manifest artifacts."
+        )
 
     with tempfile.TemporaryDirectory() as model_tmp:
         model_uri = f"models:/{expected_name}/{version.version}"
         model_dst = Path(model_tmp) / "model"
         _download_model_uri(model_uri, model_dst, mlflow, version=str(version.version))
         if _onnx_model_file_from_cache(model_dst) is None:
-            raise FileNotFoundError(f"MLflow champion model {model_uri} did not contain a required ONNX artifact for serving")
+            raise FileNotFoundError(f"MLflow champion model {model_uri} did not contain a required ONNX artifact for serving; check that the registered model version was created from the logged onnx_model")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         manifest_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="training_manifest.json", dst_path=tmpdir)
@@ -448,7 +471,11 @@ def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
     manifest_workspace = str(manifest.get("workspace_id") or "")
     manifest_project = str(manifest.get("project_id") or "")
     if manifest_workspace != workspace_id or manifest_project != project_id:
-        raise ValueError("MLflow champion training_manifest identity does not match this Mirai workspace/project")
+        raise ValueError(
+            "MLflow champion training_manifest identity does not match this Mirai workspace/project. "
+            f"Expected workspace_id={workspace_id!r}, project_id={project_id!r}; "
+            f"training_manifest.json has workspace_id={manifest_workspace!r}, project_id={manifest_project!r}."
+        )
     if not isinstance(manifest.get("source_checksums"), dict) or not manifest["source_checksums"]:
         raise ValueError("MLflow champion training_manifest.json is missing source_checksums")
 

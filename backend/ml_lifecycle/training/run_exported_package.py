@@ -39,8 +39,20 @@ class ExportedPackage:
     target_columns: list[str]
 
     @property
+    def workspace_id(self) -> str:
+        return str(self.manifest["workspace_id"])
+
+    @property
     def project_id(self) -> str:
         return str(self.manifest["project_id"])
+
+    @property
+    def dataset_id(self) -> str:
+        return str(self.manifest["dataset_id"])
+
+    @property
+    def session_id(self) -> str:
+        return str(self.manifest["session_id"])
 
     @property
     def training_request_id(self) -> str:
@@ -236,6 +248,39 @@ def create_working_layout(package: ExportedPackage, output_root: Path | str = DE
     return {"run_root": run_root, "canonical": canonical, "artifacts": artifacts}
 
 
+def validate_identity_flags(
+    package: ExportedPackage,
+    *,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
+    dataset_id: str | None = None,
+    session_id: str | None = None,
+    training_request_id: str | None = None,
+) -> dict[str, str]:
+    supplied = {
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "session_id": session_id,
+        "training_request_id": training_request_id,
+    }
+    manifest_values = {key: str(package.manifest.get(key) or "") for key in supplied}
+    missing_required = [key for key in ("workspace_id", "project_id") if not supplied.get(key)]
+    if missing_required:
+        raise ExportedPackageError(
+            "Explicit identity flags are required for remote training: " + ", ".join(f"--{key.replace('_', '-')}" for key in missing_required)
+        )
+    mismatches = [key for key, value in supplied.items() if value is not None and str(value) != manifest_values.get(key)]
+    if mismatches:
+        details = ", ".join(f"{key}: flag={supplied[key]!r} manifest={manifest_values.get(key)!r}" for key in mismatches)
+        raise ExportedPackageError(f"Identity flags do not match training_manifest.json ({details})")
+    return manifest_values
+
+
+def registered_model_name(project_id: str) -> str:
+    return f"doe_surrogate_{project_id}"
+
+
 def build_training_config(package: ExportedPackage, *, max_epochs: int | None = None) -> dict[str, Any]:
     source_checksums = package.manifest.get("source_checksums") if isinstance(package.manifest.get("source_checksums"), dict) else {}
     source_checksum = source_checksums.get("model_table.csv") or source_checksums.get("schema.json") or ""
@@ -260,9 +305,27 @@ def build_training_config(package: ExportedPackage, *, max_epochs: int | None = 
     return config
 
 
-def run_training(package_dir: Path | str, *, output_root: Path | str = DEFAULT_OUTPUT_ROOT, max_epochs: int | None = None) -> dict[str, Any]:
+def run_training(
+    package_dir: Path | str,
+    *,
+    output_root: Path | str = DEFAULT_OUTPUT_ROOT,
+    max_epochs: int | None = None,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
+    dataset_id: str | None = None,
+    session_id: str | None = None,
+    training_request_id: str | None = None,
+) -> dict[str, Any]:
     _load_local_env()
     package = load_exported_package(package_dir)
+    identity = validate_identity_flags(
+        package,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        training_request_id=training_request_id,
+    )
     tracking_uri = preflight_remote_mlflow()
     layout = create_working_layout(package, output_root=output_root)
     config = build_training_config(package, max_epochs=max_epochs)
@@ -277,10 +340,23 @@ def run_training(package_dir: Path | str, *, output_root: Path | str = DEFAULT_O
         "tracking_uri": tracking_uri,
         "run_root": str(layout["run_root"]),
         "artifact_dir": str(layout["artifacts"]),
+        "identity": identity,
+        "workspace_id": package.workspace_id,
         "project_id": package.project_id,
+        "dataset_id": package.dataset_id,
+        "session_id": package.session_id,
         "training_request_id": package.training_request_id,
+        "mlflow_experiment_name": package.project_id,
+        "registered_model_name": registered_model_name(package.project_id),
+        "expected_output_alias": "challenger",
         "best_model": metrics.get("best_model_name") or metrics.get("best_model"),
         "mlflow": metrics.get("mlflow"),
+        "next_steps": [
+            f"Open MLflow experiment {package.project_id!r} at the remote tracking URI and review the selected challenger run.",
+            f"Confirm registered model {registered_model_name(package.project_id)!r} has alias 'challenger' on the selected version.",
+            "Manually promote the approved version to alias 'champion' in MLflow.",
+            "Return to Mirai and use Load champion model for this workspace/project.",
+        ],
     }
 
 
@@ -289,13 +365,27 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--package-dir", required=True, type=Path, help="Directory containing model_table.csv, schema.json, and training_manifest.json")
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT, type=Path, help="Gitignored local output root; defaults to backend/.local-training-runs")
     parser.add_argument("--max-epochs", type=int, default=None, help="Optional modest MLP epoch override for smoke runs")
+    parser.add_argument("--workspace-id", required=True, help="Workspace id; must match training_manifest.json")
+    parser.add_argument("--project-id", required=True, help="Project id; must match training_manifest.json and becomes the MLflow experiment name")
+    parser.add_argument("--dataset-id", default=None, help="Optional dataset id; if supplied, must match training_manifest.json")
+    parser.add_argument("--session-id", default=None, help="Optional ingestion session id; if supplied, must match training_manifest.json")
+    parser.add_argument("--training-request-id", default=None, help="Optional training request id; if supplied, must match training_manifest.json")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
-        result = run_training(args.package_dir, output_root=args.output_root, max_epochs=args.max_epochs)
+        result = run_training(
+            args.package_dir,
+            output_root=args.output_root,
+            max_epochs=args.max_epochs,
+            workspace_id=args.workspace_id,
+            project_id=args.project_id,
+            dataset_id=args.dataset_id,
+            session_id=args.session_id,
+            training_request_id=args.training_request_id,
+        )
     except ExportedPackageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

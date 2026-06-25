@@ -133,8 +133,11 @@ def test_run_training_refuses_before_outputs_or_local_mlruns_without_remote_mlfl
     monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW", raising=False)
     monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS", raising=False)
 
-    with pytest.raises(runner.ExportedPackageError, match="MLFLOW_TRACKING_URI is required"):
+    with pytest.raises(runner.ExportedPackageError, match="Explicit identity flags"):
         runner.run_training(package_dir, output_root=output_root)
+
+    with pytest.raises(runner.ExportedPackageError, match="MLFLOW_TRACKING_URI is required"):
+        runner.run_training(package_dir, output_root=output_root, workspace_id="fraunhofer", project_id="demo_project")
 
     assert not output_root.exists()
     assert not (tmp_path / "mlruns").exists()
@@ -170,9 +173,22 @@ def test_run_training_uses_remote_preflight_and_keeps_outputs_outside_package(tm
 
     monkeypatch.setattr(runner, "train_generic_project", fake_train_generic_project)
 
-    result = runner.run_training(package_dir, output_root=output_root, max_epochs=3)
+    result = runner.run_training(
+        package_dir,
+        output_root=output_root,
+        max_epochs=3,
+        workspace_id="fraunhofer",
+        project_id="demo_project",
+        dataset_id="dataset_123",
+        session_id="ing_123",
+        training_request_id="train_req_123",
+    )
 
     assert result["status"] == "completed"
+    assert result["workspace_id"] == "fraunhofer"
+    assert result["registered_model_name"] == "doe_surrogate_demo_project"
+    assert result["mlflow_experiment_name"] == "demo_project"
+    assert result["expected_output_alias"] == "challenger"
     assert Path(result["run_root"]).is_relative_to(output_root.resolve())
     assert not Path(result["run_root"]).is_relative_to(package_dir.resolve())
     config = captured["training_config"]
@@ -181,3 +197,14 @@ def test_run_training_uses_remote_preflight_and_keeps_outputs_outside_package(tm
     assert config["mlflow"]["extra_tags"]["training_request_id"] == "train_req_123"
     assert config["mlflow"]["extra_artifacts"] == ["training_manifest.json"]
     assert not any(path.name in {"metrics_summary.json", "preprocessing.json"} for path in package_dir.iterdir())
+
+
+def test_identity_flags_must_match_manifest(tmp_path: Path) -> None:
+    package_dir = _write_package(tmp_path / "package")
+    package = runner.load_exported_package(package_dir)
+
+    with pytest.raises(runner.ExportedPackageError, match="Identity flags do not match"):
+        runner.validate_identity_flags(package, workspace_id="wrong", project_id="demo_project")
+
+    identity = runner.validate_identity_flags(package, workspace_id="fraunhofer", project_id="demo_project")
+    assert identity["training_request_id"] == "train_req_123"
