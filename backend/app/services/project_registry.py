@@ -7,7 +7,7 @@ from pathlib import Path
 from .control_plane import get_project_runtime_state, list_workspace_projects
 from .data_intake import list_ingestion_sessions, read_project_metadata, read_status, session_workspace
 from .domain_metadata import apply_variable_metadata_to_schema, attach_domain_metadata, infer_template_id
-from .mlflow_registry import download_aliased_run_artifacts, download_production_onnx, download_run_artifacts, is_mlflow_project, registered_model_name_for_project, tracking_uri
+from .mlflow_registry import download_aliased_run_artifacts, download_production_onnx, download_run_artifacts, is_mlflow_project, loaded_champion_mlflow_import, registered_model_name_for_project, tracking_uri
 from .workspace_storage import local_object_storage_root
 from .workspaces import get_workspace
 
@@ -200,20 +200,12 @@ def _imported_mlflow_artifact_dir(project_id: str, workspace_id: str | None, *, 
     if not workspace_id or not is_mlflow_project(project_id):
         return None
     try:
-        runtime_state = get_project_runtime_state(workspace_id, project_id)
-        if not isinstance(runtime_state, dict):
-            return None
-        model = runtime_state.get("champion_model") if champion_only else (runtime_state.get("champion_model") or runtime_state.get("candidate_model"))
-        metrics = model.get("metrics_json") if isinstance(model, dict) and isinstance(model.get("metrics_json"), dict) else {}
-        mlflow_import = metrics.get("mlflow_import") if isinstance(metrics.get("mlflow_import"), dict) else None
+        mlflow_import = loaded_champion_mlflow_import(project_id, workspace_id)
         run_id = mlflow_import.get("run_id") if isinstance(mlflow_import, dict) else None
-        if not run_id and not champion_only:
-            training_run = runtime_state.get("training_run")
-            run_id = training_run.get("mlflow_run_id") if isinstance(training_run, dict) and training_run.get("status") == "completed" else None
         if run_id:
             return download_run_artifacts(project_id, str(run_id), include_quality=True, include_predictions=include_predictions)
     except Exception as exc:  # noqa: BLE001 - local/reference fallbacks remain available only outside canonical runtime state.
-        logger.info("Could not resolve imported MLflow run artifacts for %s: %s", project_id, exc)
+        logger.info("Could not resolve loaded MLflow champion artifacts for %s: %s", project_id, exc)
     return None
 
 
@@ -351,9 +343,26 @@ def _schema_from_runtime_state(workspace_id: str, project_id: str) -> dict | Non
     return attach_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
 
 
+def _loaded_champion_schema(project_id: str, workspace_id: str | None) -> dict | None:
+    artifact_dir = _imported_mlflow_artifact_dir(project_id, workspace_id, champion_only=True)
+    schema_path = artifact_dir / "schema.json" if artifact_dir is not None else None
+    if not schema_path or not schema_path.exists():
+        return None
+    schema = _read_json(schema_path)
+    schema["project_id"] = project_id
+    schema["workspace_id"] = workspace_id
+    schema.setdefault("metadata", {})
+    if isinstance(schema["metadata"], dict):
+        schema["metadata"].setdefault("runtime_source", "loaded_mlflow_champion")
+    return attach_domain_metadata(schema, template_id=infer_template_id(schema), approval_status="approved")
+
+
 @lru_cache(maxsize=64)
 def get_project_schema(project_id: str, workspace_id: str | None = None) -> dict:
     if workspace_id:
+        champion_schema = _loaded_champion_schema(project_id, workspace_id)
+        if champion_schema is not None:
+            return champion_schema
         runtime_schema = _schema_from_runtime_state(workspace_id, project_id)
         if runtime_schema is not None:
             return runtime_schema
@@ -457,7 +466,7 @@ def get_project_model_path(project_id: str, workspace_id: str | None = None) -> 
         # ONNX for the selected MLP. Prefer ONNX only when that selected model is the
         # generic MLP; linear/ridge candidates remain joblib artifacts.
         if template_id == "generic_tabular_doe":
-            challenger_model = _mlflow_alias_model_name(project_id, "challenger")
+            challenger_model = None if workspace_id else _mlflow_alias_model_name(project_id, "challenger")
             best_model = challenger_model or _best_model_name(artifact_dir)
             onnx_path = artifact_dir / "models" / f"{best_model}.onnx"
             if best_model == "mlp" and onnx_path.exists():

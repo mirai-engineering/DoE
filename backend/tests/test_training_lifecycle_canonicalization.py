@@ -112,7 +112,7 @@ def test_runtime_serving_does_not_fallback_to_session_candidate_without_champion
         project_registry.get_project_model_path("demo_project", workspace_id="fraunhofer")
 
 
-def test_model_quality_uses_imported_run_predictions_from_same_run(tmp_path, monkeypatch):
+def test_model_quality_uses_loaded_champion_predictions_from_same_run(tmp_path, monkeypatch):
     from app.services import model_quality
 
     artifact_dir = tmp_path / "run-artifacts"
@@ -126,9 +126,9 @@ def test_model_quality_uses_imported_run_predictions_from_same_run(tmp_path, mon
         model_quality,
         "get_project_runtime_state",
         lambda workspace_id, project_id: {
-            "training_run": {"status": "completed", "mlflow_run_id": "run_candidate"},
+            "training_run": {"status": "completed", "mlflow_run_id": "run_champion"},
             "candidate_model": {"metrics_json": {"mlflow_import": {"run_id": "run_candidate"}}},
-            "champion_model": None,
+            "champion_model": {"metrics_json": {"mlflow_import": {"run_id": "run_champion"}}},
         },
     )
     seen: list[tuple[str, str]] = []
@@ -138,10 +138,11 @@ def test_model_quality_uses_imported_run_predictions_from_same_run(tmp_path, mon
         return artifact_dir
 
     monkeypatch.setattr(model_quality, "download_run_artifacts", fake_download)
+    monkeypatch.setattr(model_quality, "loaded_champion_mlflow_import", lambda project_id, workspace_id=None: {"run_id": "run_champion"})
 
     payload = model_quality.get_predictions("demo_project", workspace_id="fraunhofer")
 
-    assert seen[-1] == ("demo_project", "run_candidate")
+    assert seen[-1] == ("demo_project", "run_champion")
     assert payload["rows"][0]["model_name"] == "mlp"
     assert payload["rows"][0]["y_pred"] == 0.9
 

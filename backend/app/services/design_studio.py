@@ -102,10 +102,10 @@ def _fuel_cell_preset(project_id: str, workspace_id: str | None = None) -> dict[
     return recipe
 
 
-def get_real_cell_options(project_id: str) -> dict[str, Any]:
+def get_real_cell_options(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     try:
-        frame = _predictions_artifact(project_id)
-    except FileNotFoundError:
+        frame = _predictions_artifact(project_id, workspace_id)
+    except (FileNotFoundError, ValueError):
         return {"project_id": project_id, "real_cell_options": []}
     required = {"cell_id", FUEL_CELL_RH_INPUT, "split"}
     if not required.issubset(frame.columns):
@@ -130,7 +130,7 @@ def _training_overlay(project_id: str, x_variable: str | None, output_variables:
         return None
     try:
         frame = _predictions_artifact(project_id, workspace_id)
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         return None
     true_columns = [f"{name}_true" for name in output_variables if f"{name}_true" in frame.columns]
     if x_variable not in frame.columns or not true_columns:
@@ -156,12 +156,12 @@ def _training_overlay(project_id: str, x_variable: str | None, output_variables:
     return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "rows": rows}
 
 
-def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variable: str | None = None, output_variables: list[str] | None = None) -> dict[str, Any] | None:
+def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variable: str | None = None, output_variables: list[str] | None = None, workspace_id: str | None = None) -> dict[str, Any] | None:
     if not selection:
         return None
     try:
-        frame = _predictions_artifact(project_id)
-    except FileNotFoundError:
+        frame = _predictions_artifact(project_id, workspace_id)
+    except (FileNotFoundError, ValueError):
         return None
     cell_id = selection.get("cell_id")
     rh = selection.get("operating_rh")
@@ -264,15 +264,16 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
     selected_recipe_id = selected_recipe_id or (design_recipes[0].get("id") if design_recipes else "")
     return {
         "project_id": project_id,
-        "active_model": get_active_model_metadata(project_id),
+        "workspace_id": workspace_id,
+        "active_model": get_active_model_metadata(project_id, workspace_id),
         "inputs": schema.get("inputs", []),
         "outputs": schema.get("outputs", []),
         "default_inputs": _default_inputs(schema),
         "default_objective_weights": _default_objective_weights(schema, project_id),
         "plot_recipes": design_recipes,
         "selected_plot_recipe_id": selected_recipe_id,
-        "presets": {"fuel_cell_polarization": _fuel_cell_preset(project_id)},
-        "real_cell_options": get_real_cell_options(project_id).get("real_cell_options", []),
+        "presets": {"fuel_cell_polarization": _fuel_cell_preset(project_id, workspace_id)},
+        "real_cell_options": get_real_cell_options(project_id, workspace_id).get("real_cell_options", []),
     }
 
 
@@ -288,7 +289,7 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
         series_variables = [item.get("variable") for item in curve_recipe.get("series", []) if isinstance(item, dict) and item.get("variable")]
         comparison_outputs = [item for item in [y_variable, *series_variables] if item]
     comparison_output_names = [str(item) for item in comparison_outputs] if comparison_outputs else None
-    comparison = _real_cell_curve(project_id, payload.get("comparison_real_cell"), str(comparison_x), comparison_output_names)
+    comparison = _real_cell_curve(project_id, payload.get("comparison_real_cell"), str(comparison_x), comparison_output_names, workspace_id=workspace_id)
     training_overlay = _training_overlay(
         project_id,
         str(comparison_x),

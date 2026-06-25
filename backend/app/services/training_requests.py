@@ -17,7 +17,7 @@ from .control_plane import activate_champion_model, complete_training_run, creat
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .mlflow_registry import download_production_onnx, download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_champion_mlflow_model, verify_external_mlflow_model_version
+from .mlflow_registry import download_production_onnx, download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, tracking_uri, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from .project_registry import get_project_schema
@@ -762,22 +762,31 @@ def load_champion_model(
         validation_status="approved",
     )
 
-    mlflow_pointer = durable_artifact_pointer_for_project(project_id, "mlflow_artifacts", workspace_id=workspace_id)
+    loaded_at = _now()
+    mlflow_import = {
+        "run_id": actual_run_id,
+        "registered_model_name": verified.get("registered_model_name"),
+        "alias": "champion",
+        "model_version": verified.get("model_version"),
+        "model_uri": verified.get("model_uri"),
+        "model_source": verified.get("model_source"),
+        "artifact_uri": verified.get("artifact_uri"),
+        "tracking_uri": verified.get("tracking_uri") or tracking_uri(),
+        "model_artifact_format": "onnx",
+        "required_artifacts": verified.get("required_artifacts") if isinstance(verified.get("required_artifacts"), dict) else {},
+        "loaded_at": loaded_at,
+        "loaded_by": loaded_by,
+        "cache_path": str(artifact_cache),
+        "cache_note": "Ephemeral MLflow run artifact materialization keyed by immutable run_id; MLflow owns backing artifact storage keys.",
+    }
     metrics = {
         **((training_run or {}).get("metrics_json") if isinstance((training_run or {}).get("metrics_json"), dict) else {}),
         **(verified.get("metrics") if isinstance(verified.get("metrics"), dict) else {}),
-        "mlflow_import": {
-            "run_id": actual_run_id,
-            "registered_model_name": verified.get("registered_model_name"),
-            "model_version": verified.get("model_version"),
-            "alias": "champion",
-            "model_uri": verified.get("model_uri"),
-            "model_artifact_format": "onnx",
-        },
+        "mlflow_import": mlflow_import,
         "champion_load": {
             "status": "approved_champion_active",
             "loaded_by": loaded_by,
-            "loaded_at": _now(),
+            "loaded_at": loaded_at,
             "notes": notes or "",
         },
     }
@@ -804,9 +813,9 @@ def load_champion_model(
         training_run_id=training_run_id,
         model_name=str(verified.get("registered_model_name") or expected_name),
         version=str(verified.get("model_version") or training_run_id),
-        artifact_uri=str(mlflow_pointer["object_uri"]),
-        preprocessing_uri=preprocessing_uri,
-        schema_uri=schema_uri,
+        artifact_uri=str(verified.get("model_uri") or verified.get("model_source") or f"models:/{expected_name}/{verified.get('model_version')}"),
+        preprocessing_uri=f"mlflow-run:/{actual_run_id}/preprocessing.json",
+        schema_uri=f"mlflow-run:/{actual_run_id}/schema.json",
         metrics=metrics,
     )
     return {

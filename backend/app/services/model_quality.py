@@ -12,7 +12,7 @@ import pandas as pd
 
 from .control_plane import get_project_runtime_state
 from .data_intake import list_ingestion_sessions, session_workspace
-from .mlflow_registry import durable_artifact_pointer_for_project, download_aliased_run_artifacts, download_run_artifacts, get_registered_model_metadata, tracking_uri
+from .mlflow_registry import durable_artifact_pointer_for_project, download_aliased_run_artifacts, download_run_artifacts, get_registered_model_metadata, loaded_champion_mlflow_import, tracking_uri
 from .workspace_storage import local_object_storage_root
 
 
@@ -62,35 +62,31 @@ def _latest_mlflow_training_artifact_dir(project_id: str, *, include_predictions
     return path if _is_complete_quality_artifact_dir(path) else None
 
 
+def _champion_not_loaded_message(project_id: str) -> str:
+    return f"Champion model is not loaded yet for project_id={project_id}; promote a version to champion in MLflow, then use Load champion model."
+
+
 def _imported_mlflow_training_artifact_dir(project_id: str, workspace_id: str | None, *, include_predictions: bool = False) -> Path | None:
     if not workspace_id:
         return None
-    try:
-        runtime_state = get_project_runtime_state(workspace_id, project_id)
-    except Exception:
+    mlflow_import = loaded_champion_mlflow_import(project_id, workspace_id)
+    if not isinstance(mlflow_import, dict) or not mlflow_import.get("run_id"):
         return None
-    training_run = runtime_state.get("training_run") if isinstance(runtime_state, dict) else None
-    if not isinstance(training_run, dict) or training_run.get("status") != "completed" or not training_run.get("mlflow_run_id"):
-        return None
-    try:
-        path = download_run_artifacts(project_id, str(training_run["mlflow_run_id"]), include_quality=True, include_predictions=include_predictions)
-    except Exception:
-        return None
+    path = download_run_artifacts(project_id, str(mlflow_import["run_id"]), include_quality=True, include_predictions=include_predictions)
     return path if _is_complete_quality_artifact_dir(path) else None
 
 
 def _artifact_dir(project_id: str, workspace_id: str | None = None) -> Path:
+    if workspace_id:
+        runtime_state = get_project_runtime_state(workspace_id, project_id)
+        if runtime_state:
+            imported_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id)
+            if imported_dir is not None:
+                return imported_dir
+            raise ValueError(_champion_not_loaded_message(project_id))
     imported_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id)
     if imported_dir is not None:
         return imported_dir
-    if workspace_id:
-        try:
-            if get_project_runtime_state(workspace_id, project_id):
-                raise ValueError(f"Model quality is awaiting a verified Mirai candidate/champion for project_id={project_id}")
-        except ValueError:
-            raise
-        except Exception:
-            pass
     intake_dir = _latest_intake_training_artifact_dir(project_id)
     if intake_dir is not None:
         return intake_dir
@@ -145,12 +141,15 @@ def get_preprocessing_report(project_id: str, workspace_id: str | None = None) -
 
 
 def _prediction_path(project_id: str, workspace_id: str | None = None) -> Path:
+    if workspace_id and get_project_runtime_state(workspace_id, project_id):
+        mlflow_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id, include_predictions=True)
+        if mlflow_dir is None:
+            raise ValueError(_champion_not_loaded_message(project_id))
+        return mlflow_dir / "predictions.csv"
     artifact_dir = _artifact_dir(project_id, workspace_id)
     path = artifact_dir / "predictions.csv"
-    if not path.exists():
-        mlflow_dir = _imported_mlflow_training_artifact_dir(project_id, workspace_id, include_predictions=True)
-        if mlflow_dir is None and not workspace_id:
-            mlflow_dir = _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
+    if not path.exists() and not workspace_id:
+        mlflow_dir = _latest_mlflow_training_artifact_dir(project_id, include_predictions=True)
         if mlflow_dir is not None:
             path = mlflow_dir / "predictions.csv"
     return path
@@ -172,14 +171,15 @@ def get_artifact_summary(project_id: str, workspace_id: str | None = None) -> di
         files = sorted(_display_path(path) for path in artifact_dir.rglob("*") if path.is_file()) if artifact_dir.exists() else []
         summary = {"project_id": project_id, "artifact_dir": str(artifact_dir), "files": files}
     durable_pointers = {}
-    for artifact_kind in ["dataset", "canonical_table", "preprocessing_output", "mlflow_artifacts", "onnx_model", "bo_state", "review_file"]:
+    pointer_kinds = ["dataset", "canonical_table", "preprocessing_output", "bo_state", "review_file"] if workspace_id else ["dataset", "canonical_table", "preprocessing_output", "mlflow_artifacts", "onnx_model", "bo_state", "review_file"]
+    for artifact_kind in pointer_kinds:
         try:
-            durable_pointers[artifact_kind] = durable_artifact_pointer_for_project(project_id, artifact_kind)
+            durable_pointers[artifact_kind] = durable_artifact_pointer_for_project(project_id, artifact_kind, workspace_id=workspace_id)
         except Exception:
             continue
     if durable_pointers:
         summary["durable_artifact_pointers"] = durable_pointers
-        summary["durable_state_note"] = "Railway mode should resolve durable state from Postgres artifact pointers and object storage, not from backend/mlruns copied into the image."
+        summary["durable_state_note"] = "Railway mode should resolve durable state from Postgres artifact pointers and object storage. Loaded MLflow champion artifacts are resolved by MLflow run_id/model_uri; opaque S3 keys are an MLflow implementation detail."
     predictions_path = _prediction_path(project_id, workspace_id)
     if predictions_path.exists():
         summary["predictions_artifact"] = str(predictions_path)
@@ -332,27 +332,57 @@ Training-run predictions are generated during the training/evaluation run. Futur
 
 def get_active_model_metadata(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     metadata = get_registered_model_metadata(project_id)
-    artifact_dir = _artifact_dir(project_id, workspace_id)
-    local_metadata = _read_json(artifact_dir / "metadata.json", default={})
     runtime_state = get_project_runtime_state(workspace_id, project_id) if workspace_id else None
     champion = runtime_state.get("champion_model") if isinstance(runtime_state, dict) else None
     candidate = runtime_state.get("candidate_model") if isinstance(runtime_state, dict) else None
-    if champion:
+    mlflow_import = loaded_champion_mlflow_import(project_id, workspace_id) if workspace_id else None
+    local_metadata: dict[str, Any] = {}
+    try:
+        artifact_dir = _artifact_dir(project_id, workspace_id)
+        local_metadata = _read_json(artifact_dir / "metadata.json", default={})
+        cache_status = {
+            "status": "available",
+            "artifact_dir": str(artifact_dir),
+            "metrics_summary": (artifact_dir / "metrics_summary.json").exists(),
+            "candidate_comparison": (artifact_dir / "candidate_comparison.csv").exists(),
+            "predictions": (artifact_dir / "predictions.csv").exists(),
+        }
+    except Exception as exc:  # noqa: BLE001 - returned as operator-facing state.
+        cache_status = {"status": "unavailable", "message": str(exc)}
+    if champion and mlflow_import:
         served_source = "loaded_champion"
         lifecycle_status = "approved_champion_active"
     elif candidate:
         served_source = "candidate_review"
         lifecycle_status = "candidate_ready_for_review"
     else:
-        served_source = "packaged artifact" if not workspace_id else "awaiting_local_run_import"
-        lifecycle_status = "awaiting_local_run_import"
+        served_source = "packaged artifact" if not workspace_id else "champion_not_loaded"
+        lifecycle_status = "champion_not_loaded" if workspace_id and runtime_state else "awaiting_local_run_import"
+    traceability = {
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "registered_model_name": (mlflow_import or {}).get("registered_model_name") or metadata.get("registered_model_name"),
+        "alias": (mlflow_import or {}).get("alias") or "champion",
+        "model_version": (mlflow_import or {}).get("model_version"),
+        "run_id": (mlflow_import or {}).get("run_id"),
+        "model_uri": (mlflow_import or {}).get("model_uri"),
+        "model_source": (mlflow_import or {}).get("model_source"),
+        "tracking_uri": (mlflow_import or {}).get("tracking_uri") or metadata.get("tracking_uri"),
+        "loaded_at": (mlflow_import or {}).get("loaded_at"),
+        "loaded_by": (mlflow_import or {}).get("loaded_by"),
+        "required_artifacts": (mlflow_import or {}).get("required_artifacts"),
+        "cache_status": cache_status,
+    }
     metadata["local_metadata"] = local_metadata
     metadata["served_source"] = served_source
     metadata["lifecycle_status"] = lifecycle_status
+    metadata["mlflow_traceability"] = traceability
     if champion:
         metadata["mirai_champion_model"] = champion
     if candidate:
         metadata["mirai_candidate_model"] = candidate
+    if workspace_id and runtime_state and not mlflow_import:
+        metadata["operator_warning"] = _champion_not_loaded_message(project_id)
     return metadata
 
 
@@ -391,16 +421,31 @@ def save_scientist_review(project_id: str, payload: dict[str, Any]) -> dict[str,
 
 
 def get_model_quality_summary(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    warning: str | None = None
+    try:
+        metrics = get_metrics(project_id, workspace_id)
+        preprocessing_report = get_preprocessing_report(project_id, workspace_id)
+        artifact_summary = get_artifact_summary(project_id, workspace_id)
+        candidate_comparison = get_candidate_comparison(project_id, workspace_id)
+    except ValueError as exc:
+        if "Champion model is not loaded yet" not in str(exc):
+            raise
+        warning = str(exc)
+        metrics = {}
+        preprocessing_report = {}
+        artifact_summary = {"project_id": project_id, "prediction_diagnostics_available": False, "warning": warning}
+        candidate_comparison = []
     return {
         "project_id": project_id,
         "quality_label": "all-cells MVP",
-        "metrics": get_metrics(project_id, workspace_id),
-        "preprocessing_report": get_preprocessing_report(project_id, workspace_id),
-        "artifact_summary": get_artifact_summary(project_id, workspace_id),
+        "warning": warning,
+        "metrics": metrics,
+        "preprocessing_report": preprocessing_report,
+        "artifact_summary": artifact_summary,
         "active_model": get_active_model_metadata(project_id, workspace_id),
         "scientist_review": get_scientist_review(project_id),
         "latest_runs": get_latest_runs(project_id),
-        "candidate_comparison": get_candidate_comparison(project_id, workspace_id),
+        "candidate_comparison": candidate_comparison,
         "ai_preprocessing_assistant": {
             "status": "placeholder_not_active",
             "message": "AI preprocessing assistant is a future placeholder. No autonomous preprocessing is active yet.",

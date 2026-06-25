@@ -27,7 +27,7 @@ Remote/local training must validate explicit identity flags against this manifes
 - Human review manually promotes one registered model version to alias `champion`.
 - Mirai **Load champion model** resolves `doe_surrogate_<project_id>@champion`, verifies workspace/project tags and required artifacts, then activates the champion in Mirai.
 
-Do not use S3/MLflow artifact folder names as the operator-facing model identity. MLflow artifact paths may be run-ID/hash-oriented. The durable identity is the experiment, registered model, alias, run tags, model-version tags, and training manifest.
+Do not use S3/MLflow artifact folder names as the operator-facing model identity. MLflow artifact paths may be run-ID/hash-oriented. The durable identity is the experiment, registered model, alias, run tags, model-version tags, and training manifest. Opaque S3 object keys under MLflow artifact storage are an implementation detail owned by MLflow; Mirai code should resolve champion artifacts through MLflow Registry/run artifact APIs and its explicitly loaded run pointer.
 
 ## Naming conventions
 

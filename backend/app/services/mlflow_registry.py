@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+from typing import Any
 
 from .control_plane import get_project_runtime_state, get_project_storage_config
 from .workspace_storage import WorkspaceStorageConfig, validate_workspace_object_uri
@@ -182,7 +183,13 @@ def _model_file_from_cache(dst: Path) -> Path | None:
     return None
 
 
-def _imported_model_uri_from_runtime(project_id: str, workspace_id: str | None = None) -> tuple[str, str] | None:
+def loaded_champion_mlflow_import(project_id: str, workspace_id: str | None = None) -> dict[str, Any] | None:
+    """Return Mirai's explicitly loaded champion MLflow pointer.
+
+    MLflow artifact locations are intentionally opaque. Callers should use the
+    immutable run_id/model_uri recorded here with MLflow APIs instead of parsing
+    backing S3 keys.
+    """
     workspaces = [workspace_id] if workspace_id else _candidate_runtime_workspaces()
     for candidate_workspace in [item for item in workspaces if item]:
         try:
@@ -192,10 +199,17 @@ def _imported_model_uri_from_runtime(project_id: str, workspace_id: str | None =
         model = runtime_state.get("champion_model") if isinstance(runtime_state, dict) else None
         metrics = model.get("metrics_json") if isinstance(model, dict) and isinstance(model.get("metrics_json"), dict) else {}
         mlflow_import = metrics.get("mlflow_import") if isinstance(metrics.get("mlflow_import"), dict) else None
-        model_uri = mlflow_import.get("model_uri") if isinstance(mlflow_import, dict) else None
-        run_id = mlflow_import.get("run_id") if isinstance(mlflow_import, dict) else None
-        if model_uri and run_id:
-            return str(model_uri), str(run_id)
+        if isinstance(mlflow_import, dict) and mlflow_import.get("run_id"):
+            return dict(mlflow_import)
+    return None
+
+
+def _imported_model_uri_from_runtime(project_id: str, workspace_id: str | None = None) -> tuple[str, str] | None:
+    mlflow_import = loaded_champion_mlflow_import(project_id, workspace_id)
+    model_uri = mlflow_import.get("model_uri") if isinstance(mlflow_import, dict) else None
+    run_id = mlflow_import.get("run_id") if isinstance(mlflow_import, dict) else None
+    if model_uri and run_id:
+        return str(model_uri), str(run_id)
     return None
 
 
@@ -479,19 +493,25 @@ def verify_champion_mlflow_model(*, workspace_id: str, project_id: str) -> dict:
     if not isinstance(manifest.get("source_checksums"), dict) or not manifest["source_checksums"]:
         raise ValueError("MLflow champion training_manifest.json is missing source_checksums")
 
+    model_source = str(getattr(version, "source", "") or f"models:/{expected_name}/{version.version}")
+    model_uri = f"models:/{expected_name}/{version.version}"
     return {
         "workspace_id": workspace_id,
         "project_id": project_id,
         "mlflow_run_id": run_id,
+        "run_id": run_id,
         "registered_model_name": expected_name,
         "model_version": str(version.version),
         "alias": "champion",
-        "model_source": str(getattr(version, "source", "") or f"models:/{expected_name}/{version.version}"),
-        "model_uri": f"models:/{expected_name}/{version.version}",
+        "model_source": model_source,
+        "model_uri": model_uri,
+        "artifact_uri": str(getattr(run.info, "artifact_uri", "") or ""),
+        "tracking_uri": tracking_uri(),
         "model_name": tags.get("model_name") or tags.get("model_family") or "external_mlflow_model",
         "metrics": dict(run.data.metrics),
         "tags": tags,
         "training_manifest": manifest,
+        "required_artifacts": {name: name in available for name in sorted(required_artifacts)},
     }
 
 
