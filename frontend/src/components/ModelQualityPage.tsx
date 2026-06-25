@@ -207,6 +207,11 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
   const challenger = asRecord(aliases.challenger)
+  const traceability = asRecord(activeModel.mlflow_traceability)
+  const requiredArtifacts = asRecord(traceability.required_artifacts)
+  const cacheStatus = asRecord(traceability.cache_status)
+  const championNotLoadedWarning = asString(activeModel.operator_warning) || asString(summary?.warning)
+  const mlflowChampionExists = Boolean(asString(champion.version) || asString(champion.run_id))
   const preprocessing = asRecord(summary?.preprocessing_report)
   const assistant = asRecord(summary?.ai_preprocessing_assistant)
   // TODO: Pass active BO/recommendation objective weights here when Model Quality has access to them.
@@ -298,6 +303,13 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           All-cells MVP workflow. Splits are grouped by cell_id, three cells are reserved exclusively for BO replay, and acceptance thresholds are provisional/report-only.
         </div>
+        {championNotLoadedWarning && (
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="font-semibold">Champion model is not loaded yet</div>
+            <p className="mt-1 leading-6">{championNotLoadedWarning}</p>
+            {mlflowChampionExists && <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">MLflow has a champion alias, but Mirai will not use it until Load champion model is run.</p>}
+          </div>
+        )}
       </section>
 
       <nav className="rounded-[1.5rem] border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur" aria-label="Model Quality page sections">
@@ -357,6 +369,41 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               <p className="mt-1 text-sm leading-6 text-slate-500">Design Studio and prediction APIs require an active loaded champion.</p>
             </div>
           </section>
+
+          <details className="rounded-2xl border border-slate-200 bg-white/85 p-4 text-sm text-slate-600 shadow-sm">
+            <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {[
+                ['Workspace ID', traceability.workspace_id],
+                ['Project ID', traceability.project_id || schema.project_id],
+                ['Registered model', traceability.registered_model_name || activeModel.registered_model_name],
+                ['Alias', traceability.alias],
+                ['Model version', traceability.model_version || champion.version],
+                ['Run ID', traceability.run_id || champion.run_id],
+                ['Model URI', traceability.model_uri],
+                ['Model source', traceability.model_source || champion.source],
+                ['Tracking URI', traceability.tracking_uri || activeModel.tracking_uri],
+                ['Loaded at', traceability.loaded_at],
+                ['Loaded by', traceability.loaded_by],
+                ['Artifact/cache status', cacheStatus.status],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-2xl bg-[#fbfaf5] p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{String(label)}</div>
+                  <div className="mt-1 break-all font-medium text-slate-800">{asString(value) || (typeof value === 'number' ? String(value) : '—')}</div>
+                </div>
+              ))}
+            </div>
+            {!!Object.keys(requiredArtifacts).length && (
+              <div className="mt-3 rounded-2xl bg-[#fbfaf5] p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Required artifact presence</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Object.entries(requiredArtifacts).map(([name, present]) => (
+                    <span key={name} className={`rounded-full px-2 py-1 text-xs font-semibold ${present ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{name}: {present ? 'present' : 'missing'}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </details>
 
           {!!summary.candidate_comparison?.length && (
             <section className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">

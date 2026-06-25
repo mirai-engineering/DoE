@@ -606,6 +606,7 @@ export interface ModelQualityPredictionsResponse {
 export interface ModelQualitySummary {
   project_id: string
   quality_label: string
+  warning?: string | null
   metrics: Record<string, unknown>
   preprocessing_report: Record<string, unknown>
   artifact_summary: Record<string, unknown>
@@ -617,6 +618,7 @@ export interface ModelQualitySummary {
 
 export interface DesignStudioState {
   project_id: string
+  workspace_id?: string | null
   active_model: Record<string, unknown>
   inputs: SchemaInput[]
   outputs: SchemaOutput[]

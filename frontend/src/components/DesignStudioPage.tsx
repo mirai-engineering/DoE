@@ -348,6 +348,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const activeModel = asRecord(state?.active_model)
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
+  const traceability = asRecord(activeModel.mlflow_traceability)
+  const cacheStatus = asRecord(traceability.cache_status)
   const defaultObjectiveName = Object.keys(state?.default_objective_weights ?? {})[0]
   const emphasizedOutputs = new Set(Object.entries(selectedObjectiveWeights).filter(([, value]) => Math.abs(value) > 1e-12).map(([name]) => name))
   const curveKind = asString(asRecord(curveRecipe).kind) || selectedPlotRecipe?.kind || ''
@@ -425,9 +427,32 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         />
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Served-model predictions</span>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Champion: {asString(champion.version) || 'not set'}</span>
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
           {defaultObjectiveName && <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-800">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
         </div>
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm text-slate-600">
+          <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {[
+              ['Workspace ID', traceability.workspace_id],
+              ['Project ID', traceability.project_id || schema.project_id],
+              ['Registered model', traceability.registered_model_name || activeModel.registered_model_name],
+              ['Alias', traceability.alias],
+              ['Model version', traceability.model_version || champion.version],
+              ['Run ID', traceability.run_id || champion.run_id],
+              ['Model URI/source', traceability.model_uri || traceability.model_source || champion.source],
+              ['Tracking URI', traceability.tracking_uri || activeModel.tracking_uri],
+              ['Loaded at', traceability.loaded_at],
+              ['Loaded by', traceability.loaded_by],
+              ['Artifact/cache status', cacheStatus.status],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-2xl bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{String(label)}</div>
+                <div className="mt-1 break-all font-medium text-slate-800">{asString(value) || '—'}</div>
+              </div>
+            ))}
+          </div>
+        </details>
       </section>
 
       {plotRecipes.length > 0 && (
