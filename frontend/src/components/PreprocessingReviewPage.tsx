@@ -356,6 +356,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     ['Other/provenance', provenanceVariableEntries.length],
   ]
 
+  const projectOnlyChampionControls = Boolean(schema?.project_id && !selectedSession)
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
   const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
 
@@ -383,7 +384,10 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   }
 
   const nextAction = (() => {
-    if (!selectedSession) return { label: 'Select a session', disabled: true, run: undefined as (() => void) | undefined }
+    if (!selectedSession) {
+      if (schema?.project_id) return { label: busy === 'load-champion-model' ? 'Loading...' : championActive ? 'Reload champion model' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
+      return { label: 'Select a session', disabled: true, run: undefined as (() => void) | undefined }
+    }
     if (!metadataApproved) return { label: busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata', disabled: !metadataDraft || Boolean(busy), run: approveMetadataDraft }
     if (!preprocessingComplete) return { label: busy === 'preprocessing' ? 'Preprocessing...' : 'Run preprocessing', disabled: !canRunPreprocessing || Boolean(busy), run: () => runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) }) }
     if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
@@ -428,6 +432,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Rows</div><div className="mt-1 font-semibold text-slate-950">{modelRows ?? 'Pending'}</div></div>
           </div>
         )}
+
+        {projectOnlyChampionControls && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <div className="font-semibold text-amber-900">No intake session is available in this deployment.</div>
+            <p className="mt-1 leading-6">The original preprocessing session is app-local runtime state, but this project can still use MLflow champion artifacts. Promote the intended version to <code>champion</code>, then load or reload the champion model here.</p>
+          </div>
+        )}
       </SectionCard>
 
       {error && <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
@@ -438,21 +449,23 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Next step</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{nextAction.label}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {championActive
-                ? 'Approved champion is active for serving, Model Quality, and Design Studio.'
-                : candidateReady
-                  ? 'Training artifacts are ready. Promote the intended version to champion in MLflow, then load the champion model here.'
-                  : trainingCompleted
-                    ? 'Training artifacts are ready for review.'
-                : !metadataApproved
-                  ? 'Review the variable summary, then approve metadata.'
-                  : !preprocessingComplete
-                    ? 'Generate the canonical model table and evidence.'
-                      : !preprocessingApproved
-                        ? 'Review evidence, then approve training readiness.'
-                        : !trainingRequest
-                          ? 'Use the recommended training configuration.'
-                          : 'Run the approved training request or import a completed local MLflow run.'}
+              {projectOnlyChampionControls
+                ? 'No intake session is available here, so use the project-level MLflow champion loader to refresh serving state.'
+                : championActive
+                  ? 'Approved champion is active for serving, Model Quality, and Design Studio.'
+                  : candidateReady
+                    ? 'Training artifacts are ready. Promote the intended version to champion in MLflow, then load the champion model here.'
+                    : trainingCompleted
+                      ? 'Training artifacts are ready for review.'
+                  : !metadataApproved
+                    ? 'Review the variable summary, then approve metadata.'
+                    : !preprocessingComplete
+                      ? 'Generate the canonical model table and evidence.'
+                        : !preprocessingApproved
+                          ? 'Review evidence, then approve training readiness.'
+                          : !trainingRequest
+                            ? 'Use the recommended training configuration.'
+                            : 'Run the approved training request or import a completed local MLflow run.'}
             </p>
           </div>
           <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
