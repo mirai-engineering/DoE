@@ -40,6 +40,29 @@
       "idleTimeout": 5,
       "directTools": false,
       "debug": false
+    },
+    "mlflow": {
+      "command": "direnv",
+      "args": [
+        "exec",
+        ".",
+        "uv",
+        "run",
+        "--directory",
+        "backend",
+        "--with",
+        "mlflow[mcp]>=3.5.1",
+        "mlflow",
+        "mcp",
+        "run"
+      ],
+      "env": {
+        "MLFLOW_MCP_TOOLS": "ml"
+      },
+      "lifecycle": "lazy",
+      "idleTimeout": 5,
+      "directTools": false,
+      "debug": false
     }
   }
 }
