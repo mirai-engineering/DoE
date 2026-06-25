@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath, Path
+import mimetypes
 import os
 import re
-from typing import BinaryIO
+from typing import BinaryIO, Iterable
 from urllib.parse import urlparse
 
 
@@ -326,8 +327,66 @@ def put_workspace_object(config: WorkspaceStorageConfig, object_key: str, body: 
     return key
 
 
+def upload_workspace_directory_tree(
+    config: WorkspaceStorageConfig,
+    source_dir: Path | str,
+    object_key_prefix: str,
+    *,
+    exclude_names: Iterable[str] = (),
+    max_files: int = 500,
+    max_bytes: int = 250 * 1024 * 1024,
+) -> dict:
+    """Upload a bounded local directory tree under a validated workspace prefix.
+
+    The helper centralizes path validation for project-scoped artifact uploads.
+    It refuses absolute/traversing object keys through validate_workspace_object_key,
+    skips caller-supplied raw/reference directory names, and enforces simple file
+    and byte limits so accidental raw data trees are not uploaded as model/EDA
+    artifacts.
+    """
+
+    root = Path(source_dir).resolve()
+    if not root.exists() or not root.is_dir():
+        raise WorkspaceStorageError(f"Source directory does not exist: {source_dir}")
+    prefix = validate_workspace_object_key(config, object_key_prefix).rstrip("/")
+    excluded = {str(name) for name in exclude_names}
+    candidates: list[Path] = []
+    total_bytes = 0
+    for path in sorted(root.rglob("*")):
+        relative_path = path.relative_to(root)
+        if any(part in excluded for part in relative_path.parts):
+            continue
+        if path.is_symlink():
+            raise WorkspaceStorageError(f"Directory upload rejects symlinks: {path}")
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        if root not in [resolved, *resolved.parents]:
+            raise WorkspaceStorageError(f"Directory upload file escapes source root: {path}")
+        candidates.append(path)
+        total_bytes += path.stat().st_size
+        if len(candidates) > max_files:
+            raise WorkspaceStorageError(f"Directory upload exceeds max_files={max_files}: {root}")
+        if total_bytes > max_bytes:
+            raise WorkspaceStorageError(f"Directory upload exceeds max_bytes={max_bytes}: {root}")
+
+    uploaded: list[dict] = []
+    for path in candidates:
+        relative = path.relative_to(root).as_posix()
+        key = validate_workspace_object_key(config, f"{prefix}/{relative}")
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        with path.open("rb") as handle:
+            put_workspace_object(config, key, handle, content_type=content_type)
+        uploaded.append({"key": key, "size_bytes": path.stat().st_size})
+    return {"status": "uploaded", "prefix": prefix + "/", "count": len(uploaded), "total_bytes": total_bytes, "objects": uploaded[:50]}
+
+
 def get_workspace_object(config: WorkspaceStorageConfig, object_key: str) -> bytes:
     key = validate_workspace_object_key(config, object_key)
+    if config.mode == "local":
+        if not config.bucket:
+            raise WorkspaceStorageError("Local workspace object reads require a bucket/mirror name")
+        return read_object_storage_bytes(config.bucket, key)
     client = _workspace_s3_client(config)
     response = client.get_object(Bucket=config.bucket, Key=key)
     return response["Body"].read()

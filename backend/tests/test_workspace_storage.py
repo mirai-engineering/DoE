@@ -13,6 +13,7 @@ from app.services.workspace_storage import (
     object_storage_uri,
     put_workspace_object,
     read_object_storage_bytes,
+    upload_workspace_directory_tree,
     validate_object_key,
     validate_workspace_object_uri,
     workspace_scoped_path,
@@ -189,6 +190,52 @@ def test_put_workspace_object_writes_local_mirror_and_rejects_prefix_escape(monk
     assert read_object_storage_bytes("mirai-user-123-demo", key) == b"zip-bytes"
     with pytest.raises(WorkspaceStorageError):
         put_workspace_object(config, "workspaces/user_456/projects/project_a/intake/raw.zip", b"bad")
+
+
+def test_upload_workspace_directory_tree_writes_bounded_project_prefix(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(tmp_path / "mirror"))
+    source = tmp_path / "source"
+    (source / "nested").mkdir(parents=True)
+    (source / "nested" / "schema.json").write_text('{"ok":true}', encoding="utf-8")
+    (source / "raw" / "skip.csv").parent.mkdir()
+    (source / "raw" / "skip.csv").write_text("raw", encoding="utf-8")
+    config = WorkspaceStorageConfig(
+        workspace_id="fraunhofer",
+        mode="local",
+        bucket="mirai-demo",
+        prefix="workspaces/fraunhofer/projects/project_a",
+    )
+
+    result = upload_workspace_directory_tree(
+        config,
+        source,
+        "workspaces/fraunhofer/projects/project_a/preprocessing/latest",
+        exclude_names={"raw"},
+    )
+
+    assert result["count"] == 1
+    key = "workspaces/fraunhofer/projects/project_a/preprocessing/latest/nested/schema.json"
+    assert read_object_storage_bytes("mirai-demo", key) == b'{"ok":true}'
+    with pytest.raises(WorkspaceStorageError):
+        upload_workspace_directory_tree(config, source, "workspaces/fraunhofer/../project_a/bad")
+
+
+def test_upload_workspace_directory_tree_rejects_symlink(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(tmp_path / "mirror"))
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    (source / "leak.txt").symlink_to(outside)
+    config = WorkspaceStorageConfig(
+        workspace_id="fraunhofer",
+        mode="local",
+        bucket="mirai-demo",
+        prefix="workspaces/fraunhofer/projects/project_a",
+    )
+
+    with pytest.raises(WorkspaceStorageError, match="rejects symlinks"):
+        upload_workspace_directory_tree(config, source, "workspaces/fraunhofer/projects/project_a/eda/latest")
 
 
 def test_local_config_rejects_s3_uri_but_accepts_workspace_key():

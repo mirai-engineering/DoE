@@ -6,7 +6,6 @@ from io import BytesIO
 import hashlib
 import json
 import logging
-import mimetypes
 from pathlib import Path
 import re
 import shutil
@@ -19,7 +18,7 @@ from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, sessi
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
 from .mlflow_registry import download_production_onnx, download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, verify_champion_mlflow_model, verify_external_mlflow_model_version
-from .workspace_storage import put_workspace_object, validate_workspace_object_key, workspace_s3_config_from_env
+from .workspace_storage import put_workspace_object, upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from .project_registry import get_project_schema
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
@@ -261,18 +260,30 @@ def _project_storage_config_for_training(workspace_id: str, project_id: str):
 def _upload_training_artifacts_to_s3(workspace_id: str, project_id: str, training_run_id: str, artifact_dir: Path) -> dict[str, Any]:
     try:
         config = _project_storage_config_for_training(workspace_id, project_id)
-        uploaded: list[dict[str, Any]] = []
-        prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/artifacts/{training_run_id}")
-        for path in sorted(artifact_dir.rglob("*")):
-            if not path.is_file():
-                continue
-            relative = path.relative_to(artifact_dir).as_posix()
-            key = f"{prefix}/{relative}"
-            content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            with path.open("rb") as handle:
-                put_workspace_object(config, key, handle, content_type=content_type)
-            uploaded.append({"key": key, "size_bytes": path.stat().st_size})
-        return {"status": "uploaded", "count": len(uploaded), "objects": uploaded[:50], "prefix": prefix + "/"}
+        uploads = []
+        for label, suffix in {
+            "legacy": f"artifacts/{training_run_id}",
+            "run": f"training_runs/{training_run_id}",
+            "latest": "training_artifacts/latest",
+        }.items():
+            prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/{suffix}")
+            result = upload_workspace_directory_tree(
+                config,
+                artifact_dir,
+                prefix,
+                exclude_names={"raw_reference_extracted", "01-Data"},
+            )
+            uploads.append({"layout": label, **result})
+        return {
+            "status": "uploaded",
+            "layouts": uploads,
+            "count": sum(int(item.get("count", 0)) for item in uploads),
+            "objects": [obj for item in uploads for obj in item.get("objects", [])][:50],
+            "prefix": uploads[0]["prefix"] if uploads else "",
+            "legacy_prefix": uploads[0]["prefix"] if uploads else "",
+            "run_prefix": uploads[1]["prefix"] if len(uploads) > 1 else "",
+            "latest_prefix": uploads[2]["prefix"] if len(uploads) > 2 else "",
+        }
     except Exception as exc:  # noqa: BLE001 - local/dev can run without S3.
         logger.warning("Training artifact S3 upload skipped/failed for workspace_id=%s project_id=%s: %s", workspace_id, project_id, exc)
         if postgres_control_plane_required():
@@ -335,6 +346,7 @@ def build_approved_training_package(
     dataset_id: str,
     session_id: str,
     training_request_id: str,
+    persist_export: bool = True,
 ) -> ApprovedTrainingPackage:
     project_id = _validate_export_route_id("project_id", project_id)
     dataset_id = _validate_export_route_id("dataset_id", dataset_id)
@@ -397,10 +409,50 @@ def build_approved_training_package(
         archive.writestr("training_manifest.json", json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n")
     content = buffer.getvalue()
     filename = f"mirai-training-package-{project_id}-{dataset_id}-{training_request_id}.zip"
+    sha256 = hashlib.sha256(content).hexdigest()
+    if persist_export:
+        try:
+            config = _project_storage_config_for_training(str(manifest["workspace_id"]), project_id)
+            prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/training_packages/{training_request_id}")
+            put_workspace_object(config, f"{prefix}/{filename}", content, content_type="application/zip")
+            put_workspace_object(
+                config,
+                f"{prefix}/training_manifest.json",
+                json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False).encode("utf-8") + b"\n",
+                content_type="application/json",
+            )
+            put_workspace_object(config, f"{prefix}/sha256.txt", (sha256 + "\n").encode("utf-8"), content_type="text/plain")
+            put_workspace_object(
+                config,
+                f"{prefix}/metadata.json",
+                json.dumps(
+                    {
+                        "workspace_id": manifest["workspace_id"],
+                        "project_id": project_id,
+                        "dataset_id": dataset_id,
+                        "session_id": session_id,
+                        "training_request_id": training_request_id,
+                        "filename": filename,
+                        "sha256": sha256,
+                        "size_bytes": len(content),
+                        "created_at": manifest.get("exported_at"),
+                        "exported_at": manifest.get("exported_at"),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode("utf-8")
+                + b"\n",
+                content_type="application/json",
+            )
+        except Exception as exc:  # noqa: BLE001 - export download should still work in local/dev without S3.
+            logger.warning("Training package persistence skipped/failed for project_id=%s training_request_id=%s: %s", project_id, training_request_id, exc)
+            if postgres_control_plane_required():
+                raise
     return ApprovedTrainingPackage(
         filename=filename,
         content=content,
-        sha256=hashlib.sha256(content).hexdigest(),
+        sha256=sha256,
         size_bytes=len(content),
         manifest=manifest,
     )
@@ -557,6 +609,7 @@ def import_external_mlflow_run(
         dataset_id=dataset_id,
         session_id=session_id,
         training_request_id=training_request_id,
+        persist_export=False,
     )
     expected_checksums = approved_package.manifest.get("source_checksums") if isinstance(approved_package.manifest, dict) else None
     actual_manifest = verified.get("training_manifest") if isinstance(verified.get("training_manifest"), dict) else {}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +19,15 @@ from .data_intake import (
     write_status,
 )
 from .domain_metadata import build_domain_metadata, infer_template_id
+from .control_plane import get_project_storage_config
+from .db import postgres_control_plane_required
 from .project_registry import clear_registry_cache
+from .workspace_storage import upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract, schema_from_contract
 from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root, build_generic_preprocessing_artifacts
+
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -537,6 +544,49 @@ def approve_domain_metadata(project_id: str, dataset_id: str, session_id: str, a
     return approved
 
 
+def _project_storage_config_for_preprocessing(workspace_id: str, project_id: str):
+    runtime_config = get_project_storage_config(workspace_id, project_id)
+    if runtime_config is not None:
+        return runtime_config
+    return workspace_s3_config_from_env(workspace_id, prefix=f"workspaces/{workspace_id}/projects/{project_id}")
+
+
+def _persist_preprocessing_outputs(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    session = get_ingestion_session(project_id, dataset_id, session_id)
+    workspace_id = str(session.get("workspace_id") or "mirai-engineering")
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    try:
+        config = _project_storage_config_for_preprocessing(workspace_id, project_id)
+        uploads = []
+        for label, local_dir, suffix in [
+            ("canonical", workspace["canonical"], "canonical/latest"),
+            ("preprocessing", workspace["training_latest"], "preprocessing/latest"),
+            ("eda", workspace["eda"], "eda/latest"),
+        ]:
+            prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/{suffix}")
+            result = upload_workspace_directory_tree(
+                config,
+                local_dir,
+                prefix,
+                exclude_names={"raw_reference_extracted", "01-Data", "raw"},
+            )
+            uploads.append({"artifact_set": label, **result})
+        return {
+            "status": "uploaded",
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+            "dataset_id": dataset_id,
+            "session_id": session_id,
+            "layouts": uploads,
+            "count": sum(int(item.get("count", 0)) for item in uploads),
+        }
+    except Exception as exc:  # noqa: BLE001 - local/dev can approve without configured S3.
+        logger.warning("Preprocessing artifact upload skipped/failed for workspace_id=%s project_id=%s: %s", workspace_id, project_id, exc)
+        if postgres_control_plane_required():
+            raise
+        return {"status": "skipped", "workspace_id": workspace_id, "project_id": project_id, "detail": str(exc)}
+
+
 def approve_preprocessing(project_id: str, dataset_id: str, session_id: str, approver: str, notes: str | None = None) -> dict[str, Any]:
     report = get_preprocessing_review_report(project_id, dataset_id, session_id)
     if report.get("status") not in {"preprocessing_complete_needs_approval", "eda_complete_needs_mirai_admin_review", "approved_for_training"}:
@@ -560,5 +610,8 @@ def approve_preprocessing(project_id: str, dataset_id: str, session_id: str, app
         schema["domain_metadata"] = domain_metadata
         _write_json(schema_path, schema)
     _write_json(workspace["eda"] / "preprocessing_report.json", report)
-    write_status(project_id, dataset_id, session_id, "preprocessing", {**get_preprocessing_status(project_id, dataset_id, session_id), "status": "approved_for_training", "approved_at": report["approval"]["approved_at"]})
+    persistence = _persist_preprocessing_outputs(project_id, dataset_id, session_id)
+    report["object_storage"] = persistence
+    _write_json(workspace["eda"] / "preprocessing_report.json", report)
+    write_status(project_id, dataset_id, session_id, "preprocessing", {**get_preprocessing_status(project_id, dataset_id, session_id), "status": "approved_for_training", "approved_at": report["approval"]["approved_at"], "object_storage": persistence})
     return report
