@@ -71,3 +71,76 @@ def test_recommendations_fail_without_loaded_champion_and_pass_with_workspace(mo
     result = recommendation.recommend_experiments("demo_project", request, workspace_id="fraunhofer")
     assert result.model_version == "champion-v1"
     assert len(result.recommendations) == 3
+
+
+def test_training_overlay_options_and_filters_are_generic(monkeypatch, tmp_path: Path):
+    schema = {
+        "inputs": [
+            {"name": "x1", "label": "Sweep X", "min": 0, "max": 1, "unit": "V"},
+            {"name": "rh", "label": "Relative humidity", "min": 40, "max": 100, "unit": "%"},
+        ],
+        "outputs": [{"name": "y1", "label": "Output", "direction": "maximize"}],
+        "metadata": {"all_variables": [{"name": "cell_id", "label": "Cell", "role": "metadata", "dtype": "string"}]},
+    }
+    prediction_path = tmp_path / "predictions.csv"
+    pd.DataFrame([
+        {"x1": 0.1, "rh": 70, "cell_id": "Cell_01", "split": "train", "y1_true": 1.0, "y1_pred": 0.9},
+        {"x1": 0.2, "rh": 70, "cell_id": "Cell_02", "split": "test", "y1_true": 2.0, "y1_pred": 1.9},
+        {"x1": 0.3, "rh": 90, "cell_id": "Cell_01", "split": "test", "y1_true": 3.0, "y1_pred": 2.9},
+    ]).to_csv(prediction_path, index=False)
+    monkeypatch.setattr(design_studio, "_project_schema", lambda project_id, workspace_id=None: schema)
+    monkeypatch.setattr(design_studio, "_prediction_artifact_path", lambda project_id, workspace_id=None: prediction_path)
+
+    options = design_studio.training_overlay_options("p")
+    by_name = {item["name"]: item for item in options["columns"]}
+    assert by_name["rh"]["filter_kind"] == "exact"
+    assert by_name["cell_id"]["label"] == "Cell"
+
+    overlay = design_studio._training_overlay(
+        "p",
+        "x1",
+        ["y1"],
+        group_by="split",
+        filters={"rh": 70, "cell_id": "Cell_02"},
+        ranges=None,
+    )
+    assert overlay["source_row_count"] == 3
+    assert overlay["filtered_row_count"] == 1
+    assert overlay["rows"] == [{"x1": 0.2, "y1_true": 2.0, "split": "test", "rh": 70, "cell_id": "Cell_02"}]
+
+
+def test_training_overlay_range_filter_empty_state(monkeypatch, tmp_path: Path):
+    schema = {"inputs": [{"name": "x1", "min": 0, "max": 1}], "outputs": [{"name": "y1"}]}
+    prediction_path = tmp_path / "predictions.csv"
+    pd.DataFrame([{"x1": 0.1, "temperature": 25.0, "y1_true": 1.0}, {"x1": 0.9, "temperature": 80.0, "y1_true": 2.0}]).to_csv(prediction_path, index=False)
+    monkeypatch.setattr(design_studio, "_project_schema", lambda project_id, workspace_id=None: schema)
+    monkeypatch.setattr(design_studio, "_prediction_artifact_path", lambda project_id, workspace_id=None: prediction_path)
+
+    overlay = design_studio._training_overlay("p", "x1", ["y1"], ranges={"temperature": {"min": 30, "max": 40}})
+
+    assert overlay["filtered_row_count"] == 0
+    assert overlay["rows"] == []
+
+
+def test_fuel_cell_recipe_is_adapted_to_generic_scatter_response(monkeypatch):
+    schema = {
+        "inputs": [{"name": "voltage", "min": 0.6, "max": 0.9}],
+        "outputs": [{"name": "current", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": [{"id": "legacy", "kind": "fuel_cell_polarization", "enabled": True, "x": {"variables": ["current"]}, "y": {"variable": "voltage"}}]}},
+    }
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+    monkeypatch.setattr(design_studio, "_plot_recipes", lambda project_id, schema, workspace_id=None: schema["domain_metadata"]["ui_config"]["plot_recipes"])
+
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+        return [{"current": row["voltage"] * 10} for row in rows], [], "model_v1"
+
+    monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+
+    curve, warnings, model_version = design_studio._curve_rows("p", {"voltage": 0.7}, plot_recipe_id="legacy")
+
+    assert warnings == []
+    assert model_version == "model_v1"
+    assert curve["recipe"]["kind"] == "scatter_response"
+    assert curve["recipe"]["x"]["variable"] == "voltage"
+    assert curve["recipe"]["y"]["variable"] == "current"
+    assert set(curve["rows"][0]) == {"voltage", "current"}

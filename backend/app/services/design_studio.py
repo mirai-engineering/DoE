@@ -125,8 +125,127 @@ def get_real_cell_options(project_id: str, workspace_id: str | None = None) -> d
     return {"project_id": project_id, "real_cell_options": rows}
 
 
-def _training_overlay(project_id: str, x_variable: str | None, output_variables: list[str] | None, group_by: str | None = None, workspace_id: str | None = None) -> dict[str, Any] | None:
-    if not x_variable or not output_variables:
+def _schema_variable_lookup(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for role in ("inputs", "outputs"):
+        for item in schema.get(role, []) or []:
+            if isinstance(item, dict) and item.get("name"):
+                lookup[str(item["name"])] = {**item, "role": "input" if role == "inputs" else "output"}
+    for container_name in ("metadata", "domain_metadata"):
+        container = schema.get(container_name) if isinstance(schema.get(container_name), dict) else {}
+        for key in ("all_variables", "variables"):
+            values = container.get(key) if isinstance(container.get(key), list) else []
+            for item in values:
+                if isinstance(item, dict) and item.get("name"):
+                    lookup.setdefault(str(item["name"]), item)
+    return lookup
+
+
+def _jsonable_value(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    return value
+
+
+def _is_numeric_series(series: pd.Series) -> bool:
+    if pd.api.types.is_bool_dtype(series):
+        return False
+    return pd.api.types.is_numeric_dtype(series) or pd.to_numeric(series.dropna(), errors="coerce").notna().all()
+
+
+def training_overlay_options(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    schema = _project_schema(project_id, workspace_id)
+    lookup = _schema_variable_lookup(schema)
+    try:
+        frame = _predictions_artifact(project_id, workspace_id)
+    except (FileNotFoundError, ValueError):
+        return {"source": "predictions.csv", "available": False, "columns": [], "row_count": 0}
+    output_names = {str(item.get("name")) for item in schema.get("outputs", []) if item.get("name")}
+    excluded_suffixes = ("_true", "_pred", "_error", "_residual")
+    excluded_names = {"model_name", "candidate", "project_id"}
+    columns: list[dict[str, Any]] = []
+    for column in frame.columns:
+        if column in excluded_names or any(str(column).endswith(suffix) for suffix in excluded_suffixes) or column in output_names:
+            continue
+        series = frame[column].dropna()
+        if series.empty:
+            continue
+        meta = lookup.get(str(column), {})
+        is_numeric = _is_numeric_series(series)
+        numeric = pd.to_numeric(series, errors="coerce") if is_numeric else None
+        distinct_values = sorted(series.drop_duplicates().tolist(), key=lambda value: str(value))
+        distinct_count = int(len(distinct_values))
+        low_cardinality = distinct_count <= 50
+        item: dict[str, Any] = {
+            "name": str(column),
+            "label": meta.get("label") or meta.get("ui_label") or str(column),
+            "role": meta.get("role") or ("input" if column in {i.get("name") for i in schema.get("inputs", [])} else "metadata"),
+            "dtype": meta.get("dtype") or ("number" if is_numeric else "string"),
+            "unit": meta.get("unit") or "",
+            "distinct_count": distinct_count,
+            "filter_kind": "exact" if (not is_numeric or low_cardinality) else "range",
+            "searchable": True,
+            "recommended": (meta.get("role") in {"input", "metadata", "context", "group"}) or str(column) in {"split", "cell_id"},
+        }
+        if is_numeric and numeric is not None:
+            item["min"] = float(numeric.min())
+            item["max"] = float(numeric.max())
+        if (not is_numeric) or low_cardinality:
+            item["values"] = [_jsonable_value(value) for value in distinct_values[:500]]
+        columns.append(item)
+    return {"source": "predictions.csv", "available": True, "columns": columns, "row_count": int(len(frame))}
+
+
+def _apply_overlay_filters(frame: pd.DataFrame, filters: dict[str, Any] | None, ranges: dict[str, Any] | None) -> pd.DataFrame:
+    subset = frame
+    for column, raw in (filters or {}).items():
+        if column not in subset.columns or raw in (None, "", []):
+            continue
+        values = raw if isinstance(raw, list) else [raw]
+        series = subset[column]
+        if _is_numeric_series(series):
+            numeric = pd.to_numeric(series, errors="coerce")
+            wanted = []
+            for value in values:
+                if value in (None, ""):
+                    continue
+                try:
+                    wanted.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+            if wanted:
+                mask = np.zeros(len(subset), dtype=bool)
+                for value in wanted:
+                    mask |= np.isclose(numeric.astype(float), value, equal_nan=False)
+                subset = subset[mask]
+        else:
+            wanted = {str(value) for value in values if value not in (None, "")}
+            if wanted:
+                subset = subset[subset[column].astype(str).isin(wanted)]
+    for column, bounds in (ranges or {}).items():
+        if column not in subset.columns or not isinstance(bounds, dict):
+            continue
+        numeric = pd.to_numeric(subset[column], errors="coerce")
+        if bounds.get("min") not in (None, ""):
+            try:
+                subset = subset[numeric >= float(bounds["min"])]
+                numeric = pd.to_numeric(subset[column], errors="coerce")
+            except (TypeError, ValueError):
+                pass
+        if bounds.get("max") not in (None, ""):
+            try:
+                subset = subset[numeric <= float(bounds["max"])]
+            except (TypeError, ValueError):
+                pass
+    return subset
+
+
+def _training_overlay(project_id: str, x_variable: str | None, output_variables: list[str] | None, group_by: str | None = None, filters: dict[str, Any] | None = None, ranges: dict[str, Any] | None = None, enabled: bool = True, workspace_id: str | None = None) -> dict[str, Any] | None:
+    if not enabled or not x_variable or not output_variables:
         return None
     try:
         frame = _predictions_artifact(project_id, workspace_id)
@@ -135,12 +254,19 @@ def _training_overlay(project_id: str, x_variable: str | None, output_variables:
     true_columns = [f"{name}_true" for name in output_variables if f"{name}_true" in frame.columns]
     if x_variable not in frame.columns or not true_columns:
         return None
+    filtered = _apply_overlay_filters(frame, filters, ranges)
+    source_row_count = int(len(frame))
+    filtered_row_count = int(len(filtered))
     columns = [x_variable, *true_columns]
-    if group_by and group_by in frame.columns:
+    if group_by and group_by in filtered.columns:
         columns.append(group_by)
-    if "split" in frame.columns and "split" not in columns:
+    filter_columns = [name for name in [*(filters or {}).keys(), *(ranges or {}).keys()] if name in filtered.columns and name not in columns]
+    columns.extend(filter_columns)
+    if "split" in filtered.columns and "split" not in columns:
         columns.append("split")
-    subset = frame[columns].dropna(subset=[x_variable, *true_columns]).drop_duplicates().sort_values(x_variable)
+    if filtered.empty:
+        return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "source_row_count": source_row_count, "filtered_row_count": 0, "rows": []}
+    subset = filtered[columns].dropna(subset=[x_variable, *true_columns]).drop_duplicates().sort_values(x_variable)
     if len(subset) > 1200:
         subset = subset.iloc[np.linspace(0, len(subset) - 1, 1200).round().astype(int)]
     rows = []
@@ -148,12 +274,12 @@ def _training_overlay(project_id: str, x_variable: str | None, output_variables:
         item: dict[str, Any] = {str(x_variable): float(row[x_variable])}
         for column in true_columns:
             item[column] = float(row[column])
-        if group_by and group_by in row:
-            item[group_by] = str(row[group_by])
-        if "split" in row:
-            item["split"] = str(row["split"])
+        for column in columns:
+            if column in item or column in true_columns or column == x_variable:
+                continue
+            item[column] = _jsonable_value(row[column])
         rows.append(item)
-    return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "rows": rows}
+    return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "source_row_count": source_row_count, "filtered_row_count": filtered_row_count, "rows": rows}
 
 
 def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variable: str | None = None, output_variables: list[str] | None = None, workspace_id: str | None = None) -> dict[str, Any] | None:
@@ -206,18 +332,14 @@ def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str |
     if not preset or not preset.get("enabled", True):
         return None, [], "unknown"
     if preset.get("kind") == "fuel_cell_polarization":
-        voltage_grid = preset["observed_voltage_grid"]
-        sweep_rows = [{**inputs, FUEL_CELL_VOLTAGE_INPUT: float(voltage)} for voltage in voltage_grid]
-        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
-        rows = [
-            {
-                "operating_voltage": float(row[FUEL_CELL_VOLTAGE_INPUT]),
-                FUEL_CELL_BOL_OUTPUT: float(pred[FUEL_CELL_BOL_OUTPUT]),
-                FUEL_CELL_EOL_OUTPUT: float(pred[FUEL_CELL_EOL_OUTPUT]),
-            }
-            for row, pred in zip(sweep_rows, predictions, strict=True)
-        ]
-        return {"preset": preset.get("id", "fuel_cell_polarization"), "recipe": preset, "rows": rows}, warnings, model_version
+        x_variables = (preset.get("x") or {}).get("variables") or []
+        preset = {
+            **preset,
+            "kind": "scatter_response",
+            "x": {"source": "input", "variable": (preset.get("y") or {}).get("variable")},
+            "y": {"source": "prediction", "variable": x_variables[0] if x_variables else None},
+            "series": [{"variable": variable} for variable in x_variables[1:] if variable],
+        }
     if preset.get("kind") == "scatter_response":
         x_variable = (preset.get("x") or {}).get("variable")
         y_variable = (preset.get("y") or {}).get("variable")
@@ -273,7 +395,8 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
         "plot_recipes": design_recipes,
         "selected_plot_recipe_id": selected_recipe_id,
         "presets": {"fuel_cell_polarization": _fuel_cell_preset(project_id, workspace_id)},
-        "real_cell_options": get_real_cell_options(project_id, workspace_id).get("real_cell_options", []),
+        "real_cell_options": [],
+        "training_overlay_options": training_overlay_options(project_id, workspace_id),
     }
 
 
@@ -289,12 +412,14 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
         series_variables = [item.get("variable") for item in curve_recipe.get("series", []) if isinstance(item, dict) and item.get("variable")]
         comparison_outputs = [item for item in [y_variable, *series_variables] if item]
     comparison_output_names = [str(item) for item in comparison_outputs] if comparison_outputs else None
-    comparison = _real_cell_curve(project_id, payload.get("comparison_real_cell"), str(comparison_x), comparison_output_names, workspace_id=workspace_id)
     training_overlay = _training_overlay(
         project_id,
         str(comparison_x),
         comparison_output_names,
         group_by=str(payload.get("training_overlay_group_by") or "") or None,
+        filters=payload.get("training_overlay_filters") if isinstance(payload.get("training_overlay_filters"), dict) else None,
+        ranges=payload.get("training_overlay_ranges") if isinstance(payload.get("training_overlay_ranges"), dict) else None,
+        enabled=bool(payload.get("training_overlay_enabled", True)),
         workspace_id=workspace_id,
     )
     return {
@@ -305,7 +430,7 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
         "predictions_at_selected_point": predictions[0],
         "curve": curve,
         "warnings": [*point_warnings, *curve_warnings],
-        "comparison_real_cell": comparison,
+        "comparison_real_cell": None,
         "training_overlay": training_overlay,
     }
 
@@ -458,7 +583,7 @@ def seed_batch_candidate(project_id: str, payload: dict[str, Any], workspace_id:
     predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
     scores = _score_predictions(schema, predictions, request.objective_weights)
     index = int(np.argsort(-scores)[0])
-    design = predict_design(project_id, {"inputs": candidates[index], "comparison_real_cell": payload.get("comparison_real_cell"), "plot_recipe_id": payload.get("plot_recipe_id"), "plot_recipe": payload.get("plot_recipe")}, workspace_id=workspace_id)
+    design = predict_design(project_id, {"inputs": candidates[index], "plot_recipe_id": payload.get("plot_recipe_id"), "plot_recipe": payload.get("plot_recipe"), "training_overlay_enabled": payload.get("training_overlay_enabled", True), "training_overlay_filters": payload.get("training_overlay_filters"), "training_overlay_ranges": payload.get("training_overlay_ranges"), "training_overlay_group_by": payload.get("training_overlay_group_by")}, workspace_id=workspace_id)
     design["seed"] = {
         "source": "batch_search",
         "score": float(scores[index]),
@@ -481,16 +606,16 @@ def export_design_zip(project_id: str, payload: dict[str, Any], workspace_id: st
     inputs = prediction["inputs"]
     selected_point = prediction["predictions_at_selected_point"]
     curve_rows = (prediction.get("curve") or {}).get("rows", [])
-    real_rows = ((prediction.get("comparison_real_cell") or {}).get("rows") or [])
+    overlay_rows = ((prediction.get("training_overlay") or {}).get("rows") or [])
     comparison_candidate = payload.get("comparison_candidate") or {}
-    readme = f"""Mirai DoE Design Studio export\n\nProject: {project_id}\nSource: served-model prediction\nModel version: {prediction.get('model_version', 'unknown')}\n\nFiles:\n- candidate_inputs.csv: selected design variables.\n- predicted_outputs_at_selected_point.csv: model predictions at the selected operating point.\n- predicted_polarization_curve.csv: fuel-cell voltage sweep using observed voltage grid when available.\n- comparison_candidate.csv: saved comparison candidate, if provided.\n- selected_real_cell_curve.csv: measured real-cell comparison curve, if selected.\n- nearest_real_cells.csv: reserved for nearest-neighbor trust evidence.\n\nPredictions are model estimates, not experimental results. Measured real-cell comparison rows are observational data from training artifacts.\n"""
+    readme = f"""Mirai DoE Design Studio export\n\nProject: {project_id}\nSource: served-model prediction\nModel version: {prediction.get('model_version', 'unknown')}\n\nFiles:\n- candidate_inputs.csv: selected design variables.\n- predicted_outputs_at_selected_point.csv: model predictions at the selected operating point.\n- predicted_response_curve.csv: selected generic response sweep.\n- comparison_candidate.csv: saved comparison candidate, if provided.\n- training_overlay_rows.csv: filtered measured/training overlay rows from predictions.csv, if available.\n- nearest_real_cells.csv: reserved for nearest-neighbor trust evidence.\n\nPredictions are model estimates, not experimental results. Training overlay rows are observational data from training artifacts.\n"""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("candidate_inputs.csv", _csv_from_records([inputs]))
         archive.writestr("predicted_outputs_at_selected_point.csv", _csv_from_records([{**selected_point, "model_version": prediction.get("model_version", "unknown")}]))
-        archive.writestr("predicted_polarization_curve.csv", _csv_from_records(curve_rows))
+        archive.writestr("predicted_response_curve.csv", _csv_from_records(curve_rows))
         archive.writestr("comparison_candidate.csv", _csv_from_records([comparison_candidate] if comparison_candidate else []))
-        archive.writestr("selected_real_cell_curve.csv", _csv_from_records(real_rows))
+        archive.writestr("training_overlay_rows.csv", _csv_from_records(overlay_rows))
         archive.writestr("nearest_real_cells.csv", _csv_from_records([]))
         archive.writestr("README.txt", readme)
     return buffer.getvalue()

@@ -616,6 +616,28 @@ export interface ModelQualitySummary {
   ai_preprocessing_assistant: Record<string, unknown>
 }
 
+export interface DesignStudioOverlayColumn {
+  name: string
+  label: string
+  role?: string
+  dtype?: string
+  unit?: string
+  filter_kind: 'exact' | 'range' | string
+  distinct_count?: number
+  values?: Array<string | number | boolean | null>
+  min?: number
+  max?: number
+  searchable?: boolean
+  recommended?: boolean
+}
+
+export interface DesignStudioOverlayOptions {
+  source: string
+  available: boolean
+  columns: DesignStudioOverlayColumn[]
+  row_count: number
+}
+
 export interface DesignStudioState {
   project_id: string
   workspace_id?: string | null
@@ -628,6 +650,7 @@ export interface DesignStudioState {
   selected_plot_recipe_id?: string
   presets: Record<string, unknown>
   real_cell_options: Array<Record<string, unknown>>
+  training_overlay_options?: DesignStudioOverlayOptions
 }
 
 export interface DesignStudioParetoCandidate {

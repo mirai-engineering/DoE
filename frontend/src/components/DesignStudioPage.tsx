@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Plot from 'react-plotly.js'
 import * as Plotly from 'plotly.js-dist-min'
-import type { DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, PlotRecipe, ProjectSchema } from '../lib/api'
+import type { DesignStudioOverlayColumn, DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, PlotRecipe, ProjectSchema } from '../lib/api'
 import { exportDesignStudioZip, findDesignStudioPareto, getDesignStudioState, predictDesignStudio, seedDesignStudioBatch } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
 import { ModelMap } from './ModelMap'
@@ -52,7 +52,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [prediction, setPrediction] = useState<DesignStudioPrediction | null>(null)
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
-  const [selectedRealCell, setSelectedRealCell] = useState('')
+  const [trainingOverlayEnabled, setTrainingOverlayEnabled] = useState(true)
+  const [trainingOverlayFilters, setTrainingOverlayFilters] = useState<Record<string, string>>({})
+  const [trainingOverlayRanges, setTrainingOverlayRanges] = useState<Record<string, { min?: string, max?: string }>>({})
+  const [searchSpaceModes, setSearchSpaceModes] = useState<Record<string, 'free' | 'fixed' | 'range'>>({})
+  const [searchSpaceRanges, setSearchSpaceRanges] = useState<Record<string, { min?: string, max?: string }>>({})
   const [selectedPlotRecipeId, setSelectedPlotRecipeId] = useState('')
   const [sweepInputName, setSweepInputName] = useState('')
   const [primaryOutputName, setPrimaryOutputName] = useState('')
@@ -74,18 +78,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [hasPendingInputChanges, setHasPendingInputChanges] = useState(false)
   const responseCurvePlotRef = useRef<unknown>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const realCellOptions = state?.real_cell_options ?? []
-  const selectedRealCellPayload = useMemo(() => {
-    if (!selectedRealCell) return undefined
-    const option = realCellOptions[Number(selectedRealCell)]
-    if (!option) return undefined
-    return {
-      cell_id: asString(option.cell_id),
-      operating_rh: asNumber(option.operating_rh),
-      split: asString(option.split),
-    }
-  }, [realCellOptions, selectedRealCell])
 
   const numericInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(inputs[input.name])])), [inputs, schema.inputs])
   const objectivePresets = useMemo<ObjectivePreset[]>(() => {
@@ -109,12 +101,18 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const currentGoalLabel = selectedObjective?.label || 'Selected objective'
   const activeObjectiveCount = Object.values(selectedObjectiveWeights).filter((value) => Math.abs(value) > 1e-12).length
   const isFuelCellResponseRecipe = (recipe?: PlotRecipe) => recipe?.kind === 'fuel_cell_polarization'
+  function recipeSweepVariable(recipe?: PlotRecipe) {
+    return isFuelCellResponseRecipe(recipe) ? (asString(asRecord(recipe?.y).variable) || schema.inputs[0]?.name) : (asString(asRecord(recipe?.x).variable) || schema.inputs[0]?.name)
+  }
+  function recipePrimaryOutput(recipe?: PlotRecipe) {
+    const xVariables = asRecord(recipe?.x).variables
+    return isFuelCellResponseRecipe(recipe) && Array.isArray(xVariables) ? asString(xVariables[0]) || schema.outputs[0]?.name : (asString(asRecord(recipe?.y).variable) || schema.outputs[0]?.name)
+  }
 
   function dynamicPlotRecipe(recipeId = selectedPlotRecipeId): PlotRecipe | undefined {
     const recipe = state?.plot_recipes?.find((item) => item.id === recipeId)
-    if (isFuelCellResponseRecipe(recipe)) return undefined
-    const xVariable = sweepInputName || asString(asRecord(recipe?.x).variable) || schema.inputs[0]?.name
-    const yVariable = primaryOutputName || asString(asRecord(recipe?.y).variable) || schema.outputs[0]?.name
+    const xVariable = sweepInputName || recipeSweepVariable(recipe)
+    const yVariable = primaryOutputName || recipePrimaryOutput(recipe)
     const secondary = secondaryOutputName && secondaryOutputName !== yVariable ? secondaryOutputName : ''
     if (!xVariable || !yVariable) return undefined
     return {
@@ -142,12 +140,60 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     return dynamicRecipe ? { plot_recipe_id: recipeId || undefined, plot_recipe: dynamicRecipe } : { plot_recipe_id: recipe?.id || recipeId || undefined }
   }
 
+  function trainingOverlayPayload() {
+    const filters = Object.fromEntries(Object.entries(trainingOverlayFilters).filter(([, value]) => value !== ''))
+    const ranges = Object.fromEntries(Object.entries(trainingOverlayRanges).map(([name, range]) => [name, Object.fromEntries(Object.entries(range).filter(([, value]) => value !== undefined && value !== ''))]).filter(([, range]) => Object.keys(range as Record<string, string>).length > 0))
+    return {
+      training_overlay_enabled: trainingOverlayEnabled,
+      training_overlay_filters: Object.keys(filters).length ? filters : undefined,
+      training_overlay_ranges: Object.keys(ranges).length ? ranges : undefined,
+      training_overlay_group_by: trainingOverlayGroupBy || undefined,
+    }
+  }
+
+  function searchSpacePayload() {
+    const fixed_inputs: Record<string, number> = {}
+    const constraints: Record<string, { min?: number, max?: number }> = {}
+    schema.inputs.forEach((input) => {
+      const mode = searchSpaceModes[input.name] || 'free'
+      if (mode === 'fixed') {
+        const value = Number(inputs[input.name])
+        if (Number.isFinite(value)) fixed_inputs[input.name] = value
+      }
+      if (mode === 'range') {
+        const range = searchSpaceRanges[input.name] || {}
+        const min = range.min === undefined || range.min === '' ? undefined : Number(range.min)
+        const max = range.max === undefined || range.max === '' ? undefined : Number(range.max)
+        constraints[input.name] = {}
+        if (Number.isFinite(min)) constraints[input.name].min = min
+        if (Number.isFinite(max)) constraints[input.name].max = max
+      }
+    })
+    return { fixed_inputs, constraints }
+  }
+
   function applyRecipeDefaults(recipe?: PlotRecipe) {
-    if (!recipe || isFuelCellResponseRecipe(recipe)) return
-    setSweepInputName(asString(asRecord(recipe.x).variable) || schema.inputs[0]?.name || '')
-    setPrimaryOutputName(asString(asRecord(recipe.y).variable) || schema.outputs[0]?.name || '')
+    if (!recipe) return
+    const xVariable = recipeSweepVariable(recipe) || ''
+    const yVariable = recipePrimaryOutput(recipe) || ''
+    setSweepInputName(xVariable)
+    setPrimaryOutputName(yVariable)
     const firstSeries = Array.isArray(recipe.series) ? asString(asRecord(recipe.series[0]).variable) : ''
-    setSecondaryOutputName(firstSeries && firstSeries !== asString(asRecord(recipe.y).variable) ? firstSeries : '')
+    setSecondaryOutputName(firstSeries && firstSeries !== yVariable ? firstSeries : '')
+  }
+
+  function suggestedOverlayFilters(options: DesignStudioOverlayColumn[] | undefined, defaultInputs: Record<string, string>) {
+    const suggestions: Record<string, string> = {}
+    ;(options || []).forEach((column) => {
+      if (column.filter_kind !== 'exact' || defaultInputs[column.name] === undefined || !Array.isArray(column.values)) return
+      const current = Number(defaultInputs[column.name])
+      const match = column.values.find((value) => {
+        const numericValue = typeof value === 'number' ? value : Number(value)
+        return Number.isFinite(current) && Number.isFinite(numericValue) ? Math.abs(current - numericValue) < 1e-9 : String(value) === defaultInputs[column.name]
+      })
+      if (match !== undefined && match !== null) suggestions[column.name] = String(match)
+    })
+    return suggestions
   }
 
   async function loadState() {
@@ -159,9 +205,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       const numericDefaultInputs = Object.fromEntries(schema.inputs.map((input) => [input.name, Number(defaultInputs[input.name])]))
       const defaultRecipe = payload.plot_recipes?.find((recipe) => recipe.id === payload.selected_plot_recipe_id) || payload.plot_recipes?.find((recipe) => recipe.recommended) || payload.plot_recipes?.[0]
       const defaultPlotRecipeId = defaultRecipe?.id || ''
-      const defaultSweep = asString(asRecord(defaultRecipe?.x).variable) || schema.inputs[0]?.name || ''
-      const defaultOutput = asString(asRecord(defaultRecipe?.y).variable) || schema.outputs[0]?.name || ''
-      const defaultDynamicRecipe = defaultRecipe?.kind === 'fuel_cell_polarization' || !defaultSweep || !defaultOutput
+      const defaultSweep = recipeSweepVariable(defaultRecipe) || schema.inputs[0]?.name || ''
+      const defaultOutput = recipePrimaryOutput(defaultRecipe) || schema.outputs[0]?.name || ''
+      const defaultDynamicRecipe = !defaultSweep || !defaultOutput
         ? undefined
         : {
             id: defaultPlotRecipeId || `dynamic_${defaultSweep}_${defaultOutput}`,
@@ -178,7 +224,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             group_by: null,
             points: 60,
           }
+      const initialOverlayFilters = suggestedOverlayFilters(payload.training_overlay_options?.columns, defaultInputs)
       setState(payload)
+      setTrainingOverlayFilters(initialOverlayFilters)
       setInputs(defaultInputs)
       setSelectedPlotRecipeId(defaultPlotRecipeId)
       setSweepInputName(defaultSweep)
@@ -186,7 +234,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       setSweepRangeMax('')
       setPrimaryOutputName(defaultOutput)
       setSecondaryOutputName('')
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, plot_recipe_id: defaultPlotRecipeId || undefined, ...(defaultDynamicRecipe ? { plot_recipe: defaultDynamicRecipe } : {}) }))
+      setSearchSpaceModes(Object.fromEntries(schema.inputs.map((input) => [input.name, 'free'])))
+      setSearchSpaceRanges(Object.fromEntries(schema.inputs.map((input) => [input.name, { min: String(input.min), max: String(input.max) }])))
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, training_overlay_enabled: true, training_overlay_filters: Object.keys(initialOverlayFilters).length ? initialOverlayFilters : undefined, plot_recipe_id: defaultPlotRecipeId || undefined, ...(defaultDynamicRecipe ? { plot_recipe: defaultDynamicRecipe } : {}) }))
       setHasPendingInputChanges(false)
       const defaultObjectiveName = Object.keys(payload.default_objective_weights ?? {})[0]
       setObjectiveMode(defaultObjectiveName ? `single:${defaultObjectiveName}` : 'custom')
@@ -202,7 +252,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     setPredicting(true)
     setError(null)
     try {
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, comparison_real_cell: selectedRealCellPayload, training_overlay_group_by: trainingOverlayGroupBy || undefined, ...requestPlotPayload(plotRecipeId) }))
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, ...trainingOverlayPayload(), ...requestPlotPayload(plotRecipeId) }))
       setHasPendingInputChanges(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to predict design')
@@ -212,9 +262,38 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   }
 
   async function choosePlotRecipe(plotRecipeId: string) {
+    const recipe = state?.plot_recipes?.find((item) => item.id === plotRecipeId)
+    const nextSweep = recipeSweepVariable(recipe) || sweepInputName
+    const nextOutput = recipePrimaryOutput(recipe) || primaryOutputName
+    const nextDynamicRecipe = nextSweep && nextOutput ? {
+      id: plotRecipeId || `dynamic_${nextSweep}_${nextOutput}`,
+      label: `${schema.outputs.find((output) => output.name === nextOutput)?.label ?? nextOutput} vs ${schema.inputs.find((input) => input.name === nextSweep)?.label ?? nextSweep}`,
+      description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+      kind: 'scatter_response',
+      template_id: 'generic_tabular_doe',
+      safe: true,
+      recommended: true,
+      x: { source: 'input', variable: nextSweep },
+      y: { source: 'prediction', variable: nextOutput },
+      series: [],
+      filters: [],
+      group_by: null,
+      points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
+    } : undefined
     setSelectedPlotRecipeId(plotRecipeId)
-    applyRecipeDefaults(state?.plot_recipes?.find((recipe) => recipe.id === plotRecipeId))
-    if (state && prediction) await runPrediction(numericInputs, plotRecipeId)
+    applyRecipeDefaults(recipe)
+    if (state && prediction) {
+      setPredicting(true)
+      setError(null)
+      try {
+        setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericInputs, ...trainingOverlayPayload(), plot_recipe_id: plotRecipeId || undefined, ...(nextDynamicRecipe ? { plot_recipe: nextDynamicRecipe } : {}) }))
+        setHasPendingInputChanges(false)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to predict design')
+      } finally {
+        setPredicting(false)
+      }
+    }
   }
 
   function updateInput(name: string, value: string) {
@@ -229,8 +308,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       const seeded = await seedDesignStudioBatch(schema.project_id, {
         objective_weights: selectedObjectiveWeights,
         n_candidates: 3000,
-        comparison_real_cell: selectedRealCellPayload,
-        training_overlay_group_by: trainingOverlayGroupBy || undefined,
+        ...trainingOverlayPayload(),
+        ...searchSpacePayload(),
         ...requestPlotPayload(),
       })
       setPrediction(seeded)
@@ -263,8 +342,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         objective_weights: effectiveWeights,
         n_candidates: 3000,
         max_results: 12,
-        comparison_real_cell: selectedRealCellPayload,
-        training_overlay_group_by: trainingOverlayGroupBy || undefined,
+        ...trainingOverlayPayload(),
+        ...searchSpacePayload(),
         ...requestPlotPayload(),
       }))
     } catch (err) {
@@ -285,8 +364,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     try {
       const blob = await exportDesignStudioZip(schema.project_id, {
         inputs: numericInputs,
-        comparison_real_cell: selectedRealCellPayload,
-        training_overlay_group_by: trainingOverlayGroupBy || undefined,
+        ...trainingOverlayPayload(),
+        ...searchSpacePayload(),
         comparison_candidate: savedComparison?.inputs,
         ...requestPlotPayload(),
       })
@@ -327,24 +406,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema.project_id])
 
-  useEffect(() => {
-    if (!state || !prediction) return
-    runPrediction()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRealCell])
-
   const plotRecipes = state?.plot_recipes ?? []
   const selectedPlotRecipe = plotRecipes.find((recipe) => recipe.id === selectedPlotRecipeId) ?? plotRecipes.find((recipe) => recipe.recommended) ?? plotRecipes[0]
   const curveRecipe = asRecord(prediction?.curve?.recipe) as PlotRecipe | Record<string, unknown>
   const curveRows = asRecord(prediction?.curve).rows as Array<Record<string, unknown>> | undefined ?? []
-  const comparisonCurveRows = asRecord(savedComparison?.curve).rows as Array<Record<string, unknown>> | undefined ?? []
-  const realCurveRows = asRecord(prediction?.comparison_real_cell).rows as Array<Record<string, unknown>> | undefined ?? []
   const trainingOverlayRows = asRecord(prediction?.training_overlay).rows as Array<Record<string, unknown>> | undefined ?? []
+  const trainingOverlay = asRecord(prediction?.training_overlay)
+  const overlayColumns = state?.training_overlay_options?.columns ?? []
   const metadataVariables = schema.metadata?.all_variables ?? schema.domain_metadata?.all_variables ?? schema.metadata?.variables ?? schema.domain_metadata?.variables ?? []
-  const trainingOverlayGroupOptions = Array.from(new Set(metadataVariables
-    .filter((variable) => ['group', 'metadata', 'context'].includes(variable.role))
-    .map((variable) => variable.name)
-    .filter(Boolean)))
+  const trainingOverlayGroupOptions = overlayColumns.map((column) => column.name)
   const activeModel = asRecord(state?.active_model)
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
@@ -352,7 +422,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const cacheStatus = asRecord(traceability.cache_status)
   const defaultObjectiveName = Object.keys(state?.default_objective_weights ?? {})[0]
   const emphasizedOutputs = new Set(Object.entries(selectedObjectiveWeights).filter(([, value]) => Math.abs(value) > 1e-12).map(([name]) => name))
-  const curveKind = asString(asRecord(curveRecipe).kind) || selectedPlotRecipe?.kind || ''
   const curveXAxisVariable = asString(asRecord(asRecord(curveRecipe).x).variable) || asString(asRecord(selectedPlotRecipe?.x).variable)
   const curveYAxisVariable = asString(asRecord(asRecord(curveRecipe).y).variable) || asString(asRecord(selectedPlotRecipe?.y).variable)
   const curveXAxisMeta = schema.inputs.find((input) => input.name === curveXAxisVariable) ?? schema.outputs.find((output) => output.name === curveXAxisVariable)
@@ -368,16 +437,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     ? `${genericOutputMetas[0]?.label ?? genericCurveYVariables[0]}${genericOutputMetas[0]?.unit ? ` / ${genericOutputMetas[0].unit}` : ''}`
     : `Selected predicted output${genericOutputUnits.length === 1 ? ` / ${genericOutputUnits[0]}` : ''}`
   const genericSwappedYAxisTitle = `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}`
-  const responseCurveData = curveKind === 'fuel_cell_polarization'
-    ? asPlotData([
-        { name: 'Current design BoL', x: curveRows.map((row) => asNumber(row.bol_current_density)), y: curveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#2563eb', width: 3, dash: 'dash' } },
-        { name: 'Current design EoL', x: curveRows.map((row) => asNumber(row.eol_current_density)), y: curveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#dc2626', width: 3, dash: 'dash' } },
-        { name: 'Saved comparison BoL', x: comparisonCurveRows.map((row) => asNumber(row.bol_current_density)), y: comparisonCurveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines', line: { color: '#60a5fa', width: 2, dash: 'dot' }, visible: comparisonCurveRows.length ? true : 'legendonly' },
-        { name: 'Saved comparison EoL', x: comparisonCurveRows.map((row) => asNumber(row.eol_current_density)), y: comparisonCurveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines', line: { color: '#f87171', width: 2, dash: 'dot' }, visible: comparisonCurveRows.length ? true : 'legendonly' },
-        { name: 'Measured real BoL', x: realCurveRows.map((row) => asNumber(row.bol_current_density_true)), y: realCurveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#334155', width: 2 }, visible: realCurveRows.length ? true : 'legendonly' },
-        { name: 'Measured real EoL', x: realCurveRows.map((row) => asNumber(row.eol_current_density_true)), y: realCurveRows.map((row) => asNumber(row.operating_voltage)), type: 'scatter', mode: 'lines+markers', line: { color: '#92400e', width: 2 }, visible: realCurveRows.length ? true : 'legendonly' },
-      ])
-    : asPlotData([
+  const responseCurveData = asPlotData([
         ...genericCurveYVariables.map((variable, index) => ({
           name: `Predicted ${schema.outputs.find((output) => output.name === variable)?.label || variable}`,
           x: curveRows.map((row) => asNumber(row[responseAxesSwapped ? variable : curveXAxisVariable])),
@@ -406,9 +466,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             })
           }),
       ])
-  const responseCurveLayout = curveKind === 'fuel_cell_polarization'
-    ? asPlotLayout({ ...plotLayoutBase, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', height: 470, xaxis: { title: { text: 'Current density / A cm⁻²' }, zeroline: false }, yaxis: { title: { text: 'Cell voltage / V' }, zeroline: false } })
-    : asPlotLayout({
+  const responseCurveLayout = asPlotLayout({
         ...plotLayoutBase,
         paper_bgcolor: '#ffffff',
         plot_bgcolor: '#ffffff',
@@ -470,8 +528,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <strong className="text-slate-900">Selected downstream view:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
             </div>
           </div>
-          {selectedPlotRecipe?.kind !== 'fuel_cell_polarization' && (
-            <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+          <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-950">Generic response plot</h3>
@@ -519,18 +576,47 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-[18rem_1fr] md:items-center">
-                <label className="text-sm font-semibold text-slate-700">
-                  Training overlay grouping
-                  <select value={trainingOverlayGroupBy} onChange={(event) => setTrainingOverlayGroupBy(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                    <option value="">No grouping</option>
-                    {trainingOverlayGroupOptions.map((name) => <option key={name} value={name}>{metadataVariables.find((variable) => variable.name === name)?.label || name}</option>)}
-                  </select>
-                </label>
-                <p className="text-xs leading-5 text-slate-500">Changing these controls updates the next generated response curve. Use <strong>Switch axes</strong> for alternate scientific conventions. Training overlays come from static predictions.csv measured columns.</p>
-              </div>
+              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4" open>
+                <summary className="cursor-pointer select-none font-semibold text-slate-950">Training data overlay filters</summary>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                  <label className="flex items-center gap-2 font-semibold text-slate-700">
+                    <input type="checkbox" checked={trainingOverlayEnabled} onChange={(event) => setTrainingOverlayEnabled(event.target.checked)} className="h-4 w-4 accent-[#526949]" />
+                    Show measured training overlay
+                  </label>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} source rows
+                  </span>
+                </div>
+                {overlayColumns.length === 0 && <p className="mt-3 text-sm text-slate-500">No filterable predictions.csv columns were found for this loaded champion.</p>}
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {overlayColumns.map((column) => column.filter_kind === 'range' ? (
+                    <div key={column.name} className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <div className="text-sm font-semibold text-slate-800">{column.label}{column.unit ? ` / ${column.unit}` : ''}</div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <input type="number" value={trainingOverlayRanges[column.name]?.min ?? ''} onChange={(event) => setTrainingOverlayRanges((current) => ({ ...current, [column.name]: { ...(current[column.name] ?? {}), min: event.target.value } }))} placeholder={column.min !== undefined ? `min ${formatNumber(column.min)}` : 'min'} className="rounded-xl border border-slate-200 px-2 py-1 text-sm" />
+                        <input type="number" value={trainingOverlayRanges[column.name]?.max ?? ''} onChange={(event) => setTrainingOverlayRanges((current) => ({ ...current, [column.name]: { ...(current[column.name] ?? {}), max: event.target.value } }))} placeholder={column.max !== undefined ? `max ${formatNumber(column.max)}` : 'max'} className="rounded-xl border border-slate-200 px-2 py-1 text-sm" />
+                      </div>
+                    </div>
+                  ) : (
+                    <label key={column.name} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                      {column.label}{column.unit ? ` / ${column.unit}` : ''}
+                      <input list={`overlay-${column.name}`} value={trainingOverlayFilters[column.name] ?? ''} onChange={(event) => setTrainingOverlayFilters((current) => ({ ...current, [column.name]: event.target.value }))} placeholder="Any" className="mt-2 w-full rounded-xl border border-slate-200 px-2 py-1 font-normal" />
+                      <datalist id={`overlay-${column.name}`}>{(column.values ?? []).map((value) => <option key={`${column.name}-${String(value)}`} value={String(value)} />)}</datalist>
+                    </label>
+                  ))}
+                  <label className="rounded-2xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                    Color/group by
+                    <select value={trainingOverlayGroupBy} onChange={(event) => setTrainingOverlayGroupBy(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-2 py-1 font-normal">
+                      <option value="">No grouping</option>
+                      {trainingOverlayGroupOptions.map((name) => <option key={name} value={name}>{overlayColumns.find((column) => column.name === name)?.label || metadataVariables.find((variable) => variable.name === name)?.label || name}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {trainingOverlayEnabled && prediction?.training_overlay && trainingOverlayRows.length === 0 && (
+                  <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">No measured training points match the current overlay filters.</p>
+                )}
+              </details>
             </div>
-          )}
         </section>
       )}
 
@@ -731,24 +817,44 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </div>
                 </div>
               </div>
+
+              <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Experiment inputs; constrained inputs search only inside the selected range.</p>
+                  </div>
+                  <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">generic inputs</span>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {schema.inputs.map((input) => {
+                    const mode = searchSpaceModes[input.name] || 'free'
+                    const range = searchSpaceRanges[input.name] || { min: String(input.min), max: String(input.max) }
+                    return (
+                      <div key={input.name} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
+                          <div className="text-xs text-slate-500">Current: {formatNumber(Number(inputs[input.name]))}</div>
+                        </div>
+                        <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr] md:items-center">
+                          <select value={mode} onChange={(event) => setSearchSpaceModes((current) => ({ ...current, [input.name]: event.target.value as 'free' | 'fixed' | 'range' }))} className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm">
+                            <option value="free">Free over schema range</option>
+                            <option value="fixed">Fixed at current value</option>
+                            <option value="range">Constrained range</option>
+                          </select>
+                          <input type="number" disabled={mode !== 'range'} value={range.min ?? ''} onChange={(event) => setSearchSpaceRanges((current) => ({ ...current, [input.name]: { ...(current[input.name] ?? {}), min: event.target.value } }))} placeholder={String(input.min)} className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm disabled:bg-slate-100" />
+                          <input type="number" disabled={mode !== 'range'} value={range.max ?? ''} onChange={(event) => setSearchSpaceRanges((current) => ({ ...current, [input.name]: { ...(current[input.name] ?? {}), max: event.target.value } }))} placeholder={String(input.max)} className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm disabled:bg-slate-100" />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             </section>
 
             <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the response plot settings." />
-              <div className="mt-5 grid gap-4 lg:grid-cols-3 lg:items-end">
-                {curveKind === 'fuel_cell_polarization' && (
-                <label className="text-sm font-semibold text-slate-700">
-                  Measured real-cell overlay
-                  <select value={selectedRealCell} onChange={(event) => setSelectedRealCell(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                    <option value="">No real-cell overlay</option>
-                    {realCellOptions.map((option, index) => (
-                      <option key={`${asString(option.cell_id)}-${asNumber(option.operating_rh)}-${asString(option.split)}-${index}`} value={String(index)}>
-                        {asString(option.cell_id)} · RH {asNumber(option.operating_rh)}% · {asString(option.split)} · {asNumber(option.row_count)} rows
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                )}
+              <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                   Save current as comparison
                 </button>
@@ -791,9 +897,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               style={{ width: '100%', height: '470px' }}
             />
             <p className="mt-3 rounded-2xl bg-[#fbfaf5] px-4 py-3 text-sm leading-6 text-slate-600">
-              {curveKind === 'fuel_cell_polarization'
-                ? 'Dashed curves are served-model predictions for the current design. Dotted curves are a saved candidate comparison. Solid measured curves appear only for metadata-declared domain recipes.'
-                : 'Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns.'}
+              Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns and the generic filters above.
             </p>
           </section>
 
@@ -819,7 +923,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         Load
                       </button>
                     </div>
-                    <div className="mt-4 space-y-2 text-sm">
+                    <div className="mt-4 grid gap-2 text-sm md:grid-cols-2">
+                      {schema.inputs.map((input) => (
+                        <div key={`${candidate.rank}-${input.name}`} className="flex justify-between gap-3 rounded-2xl bg-white px-3 py-2">
+                          <span className="text-slate-600">{input.label}</span>
+                          <strong className="text-slate-950">{formatNumber(candidate.inputs[input.name])} {input.unit}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm">
                       {paretoResults.objectives.map((objective) => {
                         const obj = asRecord(objective)
                         const name = asString(obj.name)
