@@ -657,7 +657,11 @@ def activate_champion_model(
         )
         VALUES (%s, %s, %s, %s, %s, %s, 'champion', %s, %s, %s, true, %s)
         ON CONFLICT (model_id) DO UPDATE
-        SET status = 'champion', artifact_s3_uri = EXCLUDED.artifact_s3_uri,
+        SET training_run_id = EXCLUDED.training_run_id,
+            model_name = EXCLUDED.model_name,
+            version = EXCLUDED.version,
+            status = 'champion',
+            artifact_s3_uri = EXCLUDED.artifact_s3_uri,
             preprocessing_s3_uri = EXCLUDED.preprocessing_s3_uri,
             schema_s3_uri = EXCLUDED.schema_s3_uri,
             is_champion = true,

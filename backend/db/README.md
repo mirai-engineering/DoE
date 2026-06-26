@@ -9,6 +9,7 @@ For this phase, migrations are simple SQL scripts applied by an operator command
 - `migrations/001_workspace_control_plane.sql` creates workspace, Clerk-user mapping, project metadata, and artifact-pointer tables.
 - `migrations/002_runtime_control_plane.sql` adds datasets, schema manifests, training runs, models, recommendations, observations, and audit logs.
 - `migrations/004_dataset_upload_metadata.sql` backfills dataset upload integrity metadata columns used by live intake writes.
+- `migrations/005_allow_mlflow_model_pointers.sql` allows explicit MLflow Registry model pointers for loaded champions while keeping workspace-scoped object path checks.
 - `seeds/001_seed_demo_control_plane.sql` is the earlier broad demo seed.
 - `seeds/002_seed_fraunhofer_fuel_cell_runtime.sql` is the current runtime seed/backfill and intentionally seeds only Fraunhofer fuel-cell rows. Battery remains deferred for a later implementation.
 
@@ -32,6 +33,7 @@ psql "$DATABASE_URL" -f backend/db/migrations/001_workspace_control_plane.sql
 psql "$DATABASE_URL" -f backend/db/migrations/002_runtime_control_plane.sql
 psql "$DATABASE_URL" -f backend/db/migrations/003_project_storage_metadata.sql
 psql "$DATABASE_URL" -f backend/db/migrations/004_dataset_upload_metadata.sql
+psql "$DATABASE_URL" -f backend/db/migrations/005_allow_mlflow_model_pointers.sql
 psql "$DATABASE_URL" -f backend/db/seeds/002_seed_fraunhofer_fuel_cell_runtime.sql
 ```
 
