@@ -456,6 +456,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     })
     .filter(Boolean)
   const overlaySummaryLabels = [...activeOverlayFilterLabels, ...activeOverlayRangeLabels]
+  const displayedOverlaySummaryLabels = overlaySummaryLabels.slice(0, 4)
+  const hiddenOverlaySummaryCount = Math.max(0, overlaySummaryLabels.length - displayedOverlaySummaryLabels.length)
   const overlayVisible = trainingOverlayEnabled && overlayMode !== 'none'
   const metadataVariables = schema.metadata?.all_variables ?? schema.domain_metadata?.all_variables ?? schema.metadata?.variables ?? schema.domain_metadata?.variables ?? []
   const trainingOverlayGroupOptions = overlayColumns.filter((column) => overlayColumnTier(column) !== 'internal').map((column) => column.name)
@@ -579,16 +581,16 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
       {activeWorkflow === 'plot' && plotRecipes.length > 0 && (
         <section className="rounded-[1.5rem] border border-[#d8c99b]/50 bg-[#fffdf7] p-4 shadow-sm">
-          <div className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr] lg:items-center">
-            <label className="text-sm font-semibold text-slate-700">
+          <div className="grid gap-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)] lg:items-start">
+            <label className="min-w-0 text-sm font-semibold text-slate-700">
               Curve recipe
-              <select value={selectedPlotRecipeId} onChange={(event) => choosePlotRecipe(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <select value={selectedPlotRecipeId} onChange={(event) => choosePlotRecipe(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                 {plotRecipes.filter((recipe) => recipe.safe !== false).map((recipe) => (
                   <option key={recipe.id} value={recipe.id}>{recipe.recommended ? 'Recommended · ' : ''}{recipe.label}</option>
                 ))}
               </select>
             </label>
-            <div className="rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
+            <div className="min-w-0 rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
               <strong className="text-slate-900">Current curve setup:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
             </div>
           </div>
@@ -600,22 +602,22 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
                 <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-7">
-                <label className="text-sm font-semibold text-slate-700">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
+                <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Sweep input
-                  <select value={sweepInputName} onChange={(event) => setSweepInputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={sweepInputName} onChange={(event) => setSweepInputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
                   </select>
                 </label>
-                <label className="text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Predicted response
-                  <select value={primaryOutputName} onChange={(event) => setPrimaryOutputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={primaryOutputName} onChange={(event) => setPrimaryOutputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
-                <label className="text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Optional second output
-                  <select value={secondaryOutputName} onChange={(event) => setSecondaryOutputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={secondaryOutputName} onChange={(event) => setSecondaryOutputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="">None</option>
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
@@ -640,29 +642,42 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
-              <div className="mt-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+              <div className="mt-4 rounded-3xl border border-emerald-100 bg-emerald-50/80 p-4 shadow-sm shadow-emerald-950/5">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                  <div className="min-w-0">
                     <h3 className="font-semibold text-emerald-950">Measured training overlay</h3>
-                    <p className="mt-1 text-sm leading-6 text-emerald-900">Show measured rows from the loaded champion's training predictions artifact. Matching rules stay generic and come from schema roles plus available predictions columns.</p>
+                    <p className="mt-1 max-w-5xl text-sm leading-6 text-emerald-900">Compare this curve with measured training rows from the loaded champion artifact. Matching stays contract-driven from schema roles and available prediction columns.</p>
                   </div>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                  <span className="w-fit whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 ring-1 ring-emerald-100">
                     {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
                   </span>
                 </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
-                  <label className="text-sm font-semibold text-emerald-950">
+                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(16rem,0.45fr)_minmax(0,1fr)] xl:items-start">
+                  <label className="min-w-0 text-sm font-semibold text-emerald-950">
                     Overlay mode
-                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900">
+                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
                       <option value="comparable">Comparable training data</option>
                       <option value="same_current_conditions">Re-suggest matches from current values</option>
                       <option value="custom">Custom matching filters</option>
                       <option value="none">No measured overlay</option>
                     </select>
                   </label>
-                  <div className="rounded-2xl bg-white px-3 py-2 text-sm leading-6 text-slate-600">
-                    <strong className="text-slate-900">Matching by:</strong> {overlayMode === 'none' ? 'overlay hidden' : overlaySummaryLabels.length ? overlaySummaryLabels.slice(0, 5).join(' · ') : 'all available measured training rows'}
-                    {overlaySummaryLabels.length > 5 ? ` · +${overlaySummaryLabels.length - 5} more` : ''}
+                  <div className="min-w-0 rounded-2xl bg-white p-3 text-sm text-slate-600 ring-1 ring-emerald-100">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Matching by</div>
+                    {overlayMode === 'none' ? (
+                      <div className="mt-2 font-medium text-slate-700">Overlay hidden</div>
+                    ) : displayedOverlaySummaryLabels.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {displayedOverlaySummaryLabels.map((label) => (
+                          <span key={label} className="max-w-full rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">
+                            <span className="block max-w-[22rem] truncate">{label}</span>
+                          </span>
+                        ))}
+                        {hiddenOverlaySummaryCount > 0 && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">+{hiddenOverlaySummaryCount} more</span>}
+                      </div>
+                    ) : (
+                      <div className="mt-2 font-medium text-slate-700">All available measured training rows</div>
+                    )}
                   </div>
                 </div>
               </div>
