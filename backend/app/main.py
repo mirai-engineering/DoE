@@ -50,6 +50,9 @@ from .services.bayesian_optimization import (
 from .services.business_impact import get_business_impact_summary
 from .services.control_plane import account_capabilities, assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, resolve_workspace_membership, synthetic_workspace_summary
 from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions
+from .services.data_scientist.agent_loop import run_data_scientist_agent
+from .services.data_scientist.schemas import DataScientistRequest, DataScientistResponse
+from .services.data_scientist.scope import authorize_agent_scope
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
 from .services.fantasy_rollout import run_fantasy_rollout
 from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
@@ -684,6 +687,32 @@ def project_schema(project_id: str, request: Request):
         )
         return get_project_schema(project_id, workspace_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/data-scientist/messages", response_model=DataScientistResponse)
+def data_scientist_message(project_id: str, body: DataScientistRequest, request: Request):
+    try:
+        scope = authorize_agent_scope(
+            request,
+            project_id,
+            require_workspace=_raise_if_no_workspace_access,
+            can_access_project=_request_can_access_project,
+            user_id_for_request=_request_user_id,
+        )
+        log_audit(
+            workspace_id=scope.workspace_id,
+            user_id=scope.clerk_user_id,
+            action="data_scientist_question_asked",
+            resource_type="project",
+            resource_id=project_id,
+            ip_address=request.client.host if request.client else None,
+        )
+        return run_data_scientist_agent(scope, body.message, body.history)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Data scientist agent failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
