@@ -157,8 +157,6 @@ def test_load_champion_model_upserts_runtime_state_and_schema(tmp_path, monkeypa
         '{"project_id":"demo_project","inputs":[{"name":"x1","label":"Temperature","min":0,"max":1,"unit":"C"}],"outputs":[{"name":"y1","label":"Yield","unit":"%","direction":"maximize"}]}',
         encoding="utf-8",
     )
-    onnx_path = tmp_path / "model.onnx"
-    onnx_path.write_bytes(b"onnx")
     calls: dict[str, list[dict]] = {"schema": [], "created": [], "completed": [], "activated": []}
 
     monkeypatch.setattr(
@@ -179,7 +177,6 @@ def test_load_champion_model_upserts_runtime_state_and_schema(tmp_path, monkeypa
         },
     )
     monkeypatch.setattr(training_requests, "download_run_artifacts", lambda *args, **kwargs: artifact_cache)
-    monkeypatch.setattr(training_requests, "download_production_onnx", lambda *args, **kwargs: onnx_path)
     monkeypatch.setattr(training_requests, "get_training_run_by_mlflow_run_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(training_requests, "get_project_schema", lambda *args, **kwargs: {"inputs": [], "outputs": []})
     monkeypatch.setattr(

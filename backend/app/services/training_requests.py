@@ -17,7 +17,7 @@ from .control_plane import activate_champion_model, complete_training_run, creat
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .mlflow_registry import download_production_onnx, download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, tracking_uri, verify_champion_mlflow_model, verify_external_mlflow_model_version
+from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, tracking_uri, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
 from .project_registry import get_project_schema
@@ -730,13 +730,10 @@ def load_champion_model(
         raise ValueError("Selected MLflow model version is not the current champion alias for this project")
 
     artifact_cache = download_run_artifacts(project_id, actual_run_id, refresh=True, include_quality=True, include_predictions=True)
-    onnx_model_path = download_production_onnx(project_id, refresh=True, workspace_id=None)
-    # Verify the cached ONNX comes from the same registered champion by forcing
-    # runtime resolution through Mirai state after activation below; before the
-    # model row exists, this call verifies the MLflow champion model artifact is
-    # ONNX-loadable via the alias path used by local/offline tests.
-    if onnx_model_path.suffix.lower() != ".onnx":
-        raise FileNotFoundError("MLflow champion did not resolve to an ONNX model artifact")
+    # verify_champion_mlflow_model already validates the freshly resolved
+    # MLflow champion model URI contains a required ONNX artifact. Do not call
+    # the serving resolver here: during reload it may still point at the
+    # previously loaded Mirai champion and block replacing stale state.
 
     training_run = get_training_run_by_mlflow_run_id(workspace_id, project_id, actual_run_id)
     training_manifest = verified.get("training_manifest") if isinstance(verified.get("training_manifest"), dict) else {}
@@ -829,7 +826,7 @@ def load_champion_model(
         "notes": notes or "",
         "mlflow": verified,
         "artifact_cache": str(artifact_cache),
-        "onnx_model_cache": str(onnx_model_path),
+        "onnx_model_uri": str(verified.get("model_uri") or verified.get("model_source") or ""),
         "schema_outputs": [item.get("name") for item in schema.get("outputs", []) if isinstance(item, dict)],
     }
 
