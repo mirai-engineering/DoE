@@ -43,6 +43,9 @@ type ObjectivePreset = {
   weights: Record<string, number>
 }
 
+type DesignWorkflow = 'plot' | 'optimize' | 'compare'
+type OverlayMode = 'comparable' | 'same_current_conditions' | 'custom' | 'none'
+
 function numericObjectiveWeights(weights: Record<string, string>) {
   return Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Number(value) || 0]))
 }
@@ -52,6 +55,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [prediction, setPrediction] = useState<DesignStudioPrediction | null>(null)
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
+  const [activeWorkflow, setActiveWorkflow] = useState<DesignWorkflow>('plot')
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>('comparable')
   const [trainingOverlayEnabled, setTrainingOverlayEnabled] = useState(true)
   const [trainingOverlayFilters, setTrainingOverlayFilters] = useState<Record<string, string>>({})
   const [trainingOverlayRanges, setTrainingOverlayRanges] = useState<Record<string, { min?: string, max?: string }>>({})
@@ -141,13 +146,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   }
 
   function trainingOverlayPayload() {
+    const overlayEnabled = trainingOverlayEnabled && overlayMode !== 'none'
     const filters = Object.fromEntries(Object.entries(trainingOverlayFilters).filter(([, value]) => value !== ''))
     const ranges = Object.fromEntries(Object.entries(trainingOverlayRanges).map(([name, range]) => [name, Object.fromEntries(Object.entries(range).filter(([, value]) => value !== undefined && value !== ''))]).filter(([, range]) => Object.keys(range as Record<string, string>).length > 0))
     return {
-      training_overlay_enabled: trainingOverlayEnabled,
-      training_overlay_filters: Object.keys(filters).length ? filters : undefined,
-      training_overlay_ranges: Object.keys(ranges).length ? ranges : undefined,
-      training_overlay_group_by: trainingOverlayGroupBy || undefined,
+      training_overlay_enabled: overlayEnabled,
+      training_overlay_filters: overlayEnabled && Object.keys(filters).length ? filters : undefined,
+      training_overlay_ranges: overlayEnabled && Object.keys(ranges).length ? ranges : undefined,
+      training_overlay_group_by: overlayEnabled && trainingOverlayGroupBy ? trainingOverlayGroupBy : undefined,
     }
   }
 
@@ -194,6 +200,29 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       if (match !== undefined && match !== null) suggestions[column.name] = String(match)
     })
     return suggestions
+  }
+
+  function overlayColumnTier(column: DesignStudioOverlayColumn): 'suggested' | 'other' | 'internal' {
+    const name = column.name.toLowerCase()
+    const role = (column.role || '').toLowerCase()
+    const isInternalName = /(^|_)(row|index|idx|model|source|prediction|residual|error)($|_)/.test(name) || name === 'source'
+    if (isInternalName) return 'internal'
+    if (column.recommended || role === 'input' || role === 'context' || role === 'group' || role === 'curve_axis') return 'suggested'
+    if (role === 'id' || (column.distinct_count ?? 0) > 100) return 'other'
+    return 'other'
+  }
+
+  function applyOverlayMode(nextMode: OverlayMode) {
+    setOverlayMode(nextMode)
+    if (nextMode === 'none') {
+      setTrainingOverlayEnabled(false)
+      return
+    }
+    setTrainingOverlayEnabled(true)
+    if (nextMode === 'comparable' || nextMode === 'same_current_conditions') {
+      setTrainingOverlayFilters(suggestedOverlayFilters(state?.training_overlay_options?.columns, inputs))
+      setTrainingOverlayRanges({})
+    }
   }
 
   async function loadState() {
@@ -413,8 +442,23 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const trainingOverlayRows = asRecord(prediction?.training_overlay).rows as Array<Record<string, unknown>> | undefined ?? []
   const trainingOverlay = asRecord(prediction?.training_overlay)
   const overlayColumns = state?.training_overlay_options?.columns ?? []
+  const suggestedOverlayColumns = overlayColumns.filter((column) => overlayColumnTier(column) === 'suggested')
+  const otherOverlayColumns = overlayColumns.filter((column) => overlayColumnTier(column) === 'other')
+  const internalOverlayColumns = overlayColumns.filter((column) => overlayColumnTier(column) === 'internal')
+  const visibleOverlayColumns = [...suggestedOverlayColumns, ...otherOverlayColumns, ...internalOverlayColumns]
+  const activeOverlayFilterLabels = Object.entries(trainingOverlayFilters)
+    .filter(([, value]) => value !== '')
+    .map(([name, value]) => `${overlayColumns.find((column) => column.name === name)?.label || name} = ${value}`)
+  const activeOverlayRangeLabels = Object.entries(trainingOverlayRanges)
+    .map(([name, range]) => {
+      const parts = [range.min ? `min ${range.min}` : '', range.max ? `max ${range.max}` : ''].filter(Boolean).join(', ')
+      return parts ? `${overlayColumns.find((column) => column.name === name)?.label || name}: ${parts}` : ''
+    })
+    .filter(Boolean)
+  const overlaySummaryLabels = [...activeOverlayFilterLabels, ...activeOverlayRangeLabels]
+  const overlayVisible = trainingOverlayEnabled && overlayMode !== 'none'
   const metadataVariables = schema.metadata?.all_variables ?? schema.domain_metadata?.all_variables ?? schema.metadata?.variables ?? schema.domain_metadata?.variables ?? []
-  const trainingOverlayGroupOptions = overlayColumns.map((column) => column.name)
+  const trainingOverlayGroupOptions = overlayColumns.filter((column) => overlayColumnTier(column) !== 'internal').map((column) => column.name)
   const activeModel = asRecord(state?.active_model)
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
@@ -447,7 +491,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed'][index % 4], width: 3 },
         })),
         ...genericCurveYVariables
-          .filter((variable) => trainingOverlayRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
+          .filter((variable) => overlayVisible && trainingOverlayRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
           .flatMap((variable, index) => {
             const groupValues = trainingOverlayGroupBy
               ? Array.from(new Set(trainingOverlayRows.map((row) => asString(row[trainingOverlayGroupBy])).filter(Boolean)))
@@ -513,11 +557,31 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </details>
       </section>
 
-      {plotRecipes.length > 0 && (
+      <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
+        <div className="grid gap-2 md:grid-cols-3">
+          {[
+            ['plot', 'Plot curve', 'Predicted response + measured training overlay'],
+            ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
+            ['compare', 'Compare/export', 'Save baselines and package outputs'],
+          ].map(([id, label, description]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveWorkflow(id as DesignWorkflow)}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${activeWorkflow === id ? 'border-[#526949] bg-[#526949] text-white shadow-lg shadow-[#526949]/20' : 'border-slate-200 bg-white text-slate-700 hover:border-[#526949]/40'}`}
+            >
+              <div className="font-semibold">{label}</div>
+              <div className={`mt-1 text-xs ${activeWorkflow === id ? 'text-white/80' : 'text-slate-500'}`}>{description}</div>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {activeWorkflow === 'plot' && plotRecipes.length > 0 && (
         <section className="rounded-[1.5rem] border border-[#d8c99b]/50 bg-[#fffdf7] p-4 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr] lg:items-center">
             <label className="text-sm font-semibold text-slate-700">
-              Plot Options
+              Curve recipe
               <select value={selectedPlotRecipeId} onChange={(event) => choosePlotRecipe(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                 {plotRecipes.filter((recipe) => recipe.safe !== false).map((recipe) => (
                   <option key={recipe.id} value={recipe.id}>{recipe.recommended ? 'Recommended · ' : ''}{recipe.label}</option>
@@ -525,14 +589,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </select>
             </label>
             <div className="rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
-              <strong className="text-slate-900">Selected downstream view:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
+              <strong className="text-slate-900">Current curve setup:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
             </div>
           </div>
           <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold text-slate-950">Generic response plot</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose one input to sweep while the other current design settings stay fixed. Then plot one or two predicted outputs from the loaded champion model and overlay training points from predictions.csv.</p>
+                  <h3 className="font-semibold text-slate-950">Curve plot</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose the variable to sweep, select predicted response(s), and compare the champion-model curve with measured training data that match the current design context.</p>
                 </div>
                 <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
@@ -544,7 +608,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
-                  Y-axis output
+                  Predicted response
                   <select value={primaryOutputName} onChange={(event) => setPrimaryOutputName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
@@ -576,11 +640,38 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
-              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4" open>
-                <summary className="cursor-pointer select-none font-semibold text-slate-950">Training data overlay filters</summary>
+              <div className="mt-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-emerald-950">Measured training overlay</h3>
+                    <p className="mt-1 text-sm leading-6 text-emerald-900">Show measured rows from the loaded champion's training predictions artifact. Matching rules stay generic and come from schema roles plus available predictions columns.</p>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                    {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+                  <label className="text-sm font-semibold text-emerald-950">
+                    Overlay mode
+                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900">
+                      <option value="comparable">Comparable training data</option>
+                      <option value="same_current_conditions">Re-suggest matches from current values</option>
+                      <option value="custom">Custom matching filters</option>
+                      <option value="none">No measured overlay</option>
+                    </select>
+                  </label>
+                  <div className="rounded-2xl bg-white px-3 py-2 text-sm leading-6 text-slate-600">
+                    <strong className="text-slate-900">Matching by:</strong> {overlayMode === 'none' ? 'overlay hidden' : overlaySummaryLabels.length ? overlaySummaryLabels.slice(0, 5).join(' · ') : 'all available measured training rows'}
+                    {overlaySummaryLabels.length > 5 ? ` · +${overlaySummaryLabels.length - 5} more` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+                <summary className="cursor-pointer select-none font-semibold text-slate-950">Refine matching / Advanced filters</summary>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
                   <label className="flex items-center gap-2 font-semibold text-slate-700">
-                    <input type="checkbox" checked={trainingOverlayEnabled} onChange={(event) => setTrainingOverlayEnabled(event.target.checked)} className="h-4 w-4 accent-[#526949]" />
+                    <input type="checkbox" checked={trainingOverlayEnabled && overlayMode !== 'none'} onChange={(event) => { setTrainingOverlayEnabled(event.target.checked); if (event.target.checked && overlayMode === 'none') setOverlayMode('custom'); if (!event.target.checked) setOverlayMode('none') }} className="h-4 w-4 accent-[#526949]" />
                     Show measured training overlay
                   </label>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -589,7 +680,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
                 {overlayColumns.length === 0 && <p className="mt-3 text-sm text-slate-500">No filterable predictions.csv columns were found for this loaded champion.</p>}
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  {overlayColumns.map((column) => column.filter_kind === 'range' ? (
+                  {visibleOverlayColumns.map((column) => column.filter_kind === 'range' ? (
                     <div key={column.name} className="rounded-2xl border border-slate-200 bg-white p-3">
                       <div className="text-sm font-semibold text-slate-800">{column.label}{column.unit ? ` / ${column.unit}` : ''}</div>
                       <div className="mt-2 grid grid-cols-2 gap-2">
@@ -612,7 +703,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     </select>
                   </label>
                 </div>
-                {trainingOverlayEnabled && prediction?.training_overlay && trainingOverlayRows.length === 0 && (
+                {overlayVisible && prediction?.training_overlay && trainingOverlayRows.length === 0 && (
                   <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">No measured training points match the current overlay filters.</p>
                 )}
               </details>
@@ -620,37 +711,19 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </section>
       )}
 
-      <nav className="rounded-[1.5rem] border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur" aria-label="Design Studio page sections">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">On this page</span>
-          {[
-            ['Model flow', '#design-model-flow'],
-            ['Experiment inputs', '#design-experiment'],
-            ['Design objective', '#design-objective'],
-            ['Compare/export', '#design-compare'],
-            ['Response curve', '#design-response-curve'],
-            ['Tradeoffs', '#design-tradeoffs'],
-          ].map(([label, href]) => (
-            <a key={href} href={href} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 transition hover:border-[#526949]/40 hover:text-[#526949]">
-              {label}
-            </a>
-          ))}
-        </div>
-      </nav>
-
       {error && <Alert tone="error" title="Design Studio issue" messages={[error]} />}
       {loading && <div className="rounded-[2rem] bg-white/80 p-6 text-slate-600">Loading Design Studio...</div>}
 
       {!loading && state && (
         <>
           <section id="design-workspace" className="scroll-mt-8 space-y-6">
-            <ModelMap
+            {activeWorkflow === 'plot' && <ModelMap
               inputs={schema.inputs}
               outputs={schema.outputs}
               modelName={prediction?.model_version || asString(champion.version) || 'loaded champion'}
-            />
+            />}
 
-            <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+            {activeWorkflow === 'plot' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <PanelHeader eyebrow="Experiment inputs" title="Tune test conditions" description="Adjust the current composition/test values, then generate one model result for the selected design. The KPI cards below belong to this single generated result." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -730,9 +803,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   })}
                 </div>
               </div>
-            </section>
+            </section>}
 
-            <section id="design-objective" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. They do not change the direct single-result prediction above until a searched candidate is loaded." />
                 <div className="flex flex-wrap gap-2">
@@ -850,9 +923,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   })}
                 </div>
               </div>
-            </section>
+            </section>}
 
-            <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the response plot settings." />
               <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
@@ -862,10 +935,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   {exporting ? 'Exporting...' : 'Export design package'}
                 </button>
               </div>
-            </section>
+            </section>}
           </section>
 
-          <section id="design-response-curve" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+          {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <PanelHeader eyebrow="Predicted behavior" title={selectedPlotRecipe?.label || 'Predicted response plot'} description={selectedPlotRecipe?.description || 'Mirai selected a safe project-specific response plot from approved intake metadata.'} />
               <button
@@ -899,9 +972,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             <p className="mt-3 rounded-2xl bg-[#fbfaf5] px-4 py-3 text-sm leading-6 text-slate-600">
               Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns and the generic filters above.
             </p>
-          </section>
+          </section>}
 
-          {paretoResults && (
+          {activeWorkflow === 'optimize' && paretoResults && (
             <section id="design-tradeoffs" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <PanelHeader
                 eyebrow="Find alternatives"
