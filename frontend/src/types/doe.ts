@@ -4,6 +4,7 @@ export const tabs = [
   { id: 'data-intake', label: 'Data Intake' },
   { id: 'preprocessing-review', label: 'Preprocessing Review' },
   { id: 'model-quality', label: 'Model Quality' },
+  { id: 'data-scientist', label: 'Data Scientist' },
   { id: 'design-studio', label: 'Design Studio' },
   { id: 'batch', label: 'Batch Search' },
   { id: 'optimization', label: 'Explore & Exploit Tests' },

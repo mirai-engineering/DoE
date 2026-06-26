@@ -21,6 +21,7 @@ const tabGroups: Array<{
       { id: 'data-intake', label: 'Data Intake', description: 'Upload data and create a project.' },
       { id: 'preprocessing-review', label: 'Preprocessing', description: 'Approve metadata, evidence, and training.' },
       { id: 'model-quality', label: 'Model Quality', description: 'Review model performance.' },
+      { id: 'data-scientist', label: 'Data Scientist', description: 'Ask scoped questions about data and models.' },
     ],
   },
   {

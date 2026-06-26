@@ -9,6 +9,7 @@ import { ModelQualityPage } from './components/ModelQualityPage'
 import { BusinessImpactPage } from './components/BusinessImpactPage'
 import { DesignStudioPage } from './components/DesignStudioPage'
 import { DataIntakePage } from './components/DataIntakePage'
+import { DataScientistPage } from './components/DataScientistPage'
 import { PreprocessingReviewPage } from './components/PreprocessingReviewPage'
 import { Alert } from './components/ui'
 import type { AccountStatus, ProjectSchema, ProjectSummary, WorkspaceSummary } from './lib/api'
@@ -372,6 +373,8 @@ function App() {
             {activeTab === 'impact' && schema && <BusinessImpactPage schema={schema} />}
 
             {activeTab === 'model-quality' && schema && <ModelQualityPage schema={schema} />}
+
+            {activeTab === 'data-scientist' && schema && <DataScientistPage schema={schema} />}
           </>
         ) : activeTab === 'data-intake' ? (
           <DataIntakePage schema={null} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />

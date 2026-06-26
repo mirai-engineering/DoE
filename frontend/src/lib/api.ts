@@ -1377,3 +1377,48 @@ export async function getBusinessImpactSummary(projectId: string): Promise<Busin
     throw normalizeError(error, 'Unable to load business impact summary')
   }
 }
+
+export type DataScientistRole = 'user' | 'assistant'
+
+export interface DataScientistMessage {
+  role: DataScientistRole
+  content: string
+}
+
+export type DataScientistStopReason =
+  | 'completed'
+  | 'max_turns'
+  | 'max_tool_calls'
+  | 'repeated_tool_call'
+  | 'provider_unconfigured'
+  | 'provider_error'
+  | 'tool_error'
+  | 'timeout'
+
+export interface DataScientistEvent {
+  type: 'message' | 'tool_call' | 'tool_result' | 'warning' | 'error' | 'stop'
+  label: string
+  detail?: string | null
+  tool_name?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export interface DataScientistResponse {
+  answer: string
+  stop_reason: DataScientistStopReason
+  events: DataScientistEvent[]
+  usage?: {
+    input_tokens?: number | null
+    output_tokens?: number | null
+    model?: string | null
+  } | null
+}
+
+export async function askDataScientist(projectId: string, message: string, history: DataScientistMessage[] = [], signal?: AbortSignal): Promise<DataScientistResponse> {
+  try {
+    const response = await api.post<DataScientistResponse>(`/projects/${projectId}/data-scientist/messages`, { message, history }, { signal })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to ask Data Scientist')
+  }
+}
