@@ -467,8 +467,58 @@ def persist_ml_preprocessing_artifacts(project_id: str, dataset_id: str, session
     return public_artifact_persistence_summary(result)
 
 
+def _read_ml_json_local_or_storage(project_id: str, dataset_id: str, session_id: str, relative_name: str, local_path: Path, default: Any = None) -> Any:
+    payload = _read_json_file(local_path, default=None)
+    if payload is not None:
+        return payload
+    try:
+        from .preprocessing_review import _read_json_local_or_storage  # Reuse session-scoped storage hydration.
+
+        return _read_json_local_or_storage(project_id, dataset_id, session_id, "ml_preprocessing", relative_name, local_path, default=default)
+    except Exception:
+        return default
+
+
+def _hydrate_ml_file(project_id: str, dataset_id: str, session_id: str, relative_name: str, local_path: Path) -> bool:
+    if local_path.exists():
+        return True
+    try:
+        from .preprocessing_review import _hydrate_artifact_from_storage  # Reuse scoped storage helper.
+
+        return _hydrate_artifact_from_storage(project_id, dataset_id, session_id, "ml_preprocessing", relative_name, local_path)
+    except Exception:
+        return False
+
+
+def _derive_ml_preprocessing_status_from_artifacts(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    paths = ml_preprocessing_workspace(project_id, dataset_id, session_id)
+    manifest = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, "runs/current/model_table_preprocessed_manifest.json", paths["runs_current"] / "model_table_preprocessed_manifest.json", default=None)
+    report = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, "runs/current/ml_preprocessing_report.json", paths["runs_current"] / "ml_preprocessing_report.json", default=None)
+    if isinstance(manifest, dict) and isinstance(report, dict):
+        return {
+            "status": "ml_preprocessing_ready_for_training",
+            "plan_id": report.get("plan_id") or manifest.get("plan_id"),
+            "run_id": report.get("run_id") or manifest.get("run_id"),
+            "summary": report.get("summary"),
+            "exports": report.get("export_files", []),
+            "model_table_preprocessed": {"available": True, "sha256": manifest.get("sha256")},
+            "derived_from_artifacts": True,
+        }
+    plan_report = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, "plans/current/preprocessing_plan_report.json", paths["plans_current"] / "preprocessing_plan_report.json", default=None)
+    if isinstance(plan_report, dict) and plan_report.get("status"):
+        return {
+            "status": plan_report.get("status"),
+            "plan_id": plan_report.get("plan_id"),
+            "summary": plan_report.get("summary"),
+            "derived_from_artifacts": True,
+        }
+    return {"status": "not_started"}
+
+
 def get_ml_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     status = read_status(project_id, dataset_id, session_id, "ml_preprocessing", default={}) or {}
+    if not status or status.get("status") in {None, "not_started"}:
+        status = _derive_ml_preprocessing_status_from_artifacts(project_id, dataset_id, session_id)
     if "object_storage" in status:
         status["object_storage"] = public_artifact_persistence_summary(status["object_storage"])
     return status
@@ -919,8 +969,12 @@ def execute_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, 
 
 def get_ml_preprocessing_report(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     paths = ml_preprocessing_workspace(project_id, dataset_id, session_id)
-    for path in (paths["runs_current"] / "ml_preprocessing_report.json", paths["plans_current"] / "preprocessing_plan_report.json"):
-        payload = _read_json_file(path, default=None)
+    candidates = (
+        ("runs/current/ml_preprocessing_report.json", paths["runs_current"] / "ml_preprocessing_report.json"),
+        ("plans/current/preprocessing_plan_report.json", paths["plans_current"] / "preprocessing_plan_report.json"),
+    )
+    for relative_name, path in candidates:
+        payload = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, relative_name, path, default=None)
         if isinstance(payload, dict):
             return payload
     return {"status": "missing", "summary": "No ML preprocessing report is available yet."}
@@ -928,14 +982,18 @@ def get_ml_preprocessing_report(project_id: str, dataset_id: str, session_id: st
 
 def get_ml_preprocessing_human_report_path(project_id: str, dataset_id: str, session_id: str) -> Path:
     paths = ml_preprocessing_workspace(project_id, dataset_id, session_id)
-    for path in (paths["runs_current"] / "ml_preprocessing_report.md", paths["plans_current"] / "ml_preprocessing_report.md"):
-        if path.exists():
+    candidates = (
+        ("runs/current/ml_preprocessing_report.md", paths["runs_current"] / "ml_preprocessing_report.md"),
+        ("plans/current/ml_preprocessing_report.md", paths["plans_current"] / "ml_preprocessing_report.md"),
+    )
+    for relative_name, path in candidates:
+        if _hydrate_ml_file(project_id, dataset_id, session_id, relative_name, path):
             return path
     raise ValueError("Human-readable ML preprocessing report is not available yet")
 
 
 def get_ml_preprocessed_table_path(project_id: str, dataset_id: str, session_id: str) -> Path:
     path = ml_preprocessing_workspace(project_id, dataset_id, session_id)["runs_current"] / "model_table_preprocessed.csv"
-    if not path.exists():
+    if not _hydrate_ml_file(project_id, dataset_id, session_id, "runs/current/model_table_preprocessed.csv", path):
         raise ValueError("model_table_preprocessed.csv is not available; run ML preprocessing first")
     return path
