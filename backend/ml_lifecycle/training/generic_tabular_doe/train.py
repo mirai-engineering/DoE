@@ -125,6 +125,16 @@ def _stable_json_hash(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _file_sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _ensure_2d(values: np.ndarray) -> np.ndarray:
     return values.reshape(-1, 1) if values.ndim == 1 else values
 
@@ -281,7 +291,7 @@ def _log_generic_mlflow(
         mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}
         extra_tags = mlflow_cfg.get("extra_tags", {}) if isinstance(mlflow_cfg.get("extra_tags"), dict) else {}
         extra_artifacts = mlflow_cfg.get("extra_artifacts", []) if isinstance(mlflow_cfg.get("extra_artifacts"), list) else []
-        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json"]
+        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "model_table_preprocessed_manifest.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json"]
         for artifact_name in extra_artifacts:
             if isinstance(artifact_name, str) and artifact_name not in common_artifacts:
                 common_artifacts.append(artifact_name)
@@ -627,12 +637,19 @@ def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.Da
     imputer = steps.get("simpleimputer")
     scaler = steps.get("minmaxscaler")
     estimator = next((steps.get(name) for name in ("linearregression", "ridge", "dummyregressor") if steps.get(name) is not None), None)
-    if imputer is None or scaler is None or estimator is None:
-        raise TypeError("Generic sklearn ONNX export only supports SimpleImputer + MinMaxScaler + linear/ridge/baseline pipelines")
+    if estimator is None and isinstance(model, (LinearRegression, Ridge, DummyRegressor)):
+        estimator = model
+    if estimator is None:
+        raise TypeError("Generic sklearn ONNX export only supports linear/ridge/baseline estimators or legacy SimpleImputer + MinMaxScaler pipelines")
 
-    input_median = np.asarray(imputer.statistics_, dtype=np.float32)
-    input_scale = np.asarray(scaler.scale_, dtype=np.float32)
-    input_offset = np.asarray(scaler.min_, dtype=np.float32)
+    if imputer is not None and scaler is not None:
+        input_median = np.asarray(imputer.statistics_, dtype=np.float32)
+        input_scale = np.asarray(scaler.scale_, dtype=np.float32)
+        input_offset = np.asarray(scaler.min_, dtype=np.float32)
+    else:
+        input_median = np.zeros((sample_x.shape[1],), dtype=np.float32)
+        input_scale = np.ones((sample_x.shape[1],), dtype=np.float32)
+        input_offset = np.zeros((sample_x.shape[1],), dtype=np.float32)
 
     if isinstance(estimator, DummyRegressor):
         constant = np.asarray(estimator.constant_, dtype=np.float32).reshape(1, -1)
@@ -740,9 +757,19 @@ def _candidate_models(config: dict[str, Any] | None = None) -> list[tuple[str, A
 def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path, training_config: dict[str, Any] | None = None) -> dict[str, Any]:
     schema = _read_json(artifact_dir / "schema.json")
     preprocessing = _read_json(artifact_dir / "preprocessing.json")
-    model_table = pd.read_csv(data_dir / "model_table.csv")
-    inputs = list(preprocessing.get("input_order") or [item["name"] for item in schema.get("inputs", [])])
-    outputs = list(preprocessing.get("output_order") or [item["name"] for item in schema.get("outputs", [])])
+    ml_preprocessed = data_dir / "model_table_preprocessed.csv"
+    feature_map_path = data_dir / "feature_map.json"
+    target_map_path = data_dir / "target_map.json"
+    uses_ml_preprocessing_v1 = ml_preprocessed.exists() and feature_map_path.exists()
+    model_table = pd.read_csv(ml_preprocessed if uses_ml_preprocessing_v1 else data_dir / "model_table.csv")
+    if uses_ml_preprocessing_v1:
+        feature_map = _read_json(feature_map_path)
+        target_map = _read_json(target_map_path) if target_map_path.exists() else {}
+        inputs = list(feature_map.get("feature_columns") or [])
+        outputs = list(target_map.get("target_columns") or [item["name"] for item in schema.get("outputs", [])])
+    else:
+        inputs = list(preprocessing.get("input_order") or [item["name"] for item in schema.get("inputs", [])])
+        outputs = list(preprocessing.get("output_order") or [item["name"] for item in schema.get("outputs", [])])
     train = model_table[model_table["split"] == "train"]
     validation = model_table[model_table["split"] == "validation"]
     test = model_table[model_table["split"] == "test"]
@@ -765,7 +792,10 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
             model = estimator
             model.fit(x_train, y_train, X_validation=x_val, y_validation=y_val)
         else:
-            model = make_pipeline(SimpleImputer(strategy="median"), MinMaxScaler(), estimator)
+            if uses_ml_preprocessing_v1:
+                model = estimator
+            else:
+                model = make_pipeline(SimpleImputer(strategy="median"), MinMaxScaler(), estimator)
             model.fit(x_train, y_train)
         val_pred = np.asarray(model.predict(x_val), dtype=float)
         metric = _metrics(y_val, val_pred, outputs)
@@ -851,6 +881,11 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         "predictions_artifact": str(artifact_dir / "predictions.csv"),
         "generic_training": True,
         "deployment_note": "Generic MVP stores sklearn joblib and logs a challenger run to MLflow when available.",
+        "ml_preprocessing": {
+            "enabled": uses_ml_preprocessing_v1,
+            "contract_version": "mirai-ml-preprocessing-v1" if uses_ml_preprocessing_v1 else preprocessing.get("preprocessing_contract_version", "mirai-generic-0.1"),
+            "model_table_preprocessed_sha256": _file_sha256(ml_preprocessed) if uses_ml_preprocessing_v1 else None,
+        },
     }
     _write_json(artifact_dir / "metrics_summary.json", metrics_summary)
     _write_json(artifact_dir / "metrics.json", metrics_summary)

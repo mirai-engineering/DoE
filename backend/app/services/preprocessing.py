@@ -107,7 +107,48 @@ def rows_to_feature_matrix(
     return np.asarray(matrix, dtype=np.float32), warnings
 
 
+def _transform_inputs_v1(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
+    values = np.asarray(input_matrix, dtype=np.float32).copy()
+    columns = preprocessing.get("input_order") or preprocessing.get("feature_input_order") or []
+    fitted = preprocessing.get("fitted_parameters") or []
+    column_index = {name: idx for idx, name in enumerate(columns)}
+    output_columns: list[np.ndarray] = []
+    for item in fitted:
+        if item.get("role") in {"target", "output"} or item.get("tool") in {"target_transform", "drop_from_training"}:
+            continue
+        name = item.get("variable_id")
+        if name not in column_index:
+            continue
+        col = values[:, column_index[name]].astype(np.float32)
+        params = item.get("parameters") or {}
+        tool = item.get("tool")
+        method = item.get("method")
+        if tool == "impute_numeric":
+            fill = params.get("value")
+            if fill is not None:
+                col = np.where(np.isfinite(col), col, float(fill)).astype(np.float32)
+        elif tool == "minmax_scaler" or (tool == "target_transform" and method == "minmax"):
+            col = ((col - float(params.get("min", 0.0))) / float(params.get("scale", 1.0))).astype(np.float32)
+        elif tool == "standard_scaler" or (tool == "target_transform" and method == "standard"):
+            col = ((col - float(params.get("mean", 0.0))) / float(params.get("std", 1.0))).astype(np.float32)
+        elif tool == "robust_scaler":
+            col = ((col - float(params.get("median", 0.0))) / float(params.get("iqr", 1.0))).astype(np.float32)
+        elif tool == "log1p_feature":
+            col = np.log1p(col).astype(np.float32)
+        elif tool == "clip_numeric":
+            lower = params.get("lower"); upper = params.get("upper")
+            col = np.clip(col, -np.inf if lower is None else float(lower), np.inf if upper is None else float(upper)).astype(np.float32)
+        elif tool in {"passthrough", "impute_numeric"}:
+            pass
+        output_columns.append(col.reshape(-1, 1))
+    if not output_columns:
+        return values
+    return np.concatenate(output_columns, axis=1).astype(np.float32)
+
+
 def transform_inputs(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
+    if preprocessing.get("preprocessing_contract_version") == "mirai-ml-preprocessing-v1":
+        return _transform_inputs_v1(input_matrix, preprocessing)
     values = np.asarray(input_matrix, dtype=np.float32).copy()
 
     imputer = preprocessing.get("input_imputer")
@@ -134,6 +175,17 @@ def transform_inputs(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarra
 
 
 def inverse_transform_outputs(output_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
+    if preprocessing.get("preprocessing_contract_version") == "mirai-ml-preprocessing-v1":
+        outputs = np.asarray(output_matrix, dtype=np.float32).copy()
+        fitted_targets = [item for item in preprocessing.get("fitted_parameters", []) if item.get("tool") == "target_transform"]
+        for idx, item in enumerate(fitted_targets[: outputs.shape[1] if outputs.ndim > 1 else 1]):
+            params = item.get("parameters") or {}
+            method = item.get("method")
+            if method == "minmax":
+                outputs[:, idx] = outputs[:, idx] * float(params.get("scale", 1.0)) + float(params.get("min", 0.0))
+            elif method == "standard":
+                outputs[:, idx] = outputs[:, idx] * float(params.get("std", 1.0)) + float(params.get("mean", 0.0))
+        return outputs.astype(np.float32)
     scaler = preprocessing.get("output_scaler", {})
     method = scaler.get("method")
     if method != "minmax":

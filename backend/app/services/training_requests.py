@@ -17,6 +17,7 @@ from .control_plane import activate_champion_model, complete_training_run, creat
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
+from .ml_preprocessing import get_ml_preprocessing_status, ml_preprocessing_workspace
 from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, tracking_uri, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
@@ -144,6 +145,10 @@ def create_training_request(
     report = get_preprocessing_review_report(project_id, dataset_id, session_id)
     if report.get("approval", {}).get("status") != "approved_for_training":
         raise ValueError("Preprocessing must be approved by a Mirai admin before creating a training request")
+    ml_status = get_ml_preprocessing_status(project_id, dataset_id, session_id)
+    require_ml_preprocessing = os.getenv("MIRAI_REQUIRE_ML_PREPROCESSING_V1", "").strip().lower() in {"1", "true", "yes", "on"}
+    if ml_status.get("status") != "ml_preprocessing_ready_for_training" and require_ml_preprocessing:
+        raise ValueError("ML preprocessing must produce model_table_preprocessed.csv before creating a training request")
     allowed = {"mean_baseline", "mvlr", "ridge", "mlp"}
     invalid = sorted(set(model_families) - allowed)
     if invalid:
@@ -158,6 +163,12 @@ def create_training_request(
         "dataset_id": dataset_id,
         "ingestion_session_id": session_id,
         "preprocessing_report_id": f"{session_id}:preprocessing_report",
+        "ml_preprocessing": {
+            "status": ml_status.get("status", "legacy_not_ready"),
+            "plan_id": ml_status.get("plan_id"),
+            "run_id": ml_status.get("run_id"),
+            "legacy_fallback": ml_status.get("status") != "ml_preprocessing_ready_for_training",
+        },
         "status": "staged_for_mirai_execution",
         "requested_by": requested_by,
         "requested_at": _now(),
@@ -468,6 +479,12 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     training_latest = workspace["training_latest"]
     if not (canonical / "model_table.csv").exists():
         raise FileNotFoundError("Canonical model_table.csv not found; run preprocessing first")
+    ml_status = get_ml_preprocessing_status(project_id, dataset_id, session_id)
+    ml_data_dir = None
+    if ml_status.get("status") == "ml_preprocessing_ready_for_training":
+        ml_data_dir = ml_preprocessing_workspace(project_id, dataset_id, session_id)["runs_current"]
+        if not (ml_data_dir / "model_table_preprocessed.csv").exists():
+            raise FileNotFoundError("ML preprocessing status is ready but model_table_preprocessed.csv is missing")
     schema = _read_json(training_latest / "schema.json", default={}) or {}
     template_id = schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else "generic_tabular_doe"
 
@@ -497,8 +514,13 @@ def start_training_request(project_id: str, dataset_id: str, session_id: str, tr
     request["started_at"] = _now()
     _write_training_request(project_id, dataset_id, session_id, request)
 
+    if ml_data_dir is not None:
+        for name in ("preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "model_table_preprocessed_manifest.json"):
+            source = ml_data_dir / name
+            if source.exists():
+                shutil.copy2(source, training_latest / name)
     try:
-        result = train_generic_project(project_id=project_id, data_dir=canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
+        result = train_generic_project(project_id=project_id, data_dir=ml_data_dir or canonical, artifact_dir=training_latest, training_config=request.get("training_config"))
     except Exception as exc:  # noqa: BLE001 - persist failed runtime row before surfacing API error.
         fail_training_run(workspace_id=workspace_id, project_id=project_id, training_run_id=training_request_id, error_message=str(exc))
         raise
