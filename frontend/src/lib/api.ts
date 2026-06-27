@@ -1166,6 +1166,15 @@ export async function getMLPreprocessedTableBlob(session: IngestionSessionRespon
   }
 }
 
+export async function getMLPreprocessingHumanReportBlob(session: IngestionSessionResponse): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const response = await api.get<Blob>(`${sessionPath(session)}/ml-preprocessing/report.md`, { responseType: 'blob' })
+    return { blob: response.data, filename: filenameFromContentDisposition(response.headers['content-disposition']) ?? 'ml_preprocessing_report.md' }
+  } catch (error) {
+    throw normalizeError(error, 'Unable to download ML preprocessing report')
+  }
+}
+
 export async function listTrainingRequests(session: IngestionSessionResponse): Promise<TrainingRequestResponse[]> {
   try {
     const response = await api.get<{ training_requests: TrainingRequestResponse[] }>(`${sessionPath(session)}/training-requests`)

@@ -5,11 +5,13 @@ import {
   approveDomainMetadata,
   approvePreprocessing,
   approveMLPreprocessing,
+  askDataScientist,
   createTrainingRequest,
   executeMLPreprocessing,
   exportApprovedTrainingPackage,
   getDomainMetadata,
   getMLPreprocessedTableBlob,
+  getMLPreprocessingHumanReportBlob,
   getMLPreprocessingReport,
   getMLPreprocessingStatus,
   getPreprocessingEdaSummary,
@@ -164,6 +166,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [mlPreprocessingStatus, setMLPreprocessingStatus] = useState<MLPreprocessingStatus>({ status: 'not_started' })
   const [mlPreprocessingReport, setMLPreprocessingReport] = useState<MLPreprocessingReport | null>(null)
   const [mlPreprocessingLog, setMLPreprocessingLog] = useState<string[]>([])
+  const [mlPreprocessingQuestion, setMLPreprocessingQuestion] = useState('')
+  const [mlPreprocessingChat, setMLPreprocessingChat] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [trainingRequest, setTrainingRequest] = useState<TrainingRequestResponse | null>(null)
   const [trainingStatus, setTrainingStatus] = useState<Record<string, unknown> | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
@@ -416,17 +420,25 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
-  async function runMLPreprocessingFlow() {
+  async function draftMLPreprocessingPlan() {
     if (!selectedSession) return
-    await runAction('ml-preprocessing', async () => {
+    await runAction('ml-preprocessing-draft', async () => {
       const log = ['Loading bounded EDA/profile evidence…', 'Loading ML preprocessing skill and policy…']
       setMLPreprocessingLog(log)
       const drafted = await startMLPreprocessing(selectedSession)
       setMLPreprocessingStatus(drafted)
-      setMLPreprocessingLog([...log, 'Drafted deterministic tool plan and passed validation gates.', 'Waiting for approval…'])
+      const nextReport = await getMLPreprocessingReport(selectedSession)
+      setMLPreprocessingReport(nextReport)
+      setMLPreprocessingLog([...log, 'Drafted deterministic tool plan and passed validation gates.', 'Paused before applying. Ask the ML preprocessing agent, then approve/apply when ready.'])
+    })
+  }
+
+  async function applyMLPreprocessingPlan() {
+    if (!selectedSession) return
+    await runAction('ml-preprocessing-apply', async () => {
+      setMLPreprocessingLog((current) => [...current, 'Approving plan. Running train-only fit and transform-only validation/test application…'])
       const approved = await approveMLPreprocessing(selectedSession, 'Approved deterministic ML preprocessing plan from Preprocessing Review UI.')
       setMLPreprocessingStatus(approved)
-      setMLPreprocessingLog((current) => [...current, 'Approved plan. Running train-only fit and transform-only validation/test application…'])
       const executed = await executeMLPreprocessing(selectedSession)
       setMLPreprocessingStatus(executed)
       const nextReport = await getMLPreprocessingReport(selectedSession)
@@ -435,18 +447,47 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
   async function handleDownloadPreprocessedTable() {
     if (!selectedSession) return
     await runAction('download-ml-preprocessed-table', async () => {
       const { blob, filename } = await getMLPreprocessedTableBlob(selectedSession)
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
+      downloadBlob(blob, filename)
+    })
+  }
+
+  async function handleDownloadMLPreprocessingReport() {
+    if (!selectedSession) return
+    await runAction('download-ml-preprocessing-report', async () => {
+      const { blob, filename } = await getMLPreprocessingHumanReportBlob(selectedSession)
+      downloadBlob(blob, filename)
+    })
+  }
+
+  async function askMLPreprocessingAgent(question?: string) {
+    if (!selectedSession || !schema?.project_id) return
+    const prompt = (question ?? mlPreprocessingQuestion).trim()
+    if (!prompt) return
+    const next = [...mlPreprocessingChat, { role: 'user' as const, content: prompt }]
+    setMLPreprocessingChat(next)
+    setMLPreprocessingQuestion('')
+    await runAction('ml-preprocessing-chat', async () => {
+      const response = await askDataScientist(
+        schema.project_id,
+        `For the selected ML preprocessing session ${selectedSession.ingestion_session_id}, answer this question using ml_preprocessing_summary and other scoped read-only tools as needed: ${prompt}`,
+        next.slice(-8),
+      )
+      setMLPreprocessingChat([...next, { role: 'assistant', content: response.answer }])
     })
   }
 
@@ -473,7 +514,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     if (!metadataApproved) return { label: busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata', disabled: !metadataDraft || Boolean(busy), run: approveMetadataDraft }
     if (!preprocessingComplete) return { label: busy === 'preprocessing' ? 'Preprocessing...' : 'Run preprocessing', disabled: !canRunPreprocessing || Boolean(busy), run: () => runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) }) }
     if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
-    if (!mlPreprocessingReady) return { label: busy === 'ml-preprocessing' ? 'Streaming...' : 'Start ML preprocessing', disabled: Boolean(busy), run: runMLPreprocessingFlow }
+    if (!mlPreprocessingStarted) return { label: busy === 'ml-preprocessing-draft' ? 'Drafting...' : 'Draft ML preprocessing plan', disabled: Boolean(busy), run: draftMLPreprocessingPlan }
+    if (!mlPreprocessingReady) return { label: busy === 'ml-preprocessing-apply' ? 'Applying...' : 'Apply ML preprocessing', disabled: Boolean(busy), run: applyMLPreprocessingPlan }
     if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
     if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
     if (candidateReady || trainingCompleted) return { label: busy === 'load-champion-model' ? 'Loading...' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
@@ -742,11 +784,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="max-w-2xl text-sm leading-6 text-slate-600">
-                <div className="font-semibold text-slate-950">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : 'Start ML preprocessing'}</div>
+                <div className="font-semibold text-slate-950">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : mlPreprocessingStarted ? 'Review ML preprocessing plan before applying' : 'Draft ML preprocessing plan'}</div>
                 <p className="mt-1">{mlPreprocessingReport?.summary ?? mlPreprocessingStatus.summary ?? 'Canonical data remains untouched; training will use the approved ML preprocessing version.'}</p>
               </div>
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={runMLPreprocessingFlow} disabled={!selectedSession || Boolean(busy) || mlPreprocessingReady} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing' ? 'Streaming…' : 'Start ML preprocessing'}</button>
+                {!mlPreprocessingStarted && <button type="button" onClick={draftMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft plan'}</button>}
+                {mlPreprocessingStarted && !mlPreprocessingReady && <button type="button" onClick={applyMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply'}</button>}
+                {mlPreprocessingStarted && <button type="button" onClick={handleDownloadMLPreprocessingReport} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Human report</button>}
                 {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Download CSV</button>}
               </div>
             </div>
@@ -760,6 +804,30 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 {mlPreprocessingReport.export_files.map((name) => <span key={name} className="rounded-full bg-[#fbfaf5] px-3 py-1 font-semibold">{name}</span>)}
               </div>
             )}
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-950">Ask the ML preprocessing agent</h3>
+                  <p className="mt-1 text-sm text-slate-600">Discuss the draft or completed preprocessing before/after applying it. The agent can read scoped ML preprocessing artifacts, but not cross-workspace files or raw storage paths.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void askMLPreprocessingAgent('Explain what happened during ML preprocessing and list the exported files.')} disabled={!selectedSession || Boolean(busy)} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-45">What happened?</button>
+                  <button type="button" onClick={() => void askMLPreprocessingAgent('x7 looks binary. Why was it not one-hot encoded? Should we change that before training?')} disabled={!selectedSession || Boolean(busy)} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-45">Ask about x7</button>
+                </div>
+              </div>
+              <div className="mt-4 max-h-64 space-y-3 overflow-y-auto rounded-2xl bg-white p-3">
+                {mlPreprocessingChat.length === 0 ? <p className="text-sm text-slate-500">Ask before approving/running, or after completion to explain the report.</p> : mlPreprocessingChat.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-[#fbfaf5] text-slate-700'}`}>{message.content}</div>
+                  </div>
+                ))}
+                {busy === 'ml-preprocessing-chat' && <div className="text-sm text-slate-500">Checking scoped ML preprocessing artifacts…</div>}
+              </div>
+              <form onSubmit={(event) => { event.preventDefault(); void askMLPreprocessingAgent() }} className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input value={mlPreprocessingQuestion} onChange={(event) => setMLPreprocessingQuestion(event.target.value)} maxLength={1200} placeholder="Ask about tool choices, one-hot encoding, leakage, or exports…" className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#60745c]" />
+                <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-45">Ask</button>
+              </form>
+            </div>
           </div>
         </SectionCard>
       )}

@@ -291,7 +291,7 @@ def _log_generic_mlflow(
         mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}
         extra_tags = mlflow_cfg.get("extra_tags", {}) if isinstance(mlflow_cfg.get("extra_tags"), dict) else {}
         extra_artifacts = mlflow_cfg.get("extra_artifacts", []) if isinstance(mlflow_cfg.get("extra_artifacts"), list) else []
-        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "model_table_preprocessed_manifest.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json"]
+        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json"]
         for artifact_name in extra_artifacts:
             if isinstance(artifact_name, str) and artifact_name not in common_artifacts:
                 common_artifacts.append(artifact_name)

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.services.data_intake import get_file_inventory, get_ingestion_session, list_ingestion_sessions
 from app.services.model_quality import get_active_model_metadata, get_artifact_summary, get_metrics
+from app.services.ml_preprocessing import get_ml_preprocessed_table_path, get_ml_preprocessing_report, get_ml_preprocessing_status, load_ml_preprocessing_plan
 from app.services.preprocessing_review import get_preprocessing_eda_summary, get_preprocessing_status
 from app.services.project_registry import get_project_schema, list_projects
 
@@ -138,6 +139,72 @@ def preprocessing_status(scope: AgentScope, args: LatestSessionArgs) -> dict[str
     return status
 
 
+def ml_preprocessing_summary(scope: AgentScope, args: LatestSessionArgs) -> dict[str, Any]:
+    session = _select_session(scope, args)
+    if not session:
+        return {"status": "not_found"}
+    project_id = str(session["project_id"])
+    dataset_id = str(session["dataset_id"])
+    session_id = str(session["ingestion_session_id"])
+    status = get_ml_preprocessing_status(project_id, dataset_id, session_id)
+    report = get_ml_preprocessing_report(project_id, dataset_id, session_id)
+    plan_summary: dict[str, Any] = {"available": False, "actions": []}
+    try:
+        plan = load_ml_preprocessing_plan(project_id, dataset_id, session_id)
+        plan_summary = {
+            "available": True,
+            "plan_id": plan.plan_id,
+            "status": plan.status,
+            "fit_scope": plan.fit_scope,
+            "actions": [
+                {
+                    "variable_id": action.variable_id,
+                    "role": action.role,
+                    "tool": action.tool.value,
+                    "method": action.method,
+                    "reason": action.reason,
+                    "risk_level": action.risk_level.value,
+                }
+                for action in plan.actions[:80]
+            ],
+            "action_count": len(plan.actions),
+        }
+    except Exception:  # noqa: BLE001 - plan may not exist yet.
+        pass
+    table_summary: dict[str, Any] = {"available": False}
+    try:
+        import pandas as pd  # type: ignore[import-not-found]
+
+        table_path = get_ml_preprocessed_table_path(project_id, dataset_id, session_id)
+        frame = pd.read_csv(table_path)
+        columns = list(frame.columns)
+        binary_columns = [column for column in columns if column not in {"split", "cell_id"} and set(frame[column].dropna().unique().tolist()).issubset({0, 1, 0.0, 1.0})]
+        table_summary = {
+            "available": True,
+            "row_count": int(len(frame)),
+            "column_count": int(len(columns)),
+            "columns": columns[:80],
+            "binary_columns": binary_columns[:40],
+            "note": "Binary numeric indicators are normally kept as a single 0/1 feature; one-hot with both categories would add a redundant collinear column unless a user explicitly requests a different policy.",
+        }
+    except Exception:  # noqa: BLE001 - table may not exist yet.
+        pass
+    return {
+        "status": status.get("status", "unknown"),
+        "summary": status.get("summary") or report.get("summary"),
+        "plan": plan_summary,
+        "report": {
+            "status": report.get("status"),
+            "summary": report.get("summary"),
+            "warnings": report.get("warnings", []),
+            "risks": report.get("risks", []),
+            "export_files": report.get("export_files", []),
+        },
+        "table": table_summary,
+        "training_ready": status.get("status") == "ml_preprocessing_ready_for_training",
+    }
+
+
 def training_summary(scope: AgentScope, args: NoArgs) -> dict[str, Any]:
     # Deliberately avoid unscoped MLflow experiment scans here. Active-model metadata
     # is resolved through workspace-aware project artifacts/control-plane pointers.
@@ -161,6 +228,7 @@ TOOLS: dict[str, AgentTool] = {
     "artifact_inventory": AgentTool("artifact_inventory", "List safe uploaded file inventory metadata for the latest or selected session.", InventoryArgs, artifact_inventory),
     "table_profile": AgentTool("table_profile", "Summarize safe table/column profile metadata from preprocessing artifacts.", TableProfileArgs, table_profile),
     "preprocessing_status": AgentTool("preprocessing_status", "Report preprocessing status for latest or selected session.", LatestSessionArgs, preprocessing_status),
+    "ml_preprocessing_summary": AgentTool("ml_preprocessing_summary", "Summarize deterministic ML preprocessing plan, fitted artifacts, ready report, and safe preprocessed table metadata for the latest or selected session.", LatestSessionArgs, ml_preprocessing_summary),
     "training_summary": AgentTool("training_summary", "Summarize latest training runs and active model metadata.", NoArgs, training_summary),
     "model_quality": AgentTool("model_quality", "Summarize model quality metrics and artifact status.", NoArgs, model_quality),
 }

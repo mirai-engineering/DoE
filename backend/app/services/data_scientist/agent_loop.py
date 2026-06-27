@@ -12,7 +12,7 @@ from .schemas import DataScientistEvent, DataScientistMessage, DataScientistResp
 from .scope import AgentScope
 from .tools import TOOLS, AgentToolError
 
-_SYSTEM_PROMPT = """You are Mirai's Data Scientist assistant. Answer only about the authenticated active project. Use provided read-only tools when you need project data, preprocessing, or model quality facts. Do not reveal hidden reasoning, raw workspace IDs, Clerk user IDs, filesystem paths, object-store URIs, object keys, or storage prefixes. If data is unavailable, say so briefly."""
+_SYSTEM_PROMPT = """You are Mirai's Data Scientist assistant. Answer only about the authenticated active project. Use provided read-only tools when you need project data, preprocessing, ML preprocessing plans/artifacts, or model quality facts. Do not reveal hidden reasoning, raw workspace IDs, Clerk user IDs, filesystem paths, object-store URIs, object keys, or storage prefixes. If data is unavailable, say so briefly. For ML preprocessing, explain deterministic tool choices, train-only fitting, binary-indicator handling, exported files, and what remains configurable before approval."""
 
 
 def _event(type_: str, label: str, scope: AgentScope, *, detail: str | None = None, tool_name: str | None = None, metadata: dict[str, Any] | None = None) -> DataScientistEvent:
@@ -36,6 +36,8 @@ def _initial_tool_names(question: str) -> list[str]:
         names.append("table_profile")
     if any(word in lowered for word in ("preprocess", "eda", "clean", "status")):
         names.append("preprocessing_status")
+    if any(word in lowered for word in ("ml preprocessing", "ml-preprocessing", "model_table_preprocessed", "preprocessed", "one-hot", "one hot", "binary", "x7", "tool plan", "fitted")):
+        names.append("ml_preprocessing_summary")
     if any(word in lowered for word in ("model", "metric", "quality", "train", "run", "rmse", "prediction")):
         names.extend(["training_summary", "model_quality"])
     return list(dict.fromkeys(names))[: agent_runtime_settings().max_tool_calls]
@@ -52,6 +54,13 @@ def _local_summary(question: str, tool_results: dict[str, Any]) -> str:
     if "preprocessing_status" in tool_results:
         status = tool_results["preprocessing_status"].get("status", "unknown")
         parts.append(f"Preprocessing status is {status}.")
+    if "ml_preprocessing_summary" in tool_results:
+        ml_status = tool_results["ml_preprocessing_summary"].get("status", "unknown")
+        table = tool_results["ml_preprocessing_summary"].get("table", {})
+        binary = table.get("binary_columns", []) if isinstance(table, dict) else []
+        parts.append(f"ML preprocessing status is {ml_status}.")
+        if binary:
+            parts.append(f"Binary indicator columns detected: {', '.join(map(str, binary[:8]))}. They are normally kept as one 0/1 feature rather than one-hot encoded into redundant paired columns.")
     if "model_quality" in tool_results or "training_summary" in tool_results:
         parts.append("Model/training metadata is available in the activity details when present; use the Model Quality tab for full charts.")
     parts.append("I only used read-only, workspace-scoped project tools.")

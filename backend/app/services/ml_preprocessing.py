@@ -51,6 +51,61 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
+def _human_readable_report_text(*, report: MLPreprocessingReport, plan: MLPreprocessingPlan | None = None, fitted: MLPreprocessingFitted | None = None, manifest: dict[str, Any] | None = None) -> str:
+    lines = [
+        "# ML preprocessing report",
+        "",
+        "## Summary",
+        report.summary,
+        "",
+        "## What Mirai did",
+    ]
+    if plan:
+        lines.append(f"- Planned {len(plan.actions)} deterministic tool action(s), using `{plan.fit_scope}`.")
+        lines.append("- Used typed Mirai preprocessing tools only; no arbitrary generated code was executed.")
+    if fitted:
+        lines.append(f"- Fitted {len(fitted.fitted_parameters)} parameter set(s) on train rows only.")
+        lines.append(f"- Produced {len(fitted.feature_columns)} feature column(s) and {len(fitted.target_columns)} target column(s).")
+    if manifest:
+        lines.append(f"- Wrote `model_table_preprocessed.csv` with {manifest.get('row_count', 'unknown')} row(s) and {manifest.get('column_count', 'unknown')} column(s).")
+    lines.extend([
+        "- Preserved canonical `model_table.csv`; training consumes the preprocessed table by lineage.",
+        "",
+        "## Tool actions",
+    ])
+    if plan and plan.actions:
+        for action in plan.actions:
+            lines.append(f"- `{action.variable_id}` → `{action.tool.value}` / `{action.method}`: {action.reason}")
+    else:
+        lines.append("- No plan actions are available yet.")
+    if fitted and fitted.fitted_parameters:
+        lines.extend(["", "## Output columns"])
+        for item in fitted.fitted_parameters:
+            outputs = ", ".join(item.output_columns) if item.output_columns else item.variable_id
+            lines.append(f"- `{item.variable_id}` produced: {outputs}")
+    if report.warnings or report.risks:
+        lines.extend(["", "## Warnings and risks"])
+        for warning in report.warnings:
+            lines.append(f"- Warning: {warning}")
+        for risk in report.risks:
+            lines.append(f"- Risk: {risk}")
+    lines.extend([
+        "",
+        "## Binary indicators and one-hot encoding",
+        "Binary numeric inputs are kept as one 0/1 indicator by default. Creating two one-hot columns for a binary variable usually adds a redundant, perfectly collinear feature. If domain semantics require treating it as categorical, change the plan before approval and rerun ML preprocessing.",
+        "",
+        "## Exported files",
+    ])
+    for name in report.export_files or ["model_table_preprocessed.csv", "preprocessing_fitted.json", "feature_map.json", "target_map.json"]:
+        lines.append(f"- `{name}`")
+    return "\n".join(lines).strip() + "\n"
+
+
+def _write_human_readable_report(path: Path, *, report: MLPreprocessingReport, plan: MLPreprocessingPlan | None = None, fitted: MLPreprocessingFitted | None = None, manifest: dict[str, Any] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_human_readable_report_text(report=report, plan=plan, fitted=fitted, manifest=manifest), encoding="utf-8")
+
+
 def _ml_preprocessing_skill_reference() -> dict[str, Any]:
     path = Path(__file__).resolve().parents[3] / "mirai-harness" / "MIRAI_MLPREPROCESSING_SKILL.md"
     if not path.exists():
@@ -730,6 +785,12 @@ def _default_actions_from_evidence(project_id: str, dataset_id: str, session_id:
         if is_output:
             actions.append(PreprocessingToolAction(variable_id=variable_id, role="output", tool=ToolName.target_transform, method="none", evidence_refs=[f"column_profile:{variable_id}"], reason="Target remains in original units by default for v1 unless model evidence justifies reversible scaling.", risk_level=RiskLevel.low, reversibility="reversible"))
             continue
+        unique_count = int(profile.get("unique_count") or 0)
+        min_value = profile.get("min")
+        max_value = profile.get("max")
+        if 0 < unique_count <= 2 and min_value is not None and max_value is not None and float(min_value) >= 0.0 and float(max_value) <= 1.0:
+            actions.append(PreprocessingToolAction(variable_id=variable_id, role="input", tool=ToolName.passthrough, method="none", evidence_refs=[f"column_profile:{variable_id}"], reason="Binary numeric indicator is kept as one 0/1 feature; one-hot encoding both categories would add a redundant collinear column by default.", risk_level=RiskLevel.low))
+            continue
         missing_rate = float(profile.get("missing_rate") or 0.0)
         if missing_rate > 0:
             actions.append(PreprocessingToolAction(variable_id=variable_id, role="input", tool=ToolName.impute_numeric, method="median", evidence_refs=[f"missingness:{variable_id}"], reason="Numeric input has missing values; median imputation is robust and fitted on train split only.", risk_level=RiskLevel.medium if missing_rate > 0.2 else RiskLevel.low))
@@ -755,6 +816,7 @@ def start_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, re
     skill_ref = _ml_preprocessing_skill_reference()
     report = MLPreprocessingReport(status="preprocessing_plan_needs_approval" if not errors else "preprocessing_plan_needs_input", summary=f"Draft ML preprocessing plan created with {len(plan.actions)} deterministic tool actions. Approval is required before writing model_table_preprocessed.csv.", plan_id=plan.plan_id, evidence_refs=["readiness", "eda_overview", "column_profiles", f"skill:{skill_ref.get('sha256', 'unavailable')}"], risks=errors, warnings=plan.warnings + ([] if skill_ref.get("available") else ["ML preprocessing skill file was not found while drafting the deterministic plan."]), lineage=lineage)
     _write_json(paths["plans_current"] / "preprocessing_plan_report.json", report.model_dump(mode="json"))
+    _write_human_readable_report(paths["plans_current"] / "ml_preprocessing_report.md", report=report, plan=plan)
     persistence = persist_ml_preprocessing_artifacts(project_id, dataset_id, session_id)
     write_status(project_id, dataset_id, session_id, "ml_preprocessing", {"status": report.status, "plan_id": plan.plan_id, "action_count": len(plan.actions), "requested_by": requested_by, "object_storage": persistence})
     return get_ml_preprocessing_status(project_id, dataset_id, session_id)
@@ -780,6 +842,7 @@ def approve_ml_preprocessing_plan(project_id: str, dataset_id: str, session_id: 
     _write_json(paths["plans_current"] / "preprocessing_plan.json", plan.model_dump(mode="json"))
     report = MLPreprocessingReport(status="ml_preprocessing_plan_approved", summary="ML preprocessing plan approved. The executor can now create model_table_preprocessed.csv for training.", plan_id=plan.plan_id, evidence_refs=["approved_plan"], warnings=plan.warnings + ([notes] if notes else []), lineage=plan.lineage)
     _write_json(paths["plans_current"] / "preprocessing_plan_report.json", report.model_dump(mode="json"))
+    _write_human_readable_report(paths["plans_current"] / "ml_preprocessing_report.md", report=report, plan=plan)
     persistence = persist_ml_preprocessing_artifacts(project_id, dataset_id, session_id)
     write_status(project_id, dataset_id, session_id, "ml_preprocessing", {"status": "ml_preprocessing_plan_approved", "plan_id": plan.plan_id, "approved_by": approver, "approved_at": plan.approved_at, "object_storage": persistence})
     return get_ml_preprocessing_status(project_id, dataset_id, session_id)
@@ -846,8 +909,9 @@ def execute_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, 
     _write_json(paths["runs_current"] / "target_map.json", {"target_columns": target_columns})
     manifest = {"status": "available", "run_id": fitted.run_id, "plan_id": plan.plan_id, "row_count": int(len(preprocessed)), "column_count": int(len(preprocessed.columns)), "sha256": _sha256_file(output_path), "source_model_table_sha256": _sha256_file(source), "fit_scope": FIT_SCOPE_TRAIN_ONLY}
     _write_json(paths["runs_current"] / "model_table_preprocessed_manifest.json", manifest)
-    report = MLPreprocessingReport(status="ml_preprocessing_ready_for_training", summary=f"Preprocessing ready — generated model_table_preprocessed.csv with {len(preprocessed)} rows and {len(feature_columns)} model columns using {len(fitted_parameters)} fitted deterministic tool steps. Canonical model_table.csv was not modified.", plan_id=plan.plan_id, run_id=fitted.run_id, evidence_refs=["approved_plan", "train_split_only_fit"], export_files=["model_table_preprocessed.csv", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "model_table_preprocessed_manifest.json"], lineage=plan.lineage)
+    report = MLPreprocessingReport(status="ml_preprocessing_ready_for_training", summary=f"Preprocessing ready — generated model_table_preprocessed.csv with {len(preprocessed)} rows and {len(feature_columns)} model columns using {len(fitted_parameters)} fitted deterministic tool steps. Canonical model_table.csv was not modified.", plan_id=plan.plan_id, run_id=fitted.run_id, evidence_refs=["approved_plan", "train_split_only_fit"], export_files=["model_table_preprocessed.csv", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "model_table_preprocessed_manifest.json", "ml_preprocessing_report.md"], lineage=plan.lineage)
     _write_json(paths["runs_current"] / "ml_preprocessing_report.json", report.model_dump(mode="json"))
+    _write_human_readable_report(paths["runs_current"] / "ml_preprocessing_report.md", report=report, plan=plan, fitted=fitted, manifest=manifest)
     persistence = persist_ml_preprocessing_artifacts(project_id, dataset_id, session_id)
     write_status(project_id, dataset_id, session_id, "ml_preprocessing", {"status": "ml_preprocessing_ready_for_training", "plan_id": plan.plan_id, "run_id": fitted.run_id, "run_by": run_by, "summary": report.summary, "exports": report.export_files, "model_table_preprocessed": {"available": True, "sha256": manifest["sha256"]}, "object_storage": persistence})
     return get_ml_preprocessing_status(project_id, dataset_id, session_id)
@@ -860,6 +924,14 @@ def get_ml_preprocessing_report(project_id: str, dataset_id: str, session_id: st
         if isinstance(payload, dict):
             return payload
     return {"status": "missing", "summary": "No ML preprocessing report is available yet."}
+
+
+def get_ml_preprocessing_human_report_path(project_id: str, dataset_id: str, session_id: str) -> Path:
+    paths = ml_preprocessing_workspace(project_id, dataset_id, session_id)
+    for path in (paths["runs_current"] / "ml_preprocessing_report.md", paths["plans_current"] / "ml_preprocessing_report.md"):
+        if path.exists():
+            return path
+    raise ValueError("Human-readable ML preprocessing report is not available yet")
 
 
 def get_ml_preprocessed_table_path(project_id: str, dataset_id: str, session_id: str) -> Path:

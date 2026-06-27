@@ -60,6 +60,7 @@ from .services.mlflow_registry import durable_artifact_pointer_for_project
 from .services.ml_preprocessing import (
     approve_ml_preprocessing_plan,
     execute_ml_preprocessing,
+    get_ml_preprocessing_human_report_path,
     get_ml_preprocessing_report,
     get_ml_preprocessing_status,
     get_ml_preprocessed_table_path,
@@ -605,6 +606,15 @@ def data_intake_get_ml_preprocessing_report(project_id: str, dataset_id: str, se
         return get_ml_preprocessing_report(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("ML preprocessing report lookup failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/report.md")
+def data_intake_download_ml_preprocessing_human_report(project_id: str, dataset_id: str, session_id: str):
+    try:
+        return FileResponse(get_ml_preprocessing_human_report_path(project_id, dataset_id, session_id), media_type="text/markdown", filename="ml_preprocessing_report.md")
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing human report download failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
