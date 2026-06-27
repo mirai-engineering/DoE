@@ -317,6 +317,73 @@ def test_domain_metadata_hydrates_schema_from_object_storage(monkeypatch, tmp_pa
     assert {"temperature", "efficiency"}.issubset(variable_names)
 
 
+def test_preprocessing_start_restores_existing_artifacts_instead_of_revalidating(monkeypatch, tmp_path):
+    from app.services import data_intake, preprocessing_review
+
+    object_root = tmp_path / "object-root"
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(object_root))
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "mirai-user-123-local")
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+    monkeypatch.setattr(preprocessing_review, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(preprocessing_review, "DATA_INTAKE_ROOT", object_root / "intake")
+
+    project_id = "project_a"
+    dataset_id = "dataset_a"
+    session_id = "ing_a"
+    workspace_id = "user_123"
+    project_dir = object_root / "workspaces" / workspace_id / "intake" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text(json.dumps({"workspace_id": workspace_id, "project_id": project_id, "display_name": "Project A"}), encoding="utf-8")
+    workspace = data_intake.ensure_session_workspace(project_id, dataset_id, session_id)
+    (workspace["root"] / "session.json").write_text(
+        json.dumps({"project_id": project_id, "project_name": "Project A", "dataset_id": dataset_id, "ingestion_session_id": session_id, "workspace_id": workspace_id}),
+        encoding="utf-8",
+    )
+    (workspace["canonical"] / "model_table.csv").write_text("temperature,efficiency\n40,55\n", encoding="utf-8")
+    (workspace["training_latest"] / "schema.json").write_text(
+        json.dumps({
+            "project_id": project_id,
+            "template_id": "generic_tabular_doe",
+            "inputs": [{"name": "temperature", "role": "input", "dtype": "float", "unit": "C", "min": 20, "max": 80}],
+            "outputs": [{"name": "efficiency", "role": "output", "dtype": "float", "unit": "%", "direction": "maximize"}],
+        }),
+        encoding="utf-8",
+    )
+    (workspace["eda"] / "preprocessing_report.json").write_text(
+        json.dumps({
+            "project_id": project_id,
+            "dataset_id": dataset_id,
+            "ingestion_session_id": session_id,
+            "status": "preprocessing_complete_needs_approval",
+            "package_type": "mirai_contract_package",
+            "canonical_artifacts": {"row_counts": {"model_table.csv": 1}},
+        }),
+        encoding="utf-8",
+    )
+    config = WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode="local",
+        bucket="mirai-user-123-local",
+        prefix=f"workspaces/{workspace_id}/projects/{project_id}",
+    )
+    persist_session_artifact_set(project_id=project_id, dataset_id=dataset_id, session_id=session_id, workspace_id=workspace_id, artifact_set="canonical", local_dir_or_files=workspace["canonical"], storage_config=config)
+    persist_session_artifact_set(project_id=project_id, dataset_id=dataset_id, session_id=session_id, workspace_id=workspace_id, artifact_set="preprocessing_artifacts", local_dir_or_files=workspace["training_latest"], storage_config=config)
+    persist_session_artifact_set(project_id=project_id, dataset_id=dataset_id, session_id=session_id, workspace_id=workspace_id, artifact_set="eda", local_dir_or_files=workspace["eda"], storage_config=config)
+
+    (workspace["canonical"] / "model_table.csv").unlink()
+    (workspace["training_latest"] / "schema.json").unlink()
+    (workspace["eda"] / "preprocessing_report.json").unlink()
+    data_intake.write_status(project_id, dataset_id, session_id, "preprocessing", {"status": "failed_validation", "stage": "contract_validation_failed"})
+
+    status = preprocessing_review.queue_fuel_cell_preprocessing(project_id, dataset_id, session_id)
+
+    assert status["status"] == "preprocessing_complete_needs_approval"
+    assert status["stage"] == "restored_from_persisted_artifacts"
+    assert (workspace["canonical"] / "model_table.csv").exists()
+    assert (workspace["training_latest"] / "schema.json").exists()
+
+
 def test_ydata_report_returns_object_storage_bytes_when_local_cache_missing(monkeypatch, tmp_path):
     from app.services import data_intake, preprocessing_review
 

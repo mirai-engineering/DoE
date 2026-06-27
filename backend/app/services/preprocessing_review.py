@@ -36,6 +36,12 @@ from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_pa
 
 logger = logging.getLogger(__name__)
 
+_COMPLETED_PREPROCESSING_STATUSES = {
+    "preprocessing_complete_needs_approval",
+    "eda_complete_needs_mirai_admin_review",
+    "approved_for_training",
+}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -237,7 +243,7 @@ def _persist_current_preprocessing_artifacts(project_id: str, dataset_id: str, s
 
 def queue_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     current = get_preprocessing_status(project_id, dataset_id, session_id)
-    if current.get("status") in {"queued", "running"}:
+    if current.get("status") in {"queued", "running", *_COMPLETED_PREPROCESSING_STATUSES}:
         return current
     validation = _validate_generic_contract(project_id, dataset_id, session_id)
     status = {
@@ -253,6 +259,9 @@ def queue_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: 
 
 
 def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    existing = get_preprocessing_status(project_id, dataset_id, session_id)
+    if existing.get("status") in _COMPLETED_PREPROCESSING_STATUSES:
+        return existing
     status_base = {
         "project_id": project_id,
         "dataset_id": dataset_id,
@@ -363,8 +372,62 @@ def start_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: 
     return start_generic_preprocessing(project_id, dataset_id, session_id)
 
 
+def _preprocessing_status_from_durable_artifacts(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any] | None:
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    report = _read_json_local_or_storage(
+        project_id,
+        dataset_id,
+        session_id,
+        "eda",
+        "preprocessing_report.json",
+        workspace["eda"] / "preprocessing_report.json",
+        default=None,
+    )
+    if not isinstance(report, dict) or report.get("status") not in _COMPLETED_PREPROCESSING_STATUSES:
+        return None
+    schema = _read_json_local_or_storage(
+        project_id,
+        dataset_id,
+        session_id,
+        "preprocessing_artifacts",
+        "schema.json",
+        workspace["training_latest"] / "schema.json",
+        default=None,
+    )
+    model_table_available = (workspace["canonical"] / "model_table.csv").exists() or _hydrate_artifact_from_storage(
+        project_id,
+        dataset_id,
+        session_id,
+        "canonical",
+        "model_table.csv",
+        workspace["canonical"] / "model_table.csv",
+    )
+    if not schema or not model_table_available:
+        return None
+    canonical_artifacts = report.get("canonical_artifacts") if isinstance(report.get("canonical_artifacts"), dict) else {}
+    status = {
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "ingestion_session_id": session_id,
+        "package_type": report.get("package_type") or "mirai_contract_package",
+        "status": report["status"],
+        "stage": "restored_from_persisted_artifacts",
+        "row_counts": canonical_artifacts.get("row_counts") or {},
+        "report_available": True,
+    }
+    if report.get("object_storage"):
+        status["object_storage"] = public_artifact_persistence_summary(report["object_storage"])
+    return status
+
+
 def get_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    return read_status(project_id, dataset_id, session_id, "preprocessing", default={"status": "not_started"})
+    current = read_status(project_id, dataset_id, session_id, "preprocessing", default=None)
+    if isinstance(current, dict) and current.get("status") in {"queued", "running", *_COMPLETED_PREPROCESSING_STATUSES}:
+        return current
+    durable = _preprocessing_status_from_durable_artifacts(project_id, dataset_id, session_id)
+    if durable:
+        return write_status(project_id, dataset_id, session_id, "preprocessing", durable)
+    return current if isinstance(current, dict) else {"status": "not_started"}
 
 
 def get_public_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
