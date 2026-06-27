@@ -380,6 +380,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     ['Other/provenance', provenanceVariableEntries.length],
   ]
 
+  const canUseProjectChampionLoader = Boolean(schema?.project_id && !championActive && (mlPreprocessingReady || preprocessingApproved || trainingRequest || trainingCompleted || !selectedSession))
   const projectOnlyChampionControls = Boolean(schema?.project_id && !selectedSession)
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
   const recommendedTrainingReady = selectedSession && preprocessingApproved && mlPreprocessingReady && !trainingRequest
@@ -864,12 +865,12 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
         )}
-        {selectedSession && preprocessingApproved && trainingRequest && !championActive && (
+        {canUseProjectChampionLoader && (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">App dev step</span></div>
-                <p className="mt-1 leading-6">After local or on-prem training, promote the approved MLflow model version to <code>champion</code>, then load it here. Mirai verifies identity, required artifacts, ONNX serving, and activates the champion in one step.</p>
+                <p className="mt-1 leading-6">After local or on-prem training, promote the approved MLflow model version to <code>champion</code>, then load it here. Mirai verifies identity, required artifacts, ONNX serving, and activates the champion in one step. This project-level loader is available even when the current browser session does not have a Mirai training request cached.</p>
                 <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Optional fields must match the current MLflow champion for this project.</p>
                 {importMessage && <p className="mt-2 text-emerald-700">{importMessage}</p>}
               </div>

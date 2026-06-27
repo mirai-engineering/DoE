@@ -149,11 +149,12 @@ def load_exported_package(package_dir: Path | str) -> ExportedPackage:
         raise ExportedPackageError(f"Package directory does not exist or is not a directory: {root}")
     manifest_path = root / "training_manifest.json"
     schema_path = root / "schema.json"
-    table_path = root / "model_table.csv"
+    preprocessed_table_path = root / "model_table_preprocessed.csv"
+    table_path = preprocessed_table_path if preprocessed_table_path.exists() else root / "model_table.csv"
     manifest = _read_json_file(manifest_path, "training_manifest.json")
     schema = _read_json_file(schema_path, "schema.json")
     if not table_path.exists():
-        raise ExportedPackageError(f"Missing required model_table.csv: {table_path}")
+        raise ExportedPackageError(f"Missing required model_table.csv or model_table_preprocessed.csv in package: {root}")
     for field in REQUIRED_MANIFEST_FIELDS:
         if not manifest.get(field):
             raise ExportedPackageError(f"training_manifest.json is missing required field: {field}")
@@ -163,9 +164,9 @@ def load_exported_package(package_dir: Path | str) -> ExportedPackage:
     try:
         frame = pd.read_csv(table_path)
     except Exception as exc:
-        raise ExportedPackageError(f"Unable to read model_table.csv: {exc}") from exc
+        raise ExportedPackageError(f"Unable to read {table_path.name}: {exc}") from exc
     if frame.empty:
-        raise ExportedPackageError("model_table.csv is empty; local training requires at least one row")
+        raise ExportedPackageError(f"{table_path.name} is empty; local training requires at least one row")
     feature_columns = [str(item) for item in manifest.get("feature_columns") or _column_names(schema.get("inputs"))]
     target_columns = [str(item) for item in manifest.get("target_columns") or _column_names(schema.get("outputs"))]
     if not feature_columns:
@@ -174,11 +175,11 @@ def load_exported_package(package_dir: Path | str) -> ExportedPackage:
         raise ExportedPackageError("No target columns found in manifest target_columns or schema outputs")
     missing = [column for column in [*feature_columns, *target_columns] if column not in frame.columns]
     if missing:
-        raise ExportedPackageError(f"model_table.csv is missing required feature/target columns: {', '.join(missing)}")
+        raise ExportedPackageError(f"{table_path.name} is missing required feature/target columns: {', '.join(missing)}")
     if "split" not in frame.columns:
-        raise ExportedPackageError("model_table.csv is missing required split column from approved preprocessing")
+        raise ExportedPackageError(f"{table_path.name} is missing required split column from approved preprocessing")
     if frame[frame["split"] == "train"].empty:
-        raise ExportedPackageError("model_table.csv has no train rows; approved package must include split=train rows")
+        raise ExportedPackageError(f"{table_path.name} has no train rows; approved package must include split=train rows")
     return ExportedPackage(
         package_dir=root,
         manifest_path=manifest_path,
@@ -226,9 +227,23 @@ def create_working_layout(package: ExportedPackage, output_root: Path | str = DE
     artifacts = run_root / "artifacts"
     canonical.mkdir(parents=True, exist_ok=False)
     artifacts.mkdir(parents=True, exist_ok=False)
-    shutil.copy2(package.table_path, canonical / "model_table.csv")
+    shutil.copy2(package.table_path, canonical / package.table_path.name)
+    if package.table_path.name != "model_table.csv":
+        shutil.copy2(package.table_path, canonical / "model_table.csv")
     shutil.copy2(package.schema_path, artifacts / "schema.json")
     shutil.copy2(package.manifest_path, artifacts / "training_manifest.json")
+    for name in ("feature_map.json", "target_map.json"):
+        source = package.package_dir / name
+        if source.exists():
+            shutil.copy2(source, canonical / name)
+    if package.table_path.name == "model_table_preprocessed.csv" and not (canonical / "feature_map.json").exists():
+        (canonical / "feature_map.json").write_text(json.dumps({"feature_columns": package.feature_columns}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if package.table_path.name == "model_table_preprocessed.csv" and not (canonical / "target_map.json").exists():
+        (canonical / "target_map.json").write_text(json.dumps({"target_columns": package.target_columns}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for name in ("preprocessing_fitted.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json"):
+        source = package.package_dir / name
+        if source.exists():
+            shutil.copy2(source, artifacts / name)
     preprocessing = {
         "version": package.manifest.get("preprocessing_contract_version") or "approved_export_package",
         "input_order": package.feature_columns,

@@ -386,8 +386,10 @@ def build_approved_training_package(
     workspace = session_workspace(project_id, dataset_id, session_id)
     canonical = workspace["canonical"]
     training_latest = workspace["training_latest"]
-    table_path = canonical / "model_table.parquet"
-    if not table_path.exists():
+    ml_status = get_ml_preprocessing_status(project_id, dataset_id, session_id)
+    ml_data_dir = ml_preprocessing_workspace(project_id, dataset_id, session_id)["runs_current"] if ml_status.get("status") == "ml_preprocessing_ready_for_training" else None
+    table_path = (ml_data_dir / "model_table_preprocessed.csv") if ml_data_dir is not None else canonical / "model_table.parquet"
+    if not table_path.exists() and ml_data_dir is None:
         table_path = canonical / "model_table.csv"
     if not table_path.exists():
         raise FileNotFoundError("Approved model table is missing")
@@ -397,8 +399,10 @@ def build_approved_training_package(
 
     preprocessing = _read_json(training_latest / "preprocessing.json", default={}) or {}
     schema = _read_json(schema_path, default={}) or {}
-    feature_columns = list(preprocessing.get("input_order") or _column_names(schema.get("inputs")))
-    target_columns = list(preprocessing.get("output_order") or _column_names(schema.get("outputs")))
+    feature_map = _read_json(ml_data_dir / "feature_map.json", default={}) if ml_data_dir is not None else {}
+    target_map = _read_json(ml_data_dir / "target_map.json", default={}) if ml_data_dir is not None else {}
+    feature_columns = list(feature_map.get("feature_columns") or preprocessing.get("input_order") or _column_names(schema.get("inputs")))
+    target_columns = list(target_map.get("target_columns") or preprocessing.get("output_order") or _column_names(schema.get("outputs")))
     manifest = {
         "package_format_version": "1",
         "workspace_id": str(session_workspace_id or workspace_id or ""),
@@ -408,7 +412,7 @@ def build_approved_training_package(
         "training_request_id": training_request_id,
         "feature_columns": feature_columns,
         "target_columns": target_columns,
-        "preprocessing_contract_version": _preprocessing_contract_version(schema, preprocessing),
+        "preprocessing_contract_version": "mirai-ml-preprocessing-v1" if ml_data_dir is not None else _preprocessing_contract_version(schema, preprocessing),
         "source_checksums": _source_checksums(session, table_path, schema_path),
         "exported_at": _now(),
     }
@@ -417,6 +421,11 @@ def build_approved_training_package(
     with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
         archive.write(table_path, table_path.name)
         archive.write(schema_path, "schema.json")
+        if ml_data_dir is not None:
+            for name in ("preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json"):
+                source = ml_data_dir / name
+                if source.exists():
+                    archive.write(source, name)
         archive.writestr("training_manifest.json", json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n")
     content = buffer.getvalue()
     filename = f"mirai-training-package-{project_id}-{dataset_id}-{training_request_id}.zip"

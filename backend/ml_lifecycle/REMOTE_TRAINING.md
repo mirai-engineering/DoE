@@ -43,18 +43,33 @@ OBJECT_STORAGE_BACKEND=s3
 
 Run from `backend/` and pass explicit attribution flags. These must match `training_manifest.json` or the CLI fails before training.
 
+**Do not train from a loose downloaded CSV alone.** A file named `model_table_preprocessed.csv` is not enough to identify the owning Mirai project. Always train from the approved exported package for the target project/session. The package carries `training_manifest.json`, `schema.json`, `feature_map.json`, target mapping, preprocessing artifacts, checksums, and project identity. This prevents accidentally logging runs into an older MLflow experiment such as another project's `<project_id>`.
+
+Before running, inspect:
+
+```bash
+unzip -p /path/to/mirai-training-package.zip training_manifest.json | jq '{workspace_id, project_id, dataset_id, session_id, training_request_id, preprocessing_contract_version}'
+```
+
+The `project_id` must be the exact Mirai project you intend to train. MLflow experiment name and registered model name are derived from it:
+
+- experiment: `<project_id>`
+- registered model: `doe_surrogate_<project_id>`
+
+If the manifest says the wrong project, stop and re-export the package from the correct Mirai project. Do not override the manifest or reuse schema/manifests from another project.
+
 ```bash
 cd backend
 uv run python -m ml_lifecycle.training.run_exported_package \
   --package-dir /path/to/unzipped/exported-package \
   --workspace-id fraunhofer \
-  --project-id ccm_degradation_029a2f61 \
+  --project-id <target_project_id_from_training_manifest> \
   --dataset-id <dataset_id> \
   --session-id <session_id> \
   --training-request-id <training_request_id>
 ```
 
-The CLI prints the remote tracking URI, MLflow experiment `<project_id>`, registered model `doe_surrogate_<project_id>`, run identity, expected alias `challenger`, and next manual steps.
+The CLI prints the remote tracking URI, MLflow experiment `<project_id>`, registered model `doe_surrogate_<project_id>`, run identity, expected alias `challenger`, and next manual steps. For ML-preprocessing v1 packages, the exported package includes `model_table_preprocessed.csv`; the runner will prefer that table and copy `feature_map.json`/`target_map.json` into the local working layout before training.
 
 ## MLflow promotion and Mirai activation
 
@@ -66,6 +81,18 @@ The CLI prints the remote tracking URI, MLflow experiment `<project_id>`, regist
 6. In Mirai, click **Load champion model** for the same workspace/project.
 
 Mirai verifies the champion alias, source run identity, required artifacts, `training_manifest.json`, and ONNX serving artifact before Model Quality/Design Studio use it.
+
+## Guardrail: wrong MLflow experiment/project
+
+If a local remote-logging run appears under only one older experiment, the local command probably used an exported package or manifest from the wrong project. Fix by:
+
+1. In Mirai, select the intended project.
+2. Complete preprocessing + ML preprocessing for that project.
+3. Create/export the approved training package for that project.
+4. Confirm `training_manifest.json.project_id` is the intended project.
+5. Re-run `run_exported_package` with matching `--project-id`, `--dataset-id`, `--session-id`, and `--training-request-id`.
+
+Never reuse `schema.json`, `training_manifest.json`, or a helper script generated for a different project. Never “repair” this by manually logging artifacts to the old run; that contaminates MLflow lineage.
 
 ## Troubleshooting: “Model quality is not available yet”
 
