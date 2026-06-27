@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { DomainMetadataStatus, MiraiContractValidation, IngestionSessionResponse, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
+import type { DomainMetadataStatus, MiraiContractValidation, IngestionSessionResponse, MLPreprocessingReport, MLPreprocessingStatus, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
 import {
   appendIngestionFiles,
   approveDomainMetadata,
   approvePreprocessing,
+  approveMLPreprocessing,
   createTrainingRequest,
+  executeMLPreprocessing,
   exportApprovedTrainingPackage,
   getDomainMetadata,
+  getMLPreprocessedTableBlob,
+  getMLPreprocessingReport,
+  getMLPreprocessingStatus,
   getPreprocessingEdaSummary,
   loadChampionModel,
   getPreprocessingReport,
@@ -16,6 +21,7 @@ import {
   listIngestionSessions,
   listTrainingRequests,
   startMiraiPreprocessing,
+  startMLPreprocessing,
   startTrainingRequest,
   updateDomainMetadata,
   validateMiraiContract,
@@ -155,6 +161,9 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [preprocessingStatus, setPreprocessingStatus] = useState<PreprocessingStatus>({ status: 'not_started' })
   const [report, setReport] = useState<Record<string, unknown> | null>(null)
   const [edaSummary, setEdaSummary] = useState<PreprocessingEdaSummary | null>(null)
+  const [mlPreprocessingStatus, setMLPreprocessingStatus] = useState<MLPreprocessingStatus>({ status: 'not_started' })
+  const [mlPreprocessingReport, setMLPreprocessingReport] = useState<MLPreprocessingReport | null>(null)
+  const [mlPreprocessingLog, setMLPreprocessingLog] = useState<string[]>([])
   const [trainingRequest, setTrainingRequest] = useState<TrainingRequestResponse | null>(null)
   const [trainingStatus, setTrainingStatus] = useState<Record<string, unknown> | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
@@ -188,15 +197,22 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     if (!session) return
     setError(null)
     try {
-      const [nextValidation, nextStatus, nextMetadata] = await Promise.all([
+      const [nextValidation, nextStatus, nextMetadata, nextMLStatus] = await Promise.all([
         validateMiraiContract(session),
         getPreprocessingStatus(session),
         getDomainMetadata(session),
+        getMLPreprocessingStatus(session).catch(() => ({ status: 'not_started' } as MLPreprocessingStatus)),
       ])
       setValidation(nextValidation)
       setPreprocessingStatus(nextStatus)
       setMetadataStatus(nextMetadata)
       setMetadataDraft(cloneMetadata(nextMetadata.domain_metadata))
+      setMLPreprocessingStatus(nextMLStatus)
+      if (nextMLStatus.status && nextMLStatus.status !== 'not_started') {
+        setMLPreprocessingReport(await getMLPreprocessingReport(session).catch(() => null))
+      } else {
+        setMLPreprocessingReport(null)
+      }
       if (['preprocessing_complete_needs_approval', 'approved_for_training'].includes(nextStatus.status)) {
         try {
           const [nextReport, nextEda, requests] = await Promise.all([
@@ -278,6 +294,9 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const candidateReady = lifecycleStatus === 'candidate_ready_for_review'
   const championActive = lifecycleStatus === 'approved_champion_active'
   const trainingCompleted = lifecycleStatus === 'completed' || candidateReady || championActive
+  const mlPreprocessingReady = mlPreprocessingStatus.status === 'ml_preprocessing_ready_for_training'
+  const mlPreprocessingNeedsApproval = mlPreprocessingStatus.status === 'preprocessing_plan_needs_approval'
+  const mlPreprocessingStarted = mlPreprocessingStatus.status && mlPreprocessingStatus.status !== 'not_started'
 
   function updateMetadataDraft(updater: (draft: ProjectDomainMetadata) => void) {
     setMetadataDraft((current) => {
@@ -346,7 +365,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     { id: 'upload', label: 'Create project', status: 'done' as const },
     { id: 'metadata', label: 'Review metadata', status: metadataApproved ? 'done' as const : 'current' as const },
     { id: 'preprocess', label: 'Preprocess', status: preprocessingComplete ? 'done' as const : metadataApproved ? 'current' as const : 'locked' as const },
-    { id: 'train', label: 'Train', status: trainingCompleted ? 'done' as const : preprocessingApproved ? 'current' as const : 'locked' as const },
+    { id: 'ml-preprocess', label: 'ML preprocessing', status: mlPreprocessingReady ? 'done' as const : preprocessingApproved ? 'current' as const : 'locked' as const },
+    { id: 'train', label: 'Train', status: trainingCompleted ? 'done' as const : mlPreprocessingReady ? 'current' as const : 'locked' as const },
     { id: 'quality', label: 'Quality', status: trainingCompleted ? 'current' as const : 'locked' as const },
   ]
 
@@ -358,7 +378,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
   const projectOnlyChampionControls = Boolean(schema?.project_id && !selectedSession)
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
-  const recommendedTrainingReady = selectedSession && preprocessingApproved && !trainingRequest
+  const recommendedTrainingReady = selectedSession && preprocessingApproved && mlPreprocessingReady && !trainingRequest
 
   async function handleExportApprovedPackage() {
     if (!selectedSession || !trainingRequest) return
@@ -396,6 +416,40 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
+  async function runMLPreprocessingFlow() {
+    if (!selectedSession) return
+    await runAction('ml-preprocessing', async () => {
+      const log = ['Loading bounded EDA/profile evidence…', 'Loading ML preprocessing skill and policy…']
+      setMLPreprocessingLog(log)
+      const drafted = await startMLPreprocessing(selectedSession)
+      setMLPreprocessingStatus(drafted)
+      setMLPreprocessingLog([...log, 'Drafted deterministic tool plan and passed validation gates.', 'Waiting for approval…'])
+      const approved = await approveMLPreprocessing(selectedSession, 'Approved deterministic ML preprocessing plan from Preprocessing Review UI.')
+      setMLPreprocessingStatus(approved)
+      setMLPreprocessingLog((current) => [...current, 'Approved plan. Running train-only fit and transform-only validation/test application…'])
+      const executed = await executeMLPreprocessing(selectedSession)
+      setMLPreprocessingStatus(executed)
+      const nextReport = await getMLPreprocessingReport(selectedSession)
+      setMLPreprocessingReport(nextReport)
+      setMLPreprocessingLog((current) => [...current, 'ml_preprocessing_ready_for_training', 'Preprocessing ready — this is what we did.'])
+    })
+  }
+
+  async function handleDownloadPreprocessedTable() {
+    if (!selectedSession) return
+    await runAction('download-ml-preprocessed-table', async () => {
+      const { blob, filename } = await getMLPreprocessedTableBlob(selectedSession)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    })
+  }
+
   async function handleLoadChampionModel() {
     if (!schema?.project_id) return
     await runAction('load-champion-model', async () => {
@@ -419,6 +473,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     if (!metadataApproved) return { label: busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata', disabled: !metadataDraft || Boolean(busy), run: approveMetadataDraft }
     if (!preprocessingComplete) return { label: busy === 'preprocessing' ? 'Preprocessing...' : 'Run preprocessing', disabled: !canRunPreprocessing || Boolean(busy), run: () => runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) }) }
     if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
+    if (!mlPreprocessingReady) return { label: busy === 'ml-preprocessing' ? 'Streaming...' : 'Start ML preprocessing', disabled: Boolean(busy), run: runMLPreprocessingFlow }
     if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
     if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
     if (candidateReady || trainingCompleted) return { label: busy === 'load-champion-model' ? 'Loading...' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
@@ -670,6 +725,41 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>
               </div>
             </DisclosurePanel>
+          </div>
+        </SectionCard>
+      )}
+
+      {preprocessingApproved && (
+        <SectionCard>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">ML preprocessing</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-slate-950">Training-ready model table</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Start the deterministic ML preprocessing lifecycle. Mirai uses EDA evidence to draft a typed tool plan, fits tool parameters on train rows only, and writes the actual model_table_preprocessed.csv used for training.</p>
+            </div>
+            <StatusPill tone={mlPreprocessingReady ? 'green' : mlPreprocessingStarted ? 'amber' : 'slate'}>{mlPreprocessingReady ? 'ready' : mlPreprocessingStarted ? 'in review' : 'not started'}</StatusPill>
+          </div>
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="max-w-2xl text-sm leading-6 text-slate-600">
+                <div className="font-semibold text-slate-950">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : 'Start ML preprocessing'}</div>
+                <p className="mt-1">{mlPreprocessingReport?.summary ?? mlPreprocessingStatus.summary ?? 'Canonical data remains untouched; training will use the approved ML preprocessing version.'}</p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={runMLPreprocessingFlow} disabled={!selectedSession || Boolean(busy) || mlPreprocessingReady} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing' ? 'Streaming…' : 'Start ML preprocessing'}</button>
+                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Download CSV</button>}
+              </div>
+            </div>
+            {(mlPreprocessingLog.length > 0 || mlPreprocessingNeedsApproval || mlPreprocessingReady) && (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0f172a] p-4 font-mono text-xs leading-6 text-slate-100">
+                {(mlPreprocessingLog.length ? mlPreprocessingLog : [String(mlPreprocessingStatus.status)]).map((line, index) => <div key={`${line}-${index}`}>› {line}</div>)}
+              </div>
+            )}
+            {!!mlPreprocessingReport?.export_files?.length && (
+              <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+                {mlPreprocessingReport.export_files.map((name) => <span key={name} className="rounded-full bg-[#fbfaf5] px-3 py-1 font-semibold">{name}</span>)}
+              </div>
+            )}
           </div>
         </SectionCard>
       )}

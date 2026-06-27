@@ -319,6 +319,29 @@ export interface PreprocessingStatus {
   [key: string]: unknown
 }
 
+export interface MLPreprocessingStatus {
+  status: string
+  updated_at?: string
+  plan_id?: string
+  run_id?: string
+  action_count?: number
+  summary?: string
+  exports?: string[]
+  model_table_preprocessed?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface MLPreprocessingReport {
+  status: string
+  summary: string
+  plan_id?: string | null
+  run_id?: string | null
+  risks?: string[]
+  warnings?: string[]
+  export_files?: string[]
+  [key: string]: unknown
+}
+
 export interface DomainMetadataStatus {
   status: string
   approval_status: string
@@ -1082,6 +1105,64 @@ export async function approvePreprocessing(session: IngestionSessionResponse, no
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to approve preprocessing')
+  }
+}
+
+export async function startMLPreprocessing(session: IngestionSessionResponse): Promise<MLPreprocessingStatus> {
+  try {
+    const response = await api.post<MLPreprocessingStatus>(`${sessionPath(session)}/ml-preprocessing/start`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to start ML preprocessing')
+  }
+}
+
+export async function getMLPreprocessingStatus(session: IngestionSessionResponse): Promise<MLPreprocessingStatus> {
+  try {
+    const response = await api.get<MLPreprocessingStatus>(`${sessionPath(session)}/ml-preprocessing/status`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load ML preprocessing status')
+  }
+}
+
+export async function approveMLPreprocessing(session: IngestionSessionResponse, notes?: string): Promise<MLPreprocessingStatus> {
+  try {
+    const response = await api.post<MLPreprocessingStatus>(`${sessionPath(session)}/ml-preprocessing/approval`, { approver: 'Mirai admin', notes })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to approve ML preprocessing')
+  }
+}
+
+export async function executeMLPreprocessing(session: IngestionSessionResponse): Promise<MLPreprocessingStatus> {
+  try {
+    const response = await api.post<MLPreprocessingStatus>(`${sessionPath(session)}/ml-preprocessing/execute`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to execute ML preprocessing')
+  }
+}
+
+export async function getMLPreprocessingReport(session: IngestionSessionResponse): Promise<MLPreprocessingReport> {
+  try {
+    const response = await api.get<MLPreprocessingReport>(`${sessionPath(session)}/ml-preprocessing/report`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load ML preprocessing report')
+  }
+}
+
+export function mlPreprocessedTableUrl(session: IngestionSessionResponse): string {
+  return `${API_URL}${sessionPath(session)}/ml-preprocessing/model-table-preprocessed.csv`
+}
+
+export async function getMLPreprocessedTableBlob(session: IngestionSessionResponse): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const response = await api.get<Blob>(`${sessionPath(session)}/ml-preprocessing/model-table-preprocessed.csv`, { responseType: 'blob' })
+    return { blob: response.data, filename: filenameFromContentDisposition(response.headers['content-disposition']) ?? 'model_table_preprocessed.csv' }
+  } catch (error) {
+    throw normalizeError(error, 'Unable to download preprocessed model table')
   }
 }
 
