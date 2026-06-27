@@ -50,7 +50,24 @@ LIFECYCLE_ARTIFACT_SETS: dict[str, dict[str, Any]] = {
     "status": {
         "prefix": "status",
         "artifact_kind": "status_artifact",
-        "files": ("preprocessing.json", "domain_metadata.json"),
+        "files": ("preprocessing.json", "domain_metadata.json", "ml_preprocessing.json"),
+    },
+    "ml_preprocessing": {
+        "prefix": "ml_preprocessing",
+        "artifact_kind": "ml_preprocessing_artifact",
+        "files": (
+            "plans/current/ml_preprocessing_plan.schema.json",
+            "plans/current/preprocessing_plan.json",
+            "plans/current/preprocessing_plan_report.json",
+            "runs/current/ml_preprocessing_fitted.schema.json",
+            "runs/current/ml_preprocessing_report.schema.json",
+            "runs/current/preprocessing_fitted.json",
+            "runs/current/feature_map.json",
+            "runs/current/target_map.json",
+            "runs/current/ml_preprocessing_report.json",
+            "runs/current/model_table_preprocessed.csv",
+            "runs/current/model_table_preprocessed_manifest.json",
+        ),
     },
 }
 

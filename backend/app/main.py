@@ -57,6 +57,15 @@ from .services.design_studio import export_design_zip, get_design_studio_state, 
 from .services.fantasy_rollout import run_fantasy_rollout
 from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
 from .services.mlflow_registry import durable_artifact_pointer_for_project
+from .services.ml_preprocessing import (
+    approve_ml_preprocessing_plan,
+    execute_ml_preprocessing,
+    get_ml_preprocessing_report,
+    get_ml_preprocessing_status,
+    get_ml_preprocessed_table_path,
+    start_ml_preprocessing,
+    write_schema_artifacts,
+)
 from .services.model_quality import (
     get_active_model_metadata,
     get_artifact_summary,
@@ -542,6 +551,69 @@ def data_intake_approve_preprocessing(project_id: str, dataset_id: str, session_
         return get_public_preprocessing_review_report(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Preprocessing approval failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/contract")
+def data_intake_define_ml_preprocessing_contract(project_id: str, dataset_id: str, session_id: str):
+    try:
+        return write_schema_artifacts(project_id, dataset_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing contract definition failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/start")
+def data_intake_start_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, request: Request):
+    try:
+        return start_ml_preprocessing(project_id, dataset_id, session_id, requested_by=_request_user_id(request))
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing start failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/status")
+def data_intake_get_ml_preprocessing_status(project_id: str, dataset_id: str, session_id: str):
+    try:
+        return get_ml_preprocessing_status(project_id, dataset_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing status lookup failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/approval")
+def data_intake_approve_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, request: PreprocessingApprovalRequest):
+    try:
+        return approve_ml_preprocessing_plan(project_id, dataset_id, session_id, approver=request.approver, notes=request.notes)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing approval failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/execute")
+def data_intake_execute_ml_preprocessing(project_id: str, dataset_id: str, session_id: str, request: Request):
+    try:
+        return execute_ml_preprocessing(project_id, dataset_id, session_id, run_by=_request_user_id(request))
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing execution failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/report")
+def data_intake_get_ml_preprocessing_report(project_id: str, dataset_id: str, session_id: str):
+    try:
+        return get_ml_preprocessing_report(project_id, dataset_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing report lookup failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/ml-preprocessing/model-table-preprocessed.csv")
+def data_intake_download_ml_preprocessed_table(project_id: str, dataset_id: str, session_id: str):
+    try:
+        return FileResponse(get_ml_preprocessed_table_path(project_id, dataset_id, session_id), media_type="text/csv", filename="model_table_preprocessed.csv")
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("ML preprocessing table download failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
