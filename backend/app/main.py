@@ -49,7 +49,7 @@ from .services.bayesian_optimization import (
 )
 from .services.business_impact import get_business_impact_summary
 from .services.control_plane import account_capabilities, assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, resolve_workspace_membership, synthetic_workspace_summary
-from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions
+from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions, public_file_inventory, public_ingestion_session
 from .services.data_scientist.agent_loop import run_data_scientist_agent
 from .services.data_scientist.schemas import DataScientistRequest, DataScientistResponse
 from .services.data_scientist.scope import authorize_agent_scope
@@ -74,11 +74,11 @@ from .services.preprocessing_review import (
     approve_domain_metadata,
     approve_preprocessing,
     generate_preprocessing_report,
-    ensure_ydata_html_report,
     get_domain_metadata_status,
+    get_ydata_html_report_file_or_bytes,
     get_preprocessing_eda_summary,
-    get_preprocessing_review_report,
-    get_preprocessing_status,
+    get_public_preprocessing_review_report,
+    get_public_preprocessing_status,
     queue_fuel_cell_preprocessing,
     start_fuel_cell_preprocessing,
     update_domain_metadata,
@@ -370,13 +370,13 @@ def data_intake_sessions(request: Request):
         sessions = list_ingestion_sessions()
         if workspace_id:
             sessions = [session for session in sessions if session.get("workspace_id") == workspace_id]
-        return {"sessions": sessions}
+        return {"sessions": [public_ingestion_session(session) for session in sessions]}
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake session listing failed")
         _raise_api_error(exc)
 
 
-@app.post("/data-intake/sessions", response_model=IngestionSessionResponse)
+@app.post("/data-intake/sessions", response_model=IngestionSessionResponse, response_model_exclude_none=True)
 async def data_intake_create_session(
     request: Request,
     project_name: str = Form(...),
@@ -401,7 +401,7 @@ async def data_intake_create_session(
             uploaded_by=_request_user_id(request),
         )
         clear_registry_cache()
-        return session
+        return public_ingestion_session(session)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
@@ -409,28 +409,28 @@ async def data_intake_create_session(
         _raise_api_error(exc)
 
 
-@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/files", response_model=IngestionSessionResponse)
+@app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/files", response_model=IngestionSessionResponse, response_model_exclude_none=True)
 async def data_intake_append_files(project_id: str, dataset_id: str, session_id: str, files: list[UploadFile] = File(...)):
     try:
-        return await append_ingestion_files(project_id, dataset_id, session_id, files)
+        return public_ingestion_session(await append_ingestion_files(project_id, dataset_id, session_id, files))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake append files failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
-@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}", response_model=IngestionSessionResponse)
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}", response_model=IngestionSessionResponse, response_model_exclude_none=True)
 def data_intake_get_session(project_id: str, dataset_id: str, session_id: str):
     try:
-        return get_ingestion_session(project_id, dataset_id, session_id)
+        return public_ingestion_session(get_ingestion_session(project_id, dataset_id, session_id))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake session lookup failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 
-@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/inventory", response_model=FileInventoryResponse)
+@app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/inventory", response_model=FileInventoryResponse, response_model_exclude_none=True)
 def data_intake_inventory(project_id: str, dataset_id: str, session_id: str):
     try:
-        return get_file_inventory(project_id, dataset_id, session_id)
+        return public_file_inventory(get_file_inventory(project_id, dataset_id, session_id))
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake inventory failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -469,8 +469,10 @@ def data_intake_get_preprocessing_eda_summary(project_id: str, dataset_id: str, 
 @app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing/ydata-report.html")
 def data_intake_get_ydata_html_report(project_id: str, dataset_id: str, session_id: str):
     try:
-        path = ensure_ydata_html_report(project_id, dataset_id, session_id)
-        return FileResponse(path, media_type="text/html", filename="mirai_ydata_profile.html")
+        report = get_ydata_html_report_file_or_bytes(project_id, dataset_id, session_id)
+        if report.get("kind") == "bytes":
+            return Response(content=report["body"], media_type="text/html", headers={"Content-Disposition": 'inline; filename="mirai_ydata_profile.html"'})
+        return FileResponse(report["path"], media_type="text/html", filename="mirai_ydata_profile.html")
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("ydata HTML report failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -479,7 +481,7 @@ def data_intake_get_ydata_html_report(project_id: str, dataset_id: str, session_
 @app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing/status")
 def data_intake_get_preprocessing_status(project_id: str, dataset_id: str, session_id: str):
     try:
-        return get_preprocessing_status(project_id, dataset_id, session_id)
+        return get_public_preprocessing_status(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Preprocessing status lookup failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -488,7 +490,8 @@ def data_intake_get_preprocessing_status(project_id: str, dataset_id: str, sessi
 @app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing-report")
 def data_intake_generate_preprocessing_report(project_id: str, dataset_id: str, session_id: str):
     try:
-        return generate_preprocessing_report(project_id, dataset_id, session_id)
+        generate_preprocessing_report(project_id, dataset_id, session_id)
+        return get_public_preprocessing_review_report(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Preprocessing report generation failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -497,7 +500,7 @@ def data_intake_generate_preprocessing_report(project_id: str, dataset_id: str, 
 @app.get("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing-report")
 def data_intake_get_preprocessing_report(project_id: str, dataset_id: str, session_id: str):
     try:
-        return get_preprocessing_review_report(project_id, dataset_id, session_id)
+        return get_public_preprocessing_review_report(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Preprocessing report lookup failed for project_id=%s", project_id)
         _raise_api_error(exc)
@@ -533,7 +536,8 @@ def data_intake_approve_domain_metadata(project_id: str, dataset_id: str, sessio
 @app.post("/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing-approval")
 def data_intake_approve_preprocessing(project_id: str, dataset_id: str, session_id: str, request: PreprocessingApprovalRequest):
     try:
-        return approve_preprocessing(project_id, dataset_id, session_id, approver=request.approver, notes=request.notes)
+        approve_preprocessing(project_id, dataset_id, session_id, approver=request.approver, notes=request.notes)
+        return get_public_preprocessing_review_report(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Preprocessing approval failed for project_id=%s", project_id)
         _raise_api_error(exc)

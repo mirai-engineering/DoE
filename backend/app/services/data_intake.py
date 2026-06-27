@@ -13,6 +13,7 @@ from fastapi import UploadFile
 
 from .control_plane import ensure_project_record, get_project_storage_config, record_artifact_object, record_uploaded_dataset
 from .db import postgres_control_plane_enabled
+from .lifecycle_artifacts import persist_session_artifact_set, public_artifact_persistence_summary
 from .workspace_storage import WorkspaceStorageConfig, local_object_storage_root, object_storage_uri, put_workspace_object, workspace_scoped_path
 from .workspaces import ensure_workspace, workspace_id_for_name
 
@@ -338,6 +339,20 @@ async def create_ingestion_session(
     payload = _build_session_payload(project_name, project_id, dataset_id, session_id, files, notes, ingestion_path, workspace_name, workspace_id=workspace_id, storage_config=storage_config)
     _write_json(session_path / "session.json", payload)
     _write_json(session_path / "inventory" / "file_inventory.json", {"files": files, "generated_at": _now()})
+    session_metadata_persistence = persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=str(payload.get("workspace_id") or workspace_id or ""),
+        artifact_set="session_metadata",
+        local_dir_or_files={
+            "session.json": session_path / "session.json",
+            "inventory/file_inventory.json": session_path / "inventory" / "file_inventory.json",
+        },
+        storage_config=storage_config,
+    )
+    payload.setdefault("object_storage", {})["session_metadata"] = public_artifact_persistence_summary(session_metadata_persistence)
+    _write_json(session_path / "session.json", payload)
     if workspace_id and files:
         primary_file = files[0]
         primary_uri = str(primary_file.get("object_uri") or primary_file.get("relative_path"))
@@ -388,6 +403,20 @@ async def append_ingestion_files(project_id: str, dataset_id: str, session_id: s
     }
     _write_json(session_path / "session.json", session)
     _write_json(session_path / "inventory" / "file_inventory.json", {"files": files, "generated_at": _now(), "appended_files": new_files})
+    session_metadata_persistence = persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=str(workspace_id or ""),
+        artifact_set="session_metadata",
+        local_dir_or_files={
+            "session.json": session_path / "session.json",
+            "inventory/file_inventory.json": session_path / "inventory" / "file_inventory.json",
+        },
+        storage_config=storage_config,
+    )
+    session.setdefault("object_storage", {})["session_metadata"] = public_artifact_persistence_summary(session_metadata_persistence)
+    _write_json(session_path / "session.json", session)
     if workspace_id:
         for file_metadata in new_files:
             record_artifact_object(
@@ -424,6 +453,27 @@ def list_ingestion_sessions() -> list[dict[str, Any]]:
             if session:
                 sessions.append(session)
     return sessions
+
+
+def _public_file_metadata(file_metadata: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"filename", "original_filename", "content_type", "size_bytes", "sha256", "suffix", "storage_provider"}
+    return {key: value for key, value in file_metadata.items() if key in allowed and value is not None}
+
+
+def public_ingestion_session(session: dict[str, Any]) -> dict[str, Any]:
+    public = dict(session)
+    storage = session.get("storage") if isinstance(session.get("storage"), dict) else {}
+    public["storage"] = {"provider": storage.get("provider") or "object_storage", "durable": bool(session.get("object_storage"))}
+    public["files"] = [_public_file_metadata(item) for item in session.get("files", []) if isinstance(item, dict)]
+    if "object_storage" in public:
+        public["object_storage"] = public_artifact_persistence_summary(public["object_storage"])
+    return public
+
+
+def public_file_inventory(inventory: dict[str, Any]) -> dict[str, Any]:
+    public = dict(inventory)
+    public["files"] = [_public_file_metadata(item) for item in inventory.get("files", []) if isinstance(item, dict)]
+    return public
 
 
 def get_file_inventory(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:

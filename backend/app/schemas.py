@@ -17,7 +17,7 @@ class PredictRequest(ExperimentInput):
 class IntakeFileInventoryItem(BaseModel):
     filename: str
     original_filename: str | None = None
-    relative_path: str
+    relative_path: str | None = None
     content_type: str
     size_bytes: int
     sha256: str

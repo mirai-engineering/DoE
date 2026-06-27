@@ -19,10 +19,17 @@ from .data_intake import (
     write_status,
 )
 from .domain_metadata import build_domain_metadata, infer_template_id
-from .control_plane import get_project_storage_config
 from .db import postgres_control_plane_required
+from .lifecycle_artifacts import (
+    persist_multiple_artifact_sets,
+    persist_session_artifact_set,
+    public_artifact_persistence_summary,
+    read_workspace_artifact_bytes,
+    session_artifact_prefix,
+    _resolve_storage_config,
+)
 from .project_registry import clear_registry_cache
-from .workspace_storage import upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
+from .workspace_storage import WorkspaceStorageConfig, validate_workspace_object_key
 from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract, schema_from_contract
 from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import _prepare_package_root, build_generic_preprocessing_artifacts
 
@@ -145,6 +152,89 @@ def _should_use_generic_contract(project_id: str, dataset_id: str, session_id: s
     return bool(validation.get("valid")) and validation.get("template_id") in {"generic_tabular_doe"}
 
 
+def _session_workspace_id(project_id: str, dataset_id: str, session_id: str) -> str | None:
+    try:
+        session = get_ingestion_session(project_id, dataset_id, session_id)
+    except Exception:  # noqa: BLE001 - callers handle missing artifacts separately.
+        return None
+    workspace_id = session.get("workspace_id")
+    return str(workspace_id) if workspace_id else None
+
+
+def _storage_config_for_session(project_id: str, dataset_id: str, session_id: str) -> WorkspaceStorageConfig | None:
+    workspace_id = _session_workspace_id(project_id, dataset_id, session_id)
+    if not workspace_id:
+        return None
+    try:
+        return _resolve_storage_config(workspace_id, project_id)
+    except Exception as exc:  # noqa: BLE001 - local/dev may not have object storage configured.
+        logger.debug("Object-storage config unavailable for project_id=%s session_id=%s: %s", project_id, session_id, exc)
+        return None
+
+
+def _hydrate_artifact_from_storage(project_id: str, dataset_id: str, session_id: str, artifact_set: str, name: str, destination: Path) -> bool:
+    config = _storage_config_for_session(project_id, dataset_id, session_id)
+    if config is None:
+        return False
+    try:
+        object_key = validate_workspace_object_key(config, f"{session_artifact_prefix(config, artifact_set, dataset_id, session_id)}/{name}")
+        body = read_workspace_artifact_bytes(config, object_key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(body)
+        return True
+    except Exception as exc:  # noqa: BLE001 - absence means caller may regenerate/fallback.
+        logger.debug("Artifact hydration miss for %s/%s project_id=%s session_id=%s: %s", artifact_set, name, project_id, session_id, exc)
+        return False
+
+
+def _read_json_local_or_storage(project_id: str, dataset_id: str, session_id: str, artifact_set: str, name: str, local_path: Path, default: Any = None) -> Any:
+    payload = _read_json(local_path, default=None)
+    if payload is not None:
+        return payload
+    if _hydrate_artifact_from_storage(project_id, dataset_id, session_id, artifact_set, name, local_path):
+        return _read_json(local_path, default=default)
+    return default
+
+
+def _public_preprocessing_status(status: dict[str, Any]) -> dict[str, Any]:
+    hidden = {"report_path", "canonical_dir", "training_artifact_dir"}
+    public = {key: value for key, value in status.items() if key not in hidden}
+    if "object_storage" in public:
+        public["object_storage"] = public_artifact_persistence_summary(public["object_storage"])
+    return public
+
+
+def _artifact_exists_in_storage(project_id: str, dataset_id: str, session_id: str, artifact_set: str, name: str) -> bool:
+    config = _storage_config_for_session(project_id, dataset_id, session_id)
+    if config is None:
+        return False
+    try:
+        object_key = validate_workspace_object_key(config, f"{session_artifact_prefix(config, artifact_set, dataset_id, session_id)}/{name}")
+        read_workspace_artifact_bytes(config, object_key)
+        return True
+    except Exception:  # noqa: BLE001 - absence/unconfigured both mean unavailable.
+        return False
+
+
+def _persist_current_preprocessing_artifacts(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    session = get_ingestion_session(project_id, dataset_id, session_id)
+    workspace_id = str(session.get("workspace_id") or "")
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    result = persist_multiple_artifact_sets(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=workspace_id,
+        artifact_sets={
+            "canonical": workspace["canonical"],
+            "preprocessing_artifacts": workspace["training_latest"],
+            "eda": workspace["eda"],
+            "status": workspace["status"],
+        },
+    )
+    return result
+
+
 def queue_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     current = get_preprocessing_status(project_id, dataset_id, session_id)
     if current.get("status") in {"queued", "running"}:
@@ -240,6 +330,27 @@ def start_generic_preprocessing(project_id: str, dataset_id: str, session_id: st
             "canonical_dir": str(canonical.relative_to(BACKEND_ROOT)),
             "training_artifact_dir": str(training_latest.relative_to(BACKEND_ROOT)),
         })
+        persistence = _persist_current_preprocessing_artifacts(project_id, dataset_id, session_id)
+        report["object_storage"] = public_artifact_persistence_summary(persistence)
+        _write_json(workspace["eda"] / "preprocessing_report.json", report)
+        _write_json(training_latest / "upload_preprocessing_report.json", report)
+        status = write_status(project_id, dataset_id, session_id, "preprocessing", {**status, "object_storage": public_artifact_persistence_summary(persistence)})
+        persist_session_artifact_set(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            session_id=session_id,
+            workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+            artifact_set="eda",
+            local_dir_or_files=workspace["eda"],
+        )
+        persist_session_artifact_set(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            session_id=session_id,
+            workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+            artifact_set="status",
+            local_dir_or_files=workspace["status"],
+        )
         clear_registry_cache()
         return status
     except Exception as exc:
@@ -254,6 +365,10 @@ def start_fuel_cell_preprocessing(project_id: str, dataset_id: str, session_id: 
 
 def get_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     return read_status(project_id, dataset_id, session_id, "preprocessing", default={"status": "not_started"})
+
+
+def get_public_preprocessing_status(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    return _public_preprocessing_status(get_preprocessing_status(project_id, dataset_id, session_id))
 
 
 def _schema_model_columns(schema: dict[str, Any], frame: pd.DataFrame) -> list[str]:
@@ -274,10 +389,15 @@ def ensure_ydata_html_report(project_id: str, dataset_id: str, session_id: str) 
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     model_table = workspace["canonical"] / "model_table.csv"
     if not model_table.exists():
-        raise FileNotFoundError("Canonical model_table.csv is not available yet; run preprocessing first")
+        _hydrate_artifact_from_storage(project_id, dataset_id, session_id, "canonical", "model_table.csv", model_table)
     report_path = workspace["eda"] / "ydata_profile.html"
     if report_path.exists():
         return report_path
+    if _hydrate_artifact_from_storage(project_id, dataset_id, session_id, "eda", "ydata_profile.html", report_path):
+        _hydrate_artifact_from_storage(project_id, dataset_id, session_id, "eda", "ydata_profile.json", workspace["eda"] / "ydata_profile.json")
+        return report_path
+    if not model_table.exists():
+        raise FileNotFoundError("Canonical model_table.csv is not available yet; run preprocessing first")
     try:
         from ydata_profiling import ProfileReport  # type: ignore
     except Exception as exc:  # pragma: no cover - dependency is optional in older envs.
@@ -289,6 +409,7 @@ def ensure_ydata_html_report(project_id: str, dataset_id: str, session_id: str) 
     if profile_frame.empty or not len(profile_frame.columns):
         raise ValueError("Canonical model_table.csv has no profileable input/output columns")
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path = workspace["eda"] / "ydata_profile.json"
     title = "Mirai Canonical Model-Table EDA"
     try:
         profile = ProfileReport(profile_frame, title=title, minimal=True)
@@ -301,24 +422,60 @@ def ensure_ydata_html_report(project_id: str, dataset_id: str, session_id: str) 
             raise
         profile = ProfileReport(numeric_frame, title=title, minimal=True, explorative=False)
         profile.to_file(report_path)
+    try:
+        json_path.write_text(profile.to_json(), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - HTML is the primary downloadable report.
+        logger.debug("Skipping y-data JSON persistence for project_id=%s session_id=%s: %s", project_id, session_id, exc)
+    persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+        artifact_set="eda",
+        local_dir_or_files={
+            "ydata_profile.html": report_path,
+            "ydata_profile.json": json_path,
+        },
+    )
     return report_path
+
+
+def get_ydata_html_report_file_or_bytes(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+    report_path = workspace["eda"] / "ydata_profile.html"
+    if report_path.exists():
+        return {"kind": "file", "path": report_path}
+    config = _storage_config_for_session(project_id, dataset_id, session_id)
+    if config is not None:
+        try:
+            object_key = validate_workspace_object_key(config, f"{session_artifact_prefix(config, 'eda', dataset_id, session_id)}/ydata_profile.html")
+            return {"kind": "bytes", "body": read_workspace_artifact_bytes(config, object_key)}
+        except Exception as exc:  # noqa: BLE001 - generate/hydrate fallback below.
+            logger.debug("Y-data object-storage byte read missed for project_id=%s session_id=%s: %s", project_id, session_id, exc)
+    return {"kind": "file", "path": ensure_ydata_html_report(project_id, dataset_id, session_id)}
 
 
 def get_preprocessing_eda_summary(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     status = get_preprocessing_status(project_id, dataset_id, session_id)
-    report = _read_json(workspace["eda"] / "preprocessing_report.json", default={}) or {}
-    eda = _read_json(workspace["training_latest"] / "eda_report.json", default={}) or {}
-    split = _read_json(workspace["training_latest"] / "split_report.json", default={}) or {}
-    profile = _read_json(workspace["canonical"] / "dataset_profile.json", default={}) or {}
+    report = _read_json_local_or_storage(project_id, dataset_id, session_id, "eda", "preprocessing_report.json", workspace["eda"] / "preprocessing_report.json", default={}) or {}
+    eda = _read_json_local_or_storage(project_id, dataset_id, session_id, "preprocessing_artifacts", "eda_report.json", workspace["training_latest"] / "eda_report.json", default={}) or {}
+    split = _read_json_local_or_storage(project_id, dataset_id, session_id, "preprocessing_artifacts", "split_report.json", workspace["training_latest"] / "split_report.json", default={}) or {}
+    profile = _read_json_local_or_storage(project_id, dataset_id, session_id, "canonical", "dataset_profile.json", workspace["canonical"] / "dataset_profile.json", default={}) or {}
     if not report and status.get("status") not in {"preprocessing_complete_needs_approval", "approved_for_training"}:
         raise FileNotFoundError("EDA summary is not available until preprocessing completes")
     row_counts = status.get("row_counts") or report.get("canonical_artifacts", {}).get("row_counts") or profile.get("row_counts", {})
+    public_status = _public_preprocessing_status(status)
+    object_storage_status = public_status.get("object_storage") or report.get("object_storage") or {}
+    layouts = object_storage_status.get("layouts") if isinstance(object_storage_status, dict) else []
+    uploaded_sets = {item.get("artifact_set") for item in layouts if isinstance(item, dict) and item.get("status") == "uploaded"}
+    canonical_files = [Path(str(path)).name for path in report.get("canonical_artifacts", {}).get("files", [])]
+    ydata_available = (workspace["eda"] / "ydata_profile.html").exists() or _artifact_exists_in_storage(project_id, dataset_id, session_id, "eda", "ydata_profile.html")
     return {
         "project_id": project_id,
         "dataset_id": dataset_id,
         "ingestion_session_id": session_id,
-        "status": status,
+        "status": public_status,
         "summary": {
             "cell_archive_count": report.get("extraction_summary", {}).get("cell_archive_count"),
             "extracted_file_count": report.get("extraction_summary", {}).get("extracted_file_count"),
@@ -338,14 +495,15 @@ def get_preprocessing_eda_summary(project_id: str, dataset_id: str, session_id: 
             "leakage_warnings": eda.get("leakage_warnings", []),
         },
         "artifacts": {
-            "canonical_dir": report.get("canonical_artifacts", {}).get("canonical_dir"),
-            "training_artifact_dir": report.get("canonical_artifacts", {}).get("training_artifact_dir"),
-            "ydata_html_endpoint": f"/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing/ydata-report.html",
-            "ydata_html_exists": (workspace["eda"] / "ydata_profile.html").exists(),
-            "eda_report_json": str((workspace["training_latest"] / "eda_report.json").relative_to(BACKEND_ROOT)),
-            "split_report_json": str((workspace["training_latest"] / "split_report.json").relative_to(BACKEND_ROOT)),
-            "preprocessing_report_json": str((workspace["eda"] / "preprocessing_report.json").relative_to(BACKEND_ROOT)),
-            "canonical_files": report.get("canonical_artifacts", {}).get("files", []),
+            "canonical": {"available": bool(canonical_files), "durable": "canonical" in uploaded_sets, "files": canonical_files},
+            "preprocessing": {"available": bool(eda or split), "durable": "preprocessing_artifacts" in uploaded_sets},
+            "eda": {"available": bool(report), "durable": "eda" in uploaded_sets},
+            "status": {"available": bool(status), "durable": "status" in uploaded_sets},
+            "downloads": {
+                "ydata_html": f"/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing/ydata-report.html",
+                "preprocessing_report": f"/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing-report",
+            },
+            "ydata_html_available": ydata_available,
             "plots": report.get("plots", []),
         },
         "approval": report.get("approval", {"status": "not_approved"}),
@@ -408,14 +566,62 @@ def generate_preprocessing_report(project_id: str, dataset_id: str, session_id: 
         },
     }
     _write_json(report_dir / "preprocessing_report.json", report)
+    persistence = persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+        artifact_set="eda",
+        local_dir_or_files={"preprocessing_report.json": report_dir / "preprocessing_report.json"},
+    )
+    report.setdefault("object_storage", {})["preprocessing_report"] = public_artifact_persistence_summary(persistence)
+    _write_json(report_dir / "preprocessing_report.json", report)
     return report
 
 
 def get_preprocessing_review_report(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
-    report = _read_json(workspace["eda"] / "preprocessing_report.json")
+    report = _read_json_local_or_storage(
+        project_id,
+        dataset_id,
+        session_id,
+        "eda",
+        "preprocessing_report.json",
+        workspace["eda"] / "preprocessing_report.json",
+        default=None,
+    )
     if not report:
         raise FileNotFoundError("Preprocessing report not generated yet")
+    return report
+
+
+def get_public_preprocessing_review_report(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
+    report = dict(get_preprocessing_review_report(project_id, dataset_id, session_id))
+    if "object_storage" in report:
+        report["object_storage"] = public_artifact_persistence_summary(report["object_storage"])
+    canonical_artifacts = dict(report.get("canonical_artifacts") or {})
+    if canonical_artifacts:
+        canonical_artifacts.pop("canonical_dir", None)
+        canonical_artifacts.pop("training_artifact_dir", None)
+        canonical_artifacts["files"] = [Path(str(path)).name for path in canonical_artifacts.get("files", [])]
+        report["canonical_artifacts"] = canonical_artifacts
+    preprocessing_artifacts = report.get("preprocessing_artifacts")
+    if isinstance(preprocessing_artifacts, dict):
+        report["preprocessing_artifacts"] = {
+            key: value
+            for key, value in preprocessing_artifacts.items()
+            if not key.endswith("_path") and key != "artifact_dir"
+        }
+    report["downloads"] = {
+        "ydata_html": f"/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing/ydata-report.html",
+        "preprocessing_report": f"/data-intake/projects/{project_id}/datasets/{dataset_id}/sessions/{session_id}/preprocessing-report",
+    }
+    artifacts = report.get("artifacts")
+    if isinstance(artifacts, dict):
+        report["artifacts"] = {
+            "downloads": report["downloads"],
+            "ydata_html_available": bool(artifacts.get("ydata_html")) or _artifact_exists_in_storage(project_id, dataset_id, session_id, "eda", "ydata_profile.html"),
+        }
     return report
 
 
@@ -544,43 +750,11 @@ def approve_domain_metadata(project_id: str, dataset_id: str, session_id: str, a
     return approved
 
 
-def _project_storage_config_for_preprocessing(workspace_id: str, project_id: str):
-    runtime_config = get_project_storage_config(workspace_id, project_id)
-    if runtime_config is not None:
-        return runtime_config
-    return workspace_s3_config_from_env(workspace_id, prefix=f"workspaces/{workspace_id}/projects/{project_id}")
-
-
 def _persist_preprocessing_outputs(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
-    session = get_ingestion_session(project_id, dataset_id, session_id)
-    workspace_id = str(session.get("workspace_id") or "mirai-engineering")
-    workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     try:
-        config = _project_storage_config_for_preprocessing(workspace_id, project_id)
-        uploads = []
-        for label, local_dir, suffix in [
-            ("canonical", workspace["canonical"], "canonical/latest"),
-            ("preprocessing", workspace["training_latest"], "preprocessing/latest"),
-            ("eda", workspace["eda"], "eda/latest"),
-        ]:
-            prefix = validate_workspace_object_key(config, f"{config.normalized_prefix}/{suffix}")
-            result = upload_workspace_directory_tree(
-                config,
-                local_dir,
-                prefix,
-                exclude_names={"raw_reference_extracted", "01-Data", "raw"},
-            )
-            uploads.append({"artifact_set": label, **result})
-        return {
-            "status": "uploaded",
-            "workspace_id": workspace_id,
-            "project_id": project_id,
-            "dataset_id": dataset_id,
-            "session_id": session_id,
-            "layouts": uploads,
-            "count": sum(int(item.get("count", 0)) for item in uploads),
-        }
+        return _persist_current_preprocessing_artifacts(project_id, dataset_id, session_id)
     except Exception as exc:  # noqa: BLE001 - local/dev can approve without configured S3.
+        workspace_id = _session_workspace_id(project_id, dataset_id, session_id) or ""
         logger.warning("Preprocessing artifact upload skipped/failed for workspace_id=%s project_id=%s: %s", workspace_id, project_id, exc)
         if postgres_control_plane_required():
             raise
@@ -611,7 +785,23 @@ def approve_preprocessing(project_id: str, dataset_id: str, session_id: str, app
         _write_json(schema_path, schema)
     _write_json(workspace["eda"] / "preprocessing_report.json", report)
     persistence = _persist_preprocessing_outputs(project_id, dataset_id, session_id)
-    report["object_storage"] = persistence
+    report["object_storage"] = public_artifact_persistence_summary(persistence)
     _write_json(workspace["eda"] / "preprocessing_report.json", report)
-    write_status(project_id, dataset_id, session_id, "preprocessing", {**get_preprocessing_status(project_id, dataset_id, session_id), "status": "approved_for_training", "approved_at": report["approval"]["approved_at"], "object_storage": persistence})
+    persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+        artifact_set="eda",
+        local_dir_or_files={"preprocessing_report.json": workspace["eda"] / "preprocessing_report.json"},
+    )
+    write_status(project_id, dataset_id, session_id, "preprocessing", {**get_preprocessing_status(project_id, dataset_id, session_id), "status": "approved_for_training", "approved_at": report["approval"]["approved_at"], "object_storage": public_artifact_persistence_summary(persistence)})
+    persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=_session_workspace_id(project_id, dataset_id, session_id),
+        artifact_set="status",
+        local_dir_or_files=workspace["status"],
+    )
     return report
