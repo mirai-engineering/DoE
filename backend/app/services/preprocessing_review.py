@@ -628,8 +628,17 @@ def get_public_preprocessing_review_report(project_id: str, dataset_id: str, ses
 def _schema_for_metadata(project_id: str, dataset_id: str, session_id: str) -> dict[str, Any]:
     workspace = ensure_session_workspace(project_id, dataset_id, session_id)
     schema_path = workspace["training_latest"] / "schema.json"
-    if schema_path.exists():
-        return _read_json(schema_path, default={}) or {}
+    schema = _read_json_local_or_storage(
+        project_id,
+        dataset_id,
+        session_id,
+        "preprocessing_artifacts",
+        "schema.json",
+        schema_path,
+        default=None,
+    )
+    if schema:
+        return schema
     try:
         package_root, package_inventory = _prepare_package_root(workspace["raw"], workspace["inventory"])
         _write_json(workspace["inventory"] / "package_inventory.json", package_inventory)

@@ -259,6 +259,64 @@ def test_public_preprocessing_status_and_report_scrub_paths(monkeypatch, tmp_pat
     assert public_report["canonical_artifacts"]["files"] == ["model_table.csv"]
 
 
+def test_domain_metadata_hydrates_schema_from_object_storage(monkeypatch, tmp_path):
+    from app.services import data_intake, preprocessing_review
+
+    object_root = tmp_path / "object-root"
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(object_root))
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "mirai-user-123-local")
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+    monkeypatch.setattr(preprocessing_review, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(preprocessing_review, "DATA_INTAKE_ROOT", object_root / "intake")
+
+    project_id = "project_a"
+    dataset_id = "dataset_a"
+    session_id = "ing_a"
+    workspace_id = "user_123"
+    project_dir = object_root / "workspaces" / workspace_id / "intake" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text(json.dumps({"workspace_id": workspace_id, "project_id": project_id, "display_name": "Project A"}), encoding="utf-8")
+    session_dir = project_dir / "datasets" / dataset_id / "ingestion_sessions" / session_id
+    training_latest = session_dir / "training_artifacts" / "latest"
+    training_latest.mkdir(parents=True)
+    (session_dir / "session.json").write_text(
+        json.dumps({"project_id": project_id, "project_name": "Project A", "dataset_id": dataset_id, "ingestion_session_id": session_id, "workspace_id": workspace_id}),
+        encoding="utf-8",
+    )
+    schema = {
+        "project_id": project_id,
+        "template_id": "generic_tabular_doe",
+        "inputs": [{"name": "temperature", "role": "input", "dtype": "float", "unit": "C", "min": 20, "max": 80}],
+        "outputs": [{"name": "efficiency", "role": "output", "dtype": "float", "unit": "%", "direction": "maximize"}],
+    }
+    schema_path = training_latest / "schema.json"
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+    config = WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode="local",
+        bucket="mirai-user-123-local",
+        prefix=f"workspaces/{workspace_id}/projects/{project_id}",
+    )
+    persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=workspace_id,
+        artifact_set="preprocessing_artifacts",
+        local_dir_or_files={"schema.json": schema_path},
+        storage_config=config,
+    )
+    schema_path.unlink()
+
+    status = preprocessing_review.get_domain_metadata_status(project_id, dataset_id, session_id)
+
+    assert status["approval_status"] == "needs_admin_approval"
+    assert schema_path.exists()
+    variable_names = {item["name"] for item in status["domain_metadata"]["variables"]}
+    assert {"temperature", "efficiency"}.issubset(variable_names)
+
+
 def test_ydata_report_returns_object_storage_bytes_when_local_cache_missing(monkeypatch, tmp_path):
     from app.services import data_intake, preprocessing_review
 
