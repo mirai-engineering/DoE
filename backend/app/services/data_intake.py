@@ -13,8 +13,8 @@ from fastapi import UploadFile
 
 from .control_plane import ensure_project_record, get_project_storage_config, record_artifact_object, record_uploaded_dataset
 from .db import postgres_control_plane_enabled
-from .lifecycle_artifacts import persist_session_artifact_set, public_artifact_persistence_summary
-from .workspace_storage import WorkspaceStorageConfig, local_object_storage_root, object_storage_uri, put_workspace_object, workspace_scoped_path
+from .lifecycle_artifacts import latest_manifest_key, persist_session_artifact_set, public_artifact_persistence_summary, read_workspace_artifact_bytes
+from .workspace_storage import WorkspaceStorageConfig, local_object_storage_root, object_storage_backend, object_storage_bucket, object_storage_uri, put_workspace_object, workspace_s3_config_from_env, workspace_scoped_path
 from .workspaces import ensure_workspace, workspace_id_for_name
 
 
@@ -22,6 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 OBJECT_STORE_ROOT = local_object_storage_root()
 DATA_INTAKE_ROOT = OBJECT_STORE_ROOT / "intake"
 PROJECT_METADATA_FILENAME = "project.json"
+_SAFE_PERSISTED_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def _now() -> str:
@@ -442,7 +443,80 @@ def get_ingestion_session(project_id: str, dataset_id: str, session_id: str) -> 
     return session
 
 
-def list_ingestion_sessions() -> list[dict[str, Any]]:
+def _project_storage_config(workspace_id: str, project_id: str) -> WorkspaceStorageConfig:
+    runtime_config = get_project_storage_config(workspace_id, project_id)
+    if runtime_config is not None:
+        return runtime_config
+    if object_storage_backend() == "s3":
+        return workspace_s3_config_from_env(workspace_id, prefix=f"workspaces/{workspace_id}/projects/{project_id}")
+    bucket = object_storage_bucket(required=False) or f"mirai-{workspace_id}-local"
+    return WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode="local",
+        bucket=bucket,
+        prefix=f"workspaces/{workspace_id}/projects/{project_id}",
+    )
+
+
+def _safe_persisted_identifier(value: Any) -> str | None:
+    text = str(value or "")
+    return text if _SAFE_PERSISTED_ID.fullmatch(text) else None
+
+
+def restore_latest_persisted_ingestion_session(project_id: str, workspace_id: str | None) -> dict[str, Any] | None:
+    """Restore the latest durable project session into local cache.
+
+    This is intentionally project-scoped and server-side scoped: callers provide
+    only the authenticated workspace and selected project id. Object keys are
+    derived from the resolved workspace storage config plus the latest manifest;
+    frontend-supplied keys/paths are never accepted.
+    """
+
+    if not workspace_id:
+        return None
+    project_id = _safe_persisted_identifier(project_id) or ""
+    workspace_id = _safe_persisted_identifier(workspace_id) or ""
+    if not project_id or not workspace_id:
+        return None
+    try:
+        storage_config = _project_storage_config(workspace_id, project_id)
+        latest = json.loads(read_workspace_artifact_bytes(storage_config, latest_manifest_key(storage_config)).decode("utf-8"))
+        if str(latest.get("project_id") or "") != project_id:
+            return None
+        dataset_id = _safe_persisted_identifier(latest.get("dataset_id"))
+        session_id = _safe_persisted_identifier(latest.get("session_id"))
+        if not dataset_id or not session_id:
+            return None
+        session_key = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/session.json"
+        session = json.loads(read_workspace_artifact_bytes(storage_config, session_key).decode("utf-8"))
+        if str(session.get("project_id") or "") != project_id:
+            return None
+        if str(session.get("dataset_id") or "") != dataset_id or str(session.get("ingestion_session_id") or "") != session_id:
+            return None
+        if str(session.get("workspace_id") or workspace_id) != workspace_id:
+            return None
+
+        upsert_project_metadata(
+            project_id=project_id,
+            project_name=str(session.get("project_name") or project_id),
+            workspace_name=str(session.get("workspace_name") or workspace_id),
+            ingestion_path=str(session.get("ingestion_path") or "generic_tabular_doe"),
+            workspace_id=workspace_id,
+        )
+        workspace = ensure_session_workspace(project_id, dataset_id, session_id)
+        _write_json(workspace["root"] / "session.json", session)
+        try:
+            inventory_key = f"{storage_config.normalized_prefix}/intake/{dataset_id}/{session_id}/inventory/file_inventory.json"
+            inventory = json.loads(read_workspace_artifact_bytes(storage_config, inventory_key).decode("utf-8"))
+            _write_json(workspace["inventory"] / "file_inventory.json", inventory)
+        except Exception:  # noqa: BLE001 - session restoration remains useful without inventory cache.
+            pass
+        return session
+    except Exception:  # noqa: BLE001 - absence of persisted state should behave like no sessions.
+        return None
+
+
+def list_ingestion_sessions(project_id: str | None = None, workspace_id: str | None = None, *, restore_latest: bool = True) -> list[dict[str, Any]]:
     sessions: list[dict[str, Any]] = []
     roots = [DATA_INTAKE_ROOT / "projects", *OBJECT_STORE_ROOT.glob("workspaces/*/intake/projects")]
     for root in roots:
@@ -452,6 +526,14 @@ def list_ingestion_sessions() -> list[dict[str, Any]]:
             session = _read_json(path, default=None)
             if session:
                 sessions.append(session)
+    if workspace_id:
+        sessions = [session for session in sessions if session.get("workspace_id") == workspace_id]
+    if project_id:
+        sessions = [session for session in sessions if session.get("project_id") == project_id]
+    if not sessions and project_id and restore_latest:
+        restored = restore_latest_persisted_ingestion_session(project_id, workspace_id)
+        if restored:
+            sessions = [restored]
     return sessions
 
 

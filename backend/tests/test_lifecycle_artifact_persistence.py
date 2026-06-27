@@ -94,6 +94,66 @@ def test_artifact_directory_upload_enforces_allowlist_and_skips_raw_references(m
     assert read_object_storage_bytes("mirai-user-123-demo", manifest["objects"][0]["object_key"]) == b"{}"
 
 
+def test_list_ingestion_sessions_restores_latest_persisted_session(monkeypatch, tmp_path):
+    from app.services import data_intake
+
+    object_root = tmp_path / "object-root"
+    monkeypatch.setenv("LOCAL_OBJECT_STORAGE_ROOT", str(object_root))
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "mirai-user-123-local")
+    monkeypatch.setattr(data_intake, "OBJECT_STORE_ROOT", object_root)
+    monkeypatch.setattr(data_intake, "DATA_INTAKE_ROOT", object_root / "intake")
+
+    project_id = "project_a"
+    dataset_id = "dataset_a"
+    session_id = "ing_a"
+    workspace_id = "user_123"
+    session = {
+        "project_id": project_id,
+        "project_name": "Project A",
+        "workspace_id": workspace_id,
+        "workspace_name": "User",
+        "dataset_id": dataset_id,
+        "ingestion_session_id": session_id,
+        "status": "ready_for_contract_review",
+        "approval_status": "not_ready",
+        "created_at": "now",
+        "updated_at": "now",
+        "storage": {"provider": "local"},
+        "files": [],
+    }
+    source = tmp_path / "source"
+    (source / "inventory").mkdir(parents=True)
+    (source / "session.json").write_text(json.dumps(session), encoding="utf-8")
+    (source / "inventory" / "file_inventory.json").write_text(json.dumps({"files": [], "generated_at": "now"}), encoding="utf-8")
+    config = WorkspaceStorageConfig(
+        workspace_id=workspace_id,
+        mode="local",
+        bucket="mirai-user-123-local",
+        prefix=f"workspaces/{workspace_id}/projects/{project_id}",
+    )
+    persist_session_artifact_set(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        session_id=session_id,
+        workspace_id=workspace_id,
+        artifact_set="session_metadata",
+        local_dir_or_files={
+            "session.json": source / "session.json",
+            "inventory/file_inventory.json": source / "inventory" / "file_inventory.json",
+        },
+        storage_config=config,
+    )
+
+    restored = data_intake.list_ingestion_sessions(project_id=project_id, workspace_id=workspace_id)
+
+    assert [item["ingestion_session_id"] for item in restored] == [session_id]
+    restored_path = object_root / "workspaces" / workspace_id / "intake" / "projects" / project_id / "datasets" / dataset_id / "ingestion_sessions" / session_id / "session.json"
+    assert restored_path.exists()
+    public = data_intake.public_ingestion_session(restored[0])
+    assert public["project_id"] == project_id
+    assert public["storage"]["provider"] == "local"
+
+
 def test_public_ingestion_payload_scrubs_storage_paths_and_object_pointers():
     from app.services.data_intake import public_file_inventory, public_ingestion_session
 

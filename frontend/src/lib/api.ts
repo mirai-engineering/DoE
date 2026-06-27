@@ -958,9 +958,11 @@ export async function createIngestionSession(
   }
 }
 
-export async function listIngestionSessions(): Promise<IngestionSessionResponse[]> {
+export async function listIngestionSessions(projectId?: string): Promise<IngestionSessionResponse[]> {
   try {
-    const response = await api.get<IntakeSessionsResponse>('/data-intake/sessions')
+    const response = await api.get<IntakeSessionsResponse>('/data-intake/sessions', {
+      params: projectId ? { project_id: projectId } : undefined,
+    })
     return response.data.sessions
   } catch (error) {
     throw normalizeError(error, 'Unable to list ingestion sessions')

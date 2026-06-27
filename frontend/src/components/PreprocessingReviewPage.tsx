@@ -174,14 +174,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
   async function loadSessions() {
     setError(null)
-    const next = await listIngestionSessions()
+    const next = await listIngestionSessions(schema?.project_id)
     setSessions(next)
     const latestRaw = window.localStorage.getItem('mirai.latestIngestionSession')
     const latest = latestRaw ? JSON.parse(latestRaw) as IngestionSessionResponse : null
     const preferred = latest && next.some((session) => session.ingestion_session_id === latest.ingestion_session_id)
       ? latest.ingestion_session_id
       : next[0]?.ingestion_session_id ?? ''
-    setSelectedSessionId((current) => current || preferred)
+    setSelectedSessionId((current) => next.some((session) => session.ingestion_session_id === current) ? current : preferred)
   }
 
   async function refreshSessionState(session = selectedSession) {
@@ -234,7 +234,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
   useEffect(() => {
     loadSessions().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions'))
-  }, [])
+  }, [schema?.project_id])
 
   useEffect(() => {
     if (selectedSession) refreshSessionState(selectedSession)

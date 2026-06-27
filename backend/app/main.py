@@ -362,15 +362,17 @@ def admin_provision_workspace_storage(workspace_id: str, payload: WorkspaceStora
 
 
 @app.get("/data-intake/sessions")
-def data_intake_sessions(request: Request):
+def data_intake_sessions(request: Request, project_id: str | None = None):
     try:
         if auth_required() and _membership_status(request) != "active_single_workspace":
             return {"sessions": []}
+        if project_id and not _request_can_access_project(request, project_id):
+            raise HTTPException(status_code=403, detail="Workspace access denied")
         workspace_id = _authorized_workspace_id(request)
-        sessions = list_ingestion_sessions()
-        if workspace_id:
-            sessions = [session for session in sessions if session.get("workspace_id") == workspace_id]
+        sessions = list_ingestion_sessions(project_id=project_id, workspace_id=workspace_id)
         return {"sessions": [public_ingestion_session(session) for session in sessions]}
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Data intake session listing failed")
         _raise_api_error(exc)
