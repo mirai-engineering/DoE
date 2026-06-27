@@ -11,10 +11,10 @@ import {
   loadChampionModel,
   getPreprocessingReport,
   getPreprocessingStatus,
+  getPreprocessingYdataReportBlob,
   getTrainingStatus,
   listIngestionSessions,
   listTrainingRequests,
-  preprocessingYdataReportUrl,
   startMiraiPreprocessing,
   startTrainingRequest,
   updateDomainMetadata,
@@ -368,6 +368,34 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
+  async function handleOpenYdataReport() {
+    if (!selectedSession) return
+    const popup = window.open('', '_blank')
+    if (popup) popup.opener = null
+    await runAction('open-ydata-report', async () => {
+      try {
+        const { blob } = await getPreprocessingYdataReportBlob(selectedSession)
+        const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/html' }))
+        if (popup) {
+          popup.location.href = url
+          window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
+        } else {
+          const link = document.createElement('a')
+          link.href = url
+          link.target = '_blank'
+          link.rel = 'noopener noreferrer'
+          document.body.appendChild(link)
+          link.click()
+          link.remove()
+          window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
+        }
+      } catch (reportError) {
+        popup?.close()
+        throw reportError
+      }
+    })
+  }
+
   async function handleLoadChampionModel() {
     if (!schema?.project_id) return
     await runAction('load-champion-model', async () => {
@@ -636,7 +664,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 </div>
               </div>
               <div className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-xs text-slate-600">
-                {selectedSession && <a href={preprocessingYdataReportUrl(selectedSession)} target="_blank" rel="noopener noreferrer" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20">Open HTML EDA ↗</a>}
+                {selectedSession && <button type="button" onClick={handleOpenYdataReport} disabled={busy === 'open-ydata-report'} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-50">{busy === 'open-ydata-report' ? 'Opening HTML EDA…' : 'Open HTML EDA ↗'}</button>}
                 <div className="mt-3 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
                 <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
                 <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>

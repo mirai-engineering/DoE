@@ -1024,6 +1024,20 @@ export function preprocessingYdataReportUrl(session: IngestionSessionResponse): 
   return `${API_URL}${sessionPath(session)}/preprocessing/ydata-report.html`
 }
 
+export async function getPreprocessingYdataReportBlob(session: IngestionSessionResponse): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const response = await api.get<Blob>(`${sessionPath(session)}/preprocessing/ydata-report.html`, {
+      responseType: 'blob',
+    })
+    return {
+      blob: response.data,
+      filename: filenameFromContentDisposition(response.headers['content-disposition']) ?? 'mirai_ydata_profile.html',
+    }
+  } catch (error) {
+    throw normalizeError(error, 'Unable to open HTML EDA report')
+  }
+}
+
 export async function getPreprocessingEdaSummary(session: IngestionSessionResponse): Promise<PreprocessingEdaSummary> {
   try {
     const response = await api.get<PreprocessingEdaSummary>(`${sessionPath(session)}/preprocessing/eda-summary`)
