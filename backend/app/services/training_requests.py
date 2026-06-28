@@ -759,10 +759,20 @@ def load_champion_model(
     if registered_model_name and registered_model_name != expected_name:
         raise ValueError(f"Registered model name must be {expected_name!r} for this project")
     actual_run_id = str(verified["mlflow_run_id"])
+    champion_version = str(verified.get("model_version"))
     if mlflow_run_id and mlflow_run_id != actual_run_id:
-        raise ValueError("Selected MLflow run is not the current champion alias for this project")
-    if model_version and str(model_version) != str(verified.get("model_version")):
-        raise ValueError("Selected MLflow model version is not the current champion alias for this project")
+        raise ValueError(f"Selected MLflow run is not the current champion alias for this project. Current champion run is {actual_run_id}.")
+    if model_version and str(model_version) != champion_version:
+        if mlflow_run_id and mlflow_run_id == actual_run_id:
+            logger.warning(
+                "Ignoring stale supplied MLflow model_version=%s for project_id=%s because supplied run_id matches current champion run_id=%s version=%s",
+                model_version,
+                project_id,
+                actual_run_id,
+                champion_version,
+            )
+        else:
+            raise ValueError(f"Selected MLflow model version is not the current champion alias for this project. Current champion version is {champion_version} for run {actual_run_id}.")
 
     artifact_cache = download_run_artifacts(project_id, actual_run_id, refresh=True, include_quality=True, include_predictions=True)
     # verify_champion_mlflow_model already validates the freshly resolved
