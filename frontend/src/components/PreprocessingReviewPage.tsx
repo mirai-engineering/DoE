@@ -284,7 +284,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const modelRows = numberValue(rowCounts.model_table) ?? numberValue(rowCounts['model_table.csv'])
   const preprocessingApproved = preprocessingStatus.status === 'approved_for_training' || report?.['status'] === 'approved_for_training'
   const preprocessingComplete = preprocessingStatus.status === 'preprocessing_complete_needs_approval' || preprocessingApproved
-  const metadataApproved = metadataStatus?.approval_status === 'approved'
+  const metadataApproved = metadataStatus?.approval_status === 'approved' || preprocessingComplete
   const metadataVariables = metadataDraft?.variables ?? []
   const editableVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => isEditableModelVariable(variable))
   const provenanceVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => !isEditableModelVariable(variable))
@@ -384,6 +384,9 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const projectOnlyChampionControls = Boolean(schema?.project_id && !selectedSession)
   const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
   const recommendedTrainingReady = selectedSession && preprocessingApproved && mlPreprocessingReady && !trainingRequest
+  const canExportApprovedPackage = Boolean(selectedSession && preprocessingApproved && trainingRequest)
+  const expectedMlflowExperiment = schema?.project_id || selectedSession?.project_id || '<project_id>'
+  const expectedRegisteredModel = expectedMlflowExperiment && expectedMlflowExperiment !== '<project_id>' ? `doe_surrogate_${expectedMlflowExperiment}` : 'doe_surrogate_<project_id>'
 
   async function handleExportApprovedPackage() {
     if (!selectedSession || !trainingRequest) return
@@ -792,7 +795,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 {!mlPreprocessingStarted && <button type="button" onClick={draftMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft plan'}</button>}
                 {mlPreprocessingStarted && !mlPreprocessingReady && <button type="button" onClick={applyMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply'}</button>}
                 {mlPreprocessingStarted && <button type="button" onClick={handleDownloadMLPreprocessingReport} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Human report</button>}
-                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Download CSV</button>}
+                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-700 disabled:opacity-45">Download CSV for inspection</button>}
               </div>
             </div>
             {(mlPreprocessingLog.length > 0 || mlPreprocessingNeedsApproval || mlPreprocessingReady) && (
@@ -801,8 +804,11 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               </div>
             )}
             {!!mlPreprocessingReport?.export_files?.length && (
-              <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-                {mlPreprocessingReport.export_files.map((name) => <span key={name} className="rounded-full bg-[#fbfaf5] px-3 py-1 font-semibold">{name}</span>)}
+              <div className="mt-4 space-y-2 text-xs text-slate-600">
+                <p className="font-semibold text-slate-700">Standalone artifacts are for review. Local training requires the approved training package in the Training section.</p>
+                <div className="flex flex-wrap gap-2">
+                  {mlPreprocessingReport.export_files.map((name) => <span key={name} className="rounded-full bg-[#fbfaf5] px-3 py-1 font-semibold">{name}</span>)}
+                </div>
               </div>
             )}
             <div className="mt-5 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
@@ -843,28 +849,57 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <StatusPill tone={championActive ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{championActive ? 'champion loaded' : trainingCompleted ? 'ready to load champion' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
         </div>
 
-        {trainingRequest && (
-          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            <div className="font-semibold">Training request ready</div>
-            <div className="mt-1">Preset: {trainingRequest.preset}</div>
-            <div className="mt-1">Models: {trainingRequest.model_families.join(', ')}</div>
-          </div>
-        )}
-        {selectedSession && preprocessingApproved && trainingRequest && (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">Export approved training package</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">App dev step</span></div>
-                <p className="mt-1 leading-6">Download the approved, versioned dataset package for authorized local or on-premise training. Export activity is recorded in the project audit trail.</p>
-                <p className="mt-2 font-semibold leading-6">This package leaves the managed Mirai environment. Store and handle it according to your workspace data-governance policy.</p>
-                {exportMessage && <p className="mt-2 text-emerald-800">{exportMessage}</p>}
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">1. Create training request</span><StatusPill tone={trainingRequest ? 'green' : mlPreprocessingReady ? 'amber' : 'slate'}>{trainingRequest ? 'ready' : mlPreprocessingReady ? 'available' : 'waiting'}</StatusPill></div>
+                <p className="mt-1 leading-6">Locks the approved preprocessing state to a versioned training request. This is required before downloading the full local-training package.</p>
+                {trainingRequest && <p className="mt-2 text-emerald-800">Request: <span className="font-mono">{trainingRequest.training_request_id}</span> · {trainingRequest.model_families.join(', ')}</p>}
+                {!mlPreprocessingReady && <p className="mt-2 text-slate-500">Complete ML preprocessing first so training uses <code>model_table_preprocessed.csv</code>.</p>}
               </div>
-              <button type="button" onClick={handleExportApprovedPackage} disabled={Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
-                {busy === 'export-package' ? 'Exporting...' : 'Export approved training package'}
+              <button type="button" onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} disabled={!recommendedTrainingReady || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+                {busy === 'training-request' ? 'Creating...' : trainingRequest ? 'Request created' : 'Create request'}
               </button>
             </div>
           </div>
-        )}
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Download approved training package</span><StatusPill tone={canExportApprovedPackage ? 'green' : 'slate'}>{canExportApprovedPackage ? 'ready' : 'locked'}</StatusPill></div>
+                <p className="mt-1 leading-6">Use this package for local or on-premise training while logging remotely. It includes <code>training_manifest.json</code>, schema, ML preprocessing artifacts, and the actual <code>model_table_preprocessed.csv</code>.</p>
+                <p className="mt-2 font-semibold leading-6">Do not train from the standalone CSV alone. The manifest prevents logging into the wrong MLflow experiment.</p>
+                {exportMessage && <p className="mt-2 text-emerald-800">{exportMessage}</p>}
+              </div>
+              <button type="button" onClick={handleExportApprovedPackage} disabled={!canExportApprovedPackage || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+                {busy === 'export-package' ? 'Exporting...' : 'Download package'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">3. Optional in-app training</span><StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : 'slate'}>{trainingCompleted ? 'done' : trainingRequest ? 'available' : 'waiting'}</StatusPill></div>
+                <p className="mt-1 leading-6">Run Mirai’s managed training path from the approved request. For local remote-MLflow training, download the package instead and run the local command.</p>
+              </div>
+              <button type="button" onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} disabled={!trainingRequest || trainingCompleted || Boolean(busy)} className="rounded-full border border-slate-950 bg-white px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-950 disabled:opacity-45">
+                {busy === 'training' ? 'Training...' : trainingCompleted ? 'Training complete' : 'Start in-app training'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">4. Load promoted MLflow champion</span><StatusPill tone={championActive ? 'green' : canUseProjectChampionLoader ? 'amber' : 'slate'}>{championActive ? 'active' : canUseProjectChampionLoader ? 'available' : 'waiting'}</StatusPill></div>
+                <p className="mt-1 leading-6">Expected MLflow experiment: <code>{expectedMlflowExperiment}</code>. Registered model: <code>{expectedRegisteredModel}</code>. Promote the approved version to <code>champion</code>, then load it here.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {canUseProjectChampionLoader && (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
             <div className="flex flex-wrap items-start justify-between gap-4">
