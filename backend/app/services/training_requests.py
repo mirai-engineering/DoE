@@ -18,7 +18,7 @@ from .control_plane import activate_champion_model, complete_training_run, creat
 from .data_intake import BACKEND_ROOT, get_ingestion_session, read_status, session_workspace, write_status
 from .domain_metadata import build_domain_metadata, infer_template_id
 from .db import postgres_control_plane_required
-from .ml_preprocessing import get_ml_preprocessing_status, ml_preprocessing_workspace
+from .ml_preprocessing import _hydrate_ml_file, _read_ml_json_local_or_storage, get_ml_preprocessed_table_path, get_ml_preprocessing_status, ml_preprocessing_workspace
 from .mlflow_registry import download_run_artifacts, durable_artifact_pointer_for_project, registered_model_name_for_project, tracking_uri, verify_champion_mlflow_model, verify_external_mlflow_model_version
 from .workspace_storage import put_workspace_object, upload_workspace_directory_tree, validate_workspace_object_key, workspace_s3_config_from_env
 from .preprocessing_review import get_preprocessing_review_report
@@ -389,9 +389,12 @@ def build_approved_training_package(
     training_latest = workspace["training_latest"]
     ml_status = get_ml_preprocessing_status(project_id, dataset_id, session_id)
     ml_data_dir = ml_preprocessing_workspace(project_id, dataset_id, session_id)["runs_current"] if ml_status.get("status") == "ml_preprocessing_ready_for_training" else None
-    table_path = (ml_data_dir / "model_table_preprocessed.csv") if ml_data_dir is not None else canonical / "model_table.parquet"
-    if not table_path.exists() and ml_data_dir is None:
-        table_path = canonical / "model_table.csv"
+    if ml_data_dir is not None:
+        table_path = get_ml_preprocessed_table_path(project_id, dataset_id, session_id)
+    else:
+        table_path = canonical / "model_table.parquet"
+        if not table_path.exists():
+            table_path = canonical / "model_table.csv"
     if not table_path.exists():
         raise FileNotFoundError("Approved model table is missing")
     schema_path = training_latest / "schema.json"
@@ -400,8 +403,8 @@ def build_approved_training_package(
 
     preprocessing = _read_json(training_latest / "preprocessing.json", default={}) or {}
     schema = _read_json(schema_path, default={}) or {}
-    feature_map = _read_json(ml_data_dir / "feature_map.json", default={}) if ml_data_dir is not None else {}
-    target_map = _read_json(ml_data_dir / "target_map.json", default={}) if ml_data_dir is not None else {}
+    feature_map = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, "runs/current/feature_map.json", ml_data_dir / "feature_map.json", default={}) if ml_data_dir is not None else {}
+    target_map = _read_ml_json_local_or_storage(project_id, dataset_id, session_id, "runs/current/target_map.json", ml_data_dir / "target_map.json", default={}) if ml_data_dir is not None else {}
     feature_columns = list(feature_map.get("feature_columns") or preprocessing.get("input_order") or _column_names(schema.get("inputs")))
     target_columns = list(target_map.get("target_columns") or preprocessing.get("output_order") or _column_names(schema.get("outputs")))
     manifest = {
@@ -425,7 +428,7 @@ def build_approved_training_package(
         if ml_data_dir is not None:
             for name in ("preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json"):
                 source = ml_data_dir / name
-                if source.exists():
+                if _hydrate_ml_file(project_id, dataset_id, session_id, f"runs/current/{name}", source):
                     archive.write(source, name)
         archive.writestr("training_manifest.json", json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n")
     content = buffer.getvalue()
