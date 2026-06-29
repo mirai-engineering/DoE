@@ -15,8 +15,40 @@ from .prediction import predict_rows
 from .project_registry import get_project_schema
 from .recommendation import _generate_candidates, _score_predictions
 
-def _default_inputs(schema: dict[str, Any]) -> dict[str, float]:
+def _schema_midpoint_inputs(schema: dict[str, Any]) -> dict[str, float]:
     return {item["name"]: float((float(item["min"]) + float(item["max"])) / 2.0) for item in schema.get("inputs", [])}
+
+
+def _observed_input_medians(schema: dict[str, Any], project_id: str, workspace_id: str | None = None) -> dict[str, float] | None:
+    try:
+        frame = _predictions_artifact(project_id, workspace_id)
+    except Exception:
+        return None
+    medians: dict[str, float] = {}
+    for item in schema.get("inputs", []):
+        name = item.get("name")
+        if not name or name not in frame.columns:
+            return None
+        value = pd.to_numeric(frame[str(name)], errors="coerce").median()
+        if not np.isfinite(value):
+            return None
+        minimum = float(item.get("min", -np.inf))
+        maximum = float(item.get("max", np.inf))
+        if float(value) < minimum or float(value) > maximum:
+            return None
+        medians[str(name)] = float(value)
+    return medians or None
+
+
+def _default_inputs_with_source(schema: dict[str, Any], project_id: str, workspace_id: str | None = None) -> tuple[dict[str, float], str]:
+    medians = _observed_input_medians(schema, project_id, workspace_id)
+    if medians is not None:
+        return medians, "observed_prediction_artifact_median"
+    return _schema_midpoint_inputs(schema), "schema_midpoint_fallback"
+
+
+def _default_inputs(schema: dict[str, Any]) -> dict[str, float]:
+    return _schema_midpoint_inputs(schema)
 
 
 def _project_schema(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
@@ -332,13 +364,15 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
     selected_recipe_id = next((recipe.get("id") for recipe in design_recipes if recipe.get("id") == configured_recipe_id), None)
     selected_recipe_id = selected_recipe_id or next((recipe.get("id") for recipe in design_recipes if recipe.get("recommended")), None)
     selected_recipe_id = selected_recipe_id or (design_recipes[0].get("id") if design_recipes else "")
+    default_inputs, default_inputs_source = _default_inputs_with_source(schema, project_id, workspace_id)
     return {
         "project_id": project_id,
         "workspace_id": workspace_id,
         "active_model": get_active_model_metadata(project_id, workspace_id),
         "inputs": schema.get("inputs", []),
         "outputs": schema.get("outputs", []),
-        "default_inputs": _default_inputs(schema),
+        "default_inputs": default_inputs,
+        "default_inputs_source": default_inputs_source,
         "default_objective_weights": _default_objective_weights(schema, project_id),
         "plot_recipes": design_recipes,
         "selected_plot_recipe_id": selected_recipe_id,
