@@ -121,7 +121,7 @@ export interface VariableMetadata {
   recommended_plot_roles?: string[]
 }
 
-export interface PlotRecipeAxis {
+export interface ExperimentVisualisationAxis {
   source: string
   variable?: string
   variables?: string[]
@@ -129,7 +129,7 @@ export interface PlotRecipeAxis {
   unit?: string
 }
 
-export interface PlotRecipe {
+export interface ExperimentVisualisationConfig {
   id: string
   label: string
   description?: string
@@ -137,12 +137,22 @@ export interface PlotRecipe {
   template_id?: TemplateId | string
   safe?: boolean
   recommended?: boolean
-  x?: PlotRecipeAxis
-  y?: PlotRecipeAxis
+  x?: ExperimentVisualisationAxis
+  y?: ExperimentVisualisationAxis
   series?: Array<Record<string, unknown>>
   group_by?: string | null
+  group_variable?: string | null
+  group_values?: number[]
   filters?: string[]
+  points?: number
+  x_min?: number
+  x_max?: number
 }
+
+// Compatibility alias for existing persisted/API metadata. New Design Studio code should
+// prefer ExperimentVisualisationConfig naming at component boundaries.
+export type PlotRecipeAxis = ExperimentVisualisationAxis
+export type PlotRecipe = ExperimentVisualisationConfig
 
 export interface UiConfig {
   selected_plot_recipe_id?: string

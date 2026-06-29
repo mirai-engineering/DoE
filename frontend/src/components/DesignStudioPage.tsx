@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Plot from 'react-plotly.js'
 import * as Plotly from 'plotly.js-dist-min'
-import type { DesignStudioOverlayColumn, DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, PlotRecipe, ProjectSchema } from '../lib/api'
+import type { DesignStudioOverlayColumn, DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, ExperimentVisualisationConfig, ProjectSchema } from '../lib/api'
 import { exportDesignStudioZip, findDesignStudioPareto, getDesignStudioState, predictDesignStudio, seedDesignStudioBatch } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
 import { ModelMap } from './ModelMap'
@@ -44,6 +44,7 @@ type ObjectivePreset = {
 }
 
 type DesignWorkflow = 'plot' | 'optimize' | 'compare'
+type VisualisationType = 'generic' | 'electrochemical' | 'battery_degradation' | 'energy_demand'
 type OverlayMode = 'comparable' | 'same_current_conditions' | 'custom' | 'none'
 
 function numericObjectiveWeights(weights: Record<string, string>) {
@@ -53,6 +54,7 @@ function numericObjectiveWeights(weights: Record<string, string>) {
 export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [state, setState] = useState<DesignStudioState | null>(null)
   const [inputs, setInputs] = useState<Record<string, string>>({})
+  const [visualisationFixedInputs, setVisualisationFixedInputs] = useState<Record<string, string>>({})
   const [prediction, setPrediction] = useState<DesignStudioPrediction | null>(null)
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
   const [activeWorkflow, setActiveWorkflow] = useState<DesignWorkflow>('plot')
@@ -62,7 +64,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [trainingOverlayRanges, setTrainingOverlayRanges] = useState<Record<string, { min?: string, max?: string }>>({})
   const [searchSpaceModes, setSearchSpaceModes] = useState<Record<string, 'free' | 'fixed' | 'range'>>({})
   const [searchSpaceRanges, setSearchSpaceRanges] = useState<Record<string, { min?: string, max?: string }>>({})
-  const [selectedPlotRecipeId, setSelectedPlotRecipeId] = useState('')
+  const [selectedExperimentVisualisationConfigId, setSelectedExperimentVisualisationConfigId] = useState('')
+  const [plotTitle, setPlotTitle] = useState('Predicted response')
+  const [visualisationType, setVisualisationType] = useState<VisualisationType>('generic')
   const [sweepInputName, setSweepInputName] = useState('')
   const [primaryOutputName, setPrimaryOutputName] = useState('')
   const [secondaryOutputName, setSecondaryOutputName] = useState('')
@@ -70,6 +74,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [sweepRangeMin, setSweepRangeMin] = useState('')
   const [sweepRangeMax, setSweepRangeMax] = useState('')
   const [responseAxesSwapped, setResponseAxesSwapped] = useState(false)
+  const [curveGroupInputName, setCurveGroupInputName] = useState('')
+  const [curveGroupValues, setCurveGroupValues] = useState<string[]>([])
+  const [newCurveGroupValue, setNewCurveGroupValue] = useState('')
   const [trainingOverlayGroupBy, setTrainingOverlayGroupBy] = useState('')
   const [objectiveMode, setObjectiveMode] = useState('')
   const [objectiveWeights, setObjectiveWeights] = useState<Record<string, string>>({})
@@ -81,10 +88,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [exporting, setExporting] = useState(false)
   const [exportingCurvePng, setExportingCurvePng] = useState(false)
   const [hasPendingInputChanges, setHasPendingInputChanges] = useState(false)
+  const [visualisationStale, setVisualisationStale] = useState(false)
   const responseCurvePlotRef = useRef<unknown>(null)
   const [error, setError] = useState<string | null>(null)
 
   const numericInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(inputs[input.name])])), [inputs, schema.inputs])
+  const numericVisualisationFixedInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(visualisationFixedInputs[input.name] ?? inputs[input.name])])), [inputs, schema.inputs, visualisationFixedInputs])
   const objectivePresets = useMemo<ObjectivePreset[]>(() => {
     const singleOutputPresets = schema.outputs.map((output) => {
       const weight = output.direction === 'minimize' ? -1 : 1
@@ -105,25 +114,55 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const selectedObjective = objectivePresets.find((item) => item.id === objectiveMode)
   const currentGoalLabel = selectedObjective?.label || 'Selected objective'
   const activeObjectiveCount = Object.values(selectedObjectiveWeights).filter((value) => Math.abs(value) > 1e-12).length
-  const isFuelCellResponseRecipe = (recipe?: PlotRecipe) => recipe?.kind === 'fuel_cell_polarization'
-  function recipeSweepVariable(recipe?: PlotRecipe) {
-    return isFuelCellResponseRecipe(recipe) ? (asString(asRecord(recipe?.y).variable) || schema.inputs[0]?.name) : (asString(asRecord(recipe?.x).variable) || schema.inputs[0]?.name)
+  function visualisationSweepVariable(config?: ExperimentVisualisationConfig) {
+    return asString(asRecord(config?.x).variable) || schema.inputs[0]?.name
   }
-  function recipePrimaryOutput(recipe?: PlotRecipe) {
-    const xVariables = asRecord(recipe?.x).variables
-    return isFuelCellResponseRecipe(recipe) && Array.isArray(xVariables) ? asString(xVariables[0]) || schema.outputs[0]?.name : (asString(asRecord(recipe?.y).variable) || schema.outputs[0]?.name)
+  function visualisationPrimaryOutput(config?: ExperimentVisualisationConfig) {
+    return asString(asRecord(config?.y).variable) || schema.outputs[0]?.name
+  }
+  function suggestedGroupValues(inputName: string) {
+    const input = schema.inputs.find((item) => item.name === inputName)
+    if (!input) return []
+    const current = Number(visualisationFixedInputs[input.name] ?? inputs[input.name])
+    const midpoint = Number.isFinite(current) ? current : (input.min + input.max) / 2
+    return [input.min, midpoint, input.max]
+      .filter((value, index, values) => values.findIndex((candidate) => Math.abs(candidate - value) < 1e-9) === index)
+      .map((value) => String(Number(value.toPrecision(8))))
+      .slice(0, 5)
+  }
+  function parsedGroupValues() {
+    return curveGroupValues
+      .map((value) => Number(value.trim()))
+      .filter((value, index, values) => Number.isFinite(value) && values.indexOf(value) === index)
+      .slice(0, 5)
+  }
+  function addCurveGroupValue(value = newCurveGroupValue) {
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) return
+    const normalized = String(Number(numericValue.toPrecision(8)))
+    setCurveGroupValues((current) => current.includes(normalized) || current.length >= 5 ? current : [...current, normalized])
+    setNewCurveGroupValue('')
+    setVisualisationStale(true)
+  }
+  function removeCurveGroupValue(value: string) {
+    setCurveGroupValues((current) => current.filter((item) => item !== value))
+    setVisualisationStale(true)
+  }
+  function copyCurrentInputsToVisualisation() {
+    setVisualisationFixedInputs(inputs)
+    setVisualisationStale(true)
   }
 
-  function dynamicPlotRecipe(recipeId = selectedPlotRecipeId): PlotRecipe | undefined {
-    const recipe = state?.plot_recipes?.find((item) => item.id === recipeId)
-    const xVariable = sweepInputName || recipeSweepVariable(recipe)
-    const yVariable = primaryOutputName || recipePrimaryOutput(recipe)
+  function dynamicExperimentVisualisationConfig(configId = selectedExperimentVisualisationConfigId): ExperimentVisualisationConfig | undefined {
+    const config = state?.plot_recipes?.find((item) => item.id === configId)
+    const xVariable = sweepInputName || visualisationSweepVariable(config)
+    const yVariable = primaryOutputName || visualisationPrimaryOutput(config)
     const secondary = secondaryOutputName && secondaryOutputName !== yVariable ? secondaryOutputName : ''
     if (!xVariable || !yVariable) return undefined
     return {
-      id: recipeId || `dynamic_${xVariable}_${yVariable}`,
-      label: `${schema.outputs.find((output) => output.name === yVariable)?.label ?? yVariable} vs ${schema.inputs.find((input) => input.name === xVariable)?.label ?? xVariable}`,
-      description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
+      id: configId || `dynamic_${xVariable}_${yVariable}`,
+      label: plotTitle || `${schema.outputs.find((output) => output.name === yVariable)?.label ?? yVariable} vs ${schema.inputs.find((input) => input.name === xVariable)?.label ?? xVariable}`,
+      description: 'Experiment visualisation: sweep one variable, keep fixed inputs constant, and predict selected response(s).',
       kind: 'scatter_response',
       template_id: 'generic_tabular_doe',
       safe: true,
@@ -133,16 +172,20 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       series: secondary ? [{ variable: secondary }] : [],
       filters: [],
       group_by: null,
+      group_variable: curveGroupInputName || undefined,
+      group_values: curveGroupInputName ? parsedGroupValues() : undefined,
       points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
       x_min: sweepRangeMin === '' ? undefined : Number(sweepRangeMin),
       x_max: sweepRangeMax === '' ? undefined : Number(sweepRangeMax),
-    } as PlotRecipe & { points: number }
+    } as ExperimentVisualisationConfig & { points: number }
   }
 
-  function requestPlotPayload(recipeId = selectedPlotRecipeId) {
-    const recipe = state?.plot_recipes?.find((item) => item.id === recipeId)
-    const dynamicRecipe = dynamicPlotRecipe(recipeId)
-    return dynamicRecipe ? { plot_recipe_id: recipeId || undefined, plot_recipe: dynamicRecipe } : { plot_recipe_id: recipe?.id || recipeId || undefined }
+  function experimentVisualisationPayload(configId = selectedExperimentVisualisationConfigId) {
+    const config = state?.plot_recipes?.find((item) => item.id === configId)
+    const dynamicConfig = dynamicExperimentVisualisationConfig(configId)
+    // Compatibility boundary: the backend route still accepts legacy plot_recipe
+    // fields, but the Design Studio UI sends an experiment visualisation config.
+    return dynamicConfig ? { plot_recipe_id: configId || undefined, experiment_visualisation: dynamicConfig } : { plot_recipe_id: config?.id || configId || undefined }
   }
 
   function trainingOverlayPayload() {
@@ -176,16 +219,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       }
     })
     return { fixed_inputs, constraints }
-  }
-
-  function applyRecipeDefaults(recipe?: PlotRecipe) {
-    if (!recipe) return
-    const xVariable = recipeSweepVariable(recipe) || ''
-    const yVariable = recipePrimaryOutput(recipe) || ''
-    setSweepInputName(xVariable)
-    setPrimaryOutputName(yVariable)
-    const firstSeries = Array.isArray(recipe.series) ? asString(asRecord(recipe.series[0]).variable) : ''
-    setSecondaryOutputName(firstSeries && firstSeries !== yVariable ? firstSeries : '')
   }
 
   function suggestedOverlayFilters(options: DesignStudioOverlayColumn[] | undefined, defaultInputs: Record<string, string>) {
@@ -232,32 +265,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       const payload = await getDesignStudioState(schema.project_id)
       const defaultInputs = Object.fromEntries(schema.inputs.map((input) => [input.name, String(payload.default_inputs[input.name] ?? (input.min + input.max) / 2)]))
       const numericDefaultInputs = Object.fromEntries(schema.inputs.map((input) => [input.name, Number(defaultInputs[input.name])]))
-      const defaultRecipe = payload.plot_recipes?.find((recipe) => recipe.id === payload.selected_plot_recipe_id) || payload.plot_recipes?.find((recipe) => recipe.recommended) || payload.plot_recipes?.[0]
-      const defaultPlotRecipeId = defaultRecipe?.id || ''
-      const defaultSweep = recipeSweepVariable(defaultRecipe) || schema.inputs[0]?.name || ''
-      const defaultOutput = recipePrimaryOutput(defaultRecipe) || schema.outputs[0]?.name || ''
-      const defaultDynamicRecipe = !defaultSweep || !defaultOutput
-        ? undefined
-        : {
-            id: defaultPlotRecipeId || `dynamic_${defaultSweep}_${defaultOutput}`,
-            label: `${schema.outputs.find((output) => output.name === defaultOutput)?.label ?? defaultOutput} vs ${schema.inputs.find((input) => input.name === defaultSweep)?.label ?? defaultSweep}`,
-            description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
-            kind: 'scatter_response',
-            template_id: 'generic_tabular_doe',
-            safe: true,
-            recommended: true,
-            x: { source: 'input', variable: defaultSweep },
-            y: { source: 'prediction', variable: defaultOutput },
-            series: [],
-            filters: [],
-            group_by: null,
-            points: 60,
-          }
+      const defaultVisualisationConfig = payload.plot_recipes?.find((item) => item.id === payload.selected_plot_recipe_id) || payload.plot_recipes?.find((item) => item.recommended) || payload.plot_recipes?.[0]
+      const defaultExperimentVisualisationConfigId = defaultVisualisationConfig?.id || ''
+      const defaultSweep = visualisationSweepVariable(defaultVisualisationConfig) || schema.inputs[0]?.name || ''
+      const defaultOutput = visualisationPrimaryOutput(defaultVisualisationConfig) || schema.outputs[0]?.name || ''
       const initialOverlayFilters = suggestedOverlayFilters(payload.training_overlay_options?.columns, defaultInputs)
       setState(payload)
       setTrainingOverlayFilters(initialOverlayFilters)
       setInputs(defaultInputs)
-      setSelectedPlotRecipeId(defaultPlotRecipeId)
+      setVisualisationFixedInputs(defaultInputs)
+      setSelectedExperimentVisualisationConfigId(defaultExperimentVisualisationConfigId)
+      setPlotTitle(defaultVisualisationConfig?.label || 'Predicted response')
       setSweepInputName(defaultSweep)
       setSweepRangeMin('')
       setSweepRangeMax('')
@@ -265,8 +283,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       setSecondaryOutputName('')
       setSearchSpaceModes(Object.fromEntries(schema.inputs.map((input) => [input.name, 'free'])))
       setSearchSpaceRanges(Object.fromEntries(schema.inputs.map((input) => [input.name, { min: String(input.min), max: String(input.max) }])))
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, training_overlay_enabled: true, training_overlay_filters: Object.keys(initialOverlayFilters).length ? initialOverlayFilters : undefined, plot_recipe_id: defaultPlotRecipeId || undefined, ...(defaultDynamicRecipe ? { plot_recipe: defaultDynamicRecipe } : {}) }))
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericDefaultInputs, experiment_visualisation_enabled: false }))
       setHasPendingInputChanges(false)
+      setVisualisationStale(false)
       const defaultObjectiveName = Object.keys(payload.default_objective_weights ?? {})[0]
       setObjectiveMode(defaultObjectiveName ? `single:${defaultObjectiveName}` : 'custom')
       setObjectiveWeights(Object.fromEntries(schema.outputs.map((output) => [output.name, String(payload.default_objective_weights[output.name] ?? 0)])))
@@ -277,11 +296,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     }
   }
 
-  async function runPrediction(nextInputs = numericInputs, plotRecipeId = selectedPlotRecipeId) {
+  async function runPrediction(nextInputs = numericInputs) {
     setPredicting(true)
     setError(null)
     try {
-      setPrediction(await predictDesignStudio(schema.project_id, { inputs: nextInputs, ...trainingOverlayPayload(), ...requestPlotPayload(plotRecipeId) }))
+      const result = await predictDesignStudio(schema.project_id, { inputs: nextInputs, experiment_visualisation_enabled: false })
+      setPrediction((current) => ({ ...result, curve: current?.curve ?? result.curve, training_overlay: current?.training_overlay ?? result.training_overlay }))
       setHasPendingInputChanges(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to predict design')
@@ -290,44 +310,24 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     }
   }
 
-  async function choosePlotRecipe(plotRecipeId: string) {
-    const recipe = state?.plot_recipes?.find((item) => item.id === plotRecipeId)
-    const nextSweep = recipeSweepVariable(recipe) || sweepInputName
-    const nextOutput = recipePrimaryOutput(recipe) || primaryOutputName
-    const nextDynamicRecipe = nextSweep && nextOutput ? {
-      id: plotRecipeId || `dynamic_${nextSweep}_${nextOutput}`,
-      label: `${schema.outputs.find((output) => output.name === nextOutput)?.label ?? nextOutput} vs ${schema.inputs.find((input) => input.name === nextSweep)?.label ?? nextSweep}`,
-      description: 'Generic response sweep: hold the current design fixed, vary one input, and predict selected output(s).',
-      kind: 'scatter_response',
-      template_id: 'generic_tabular_doe',
-      safe: true,
-      recommended: true,
-      x: { source: 'input', variable: nextSweep },
-      y: { source: 'prediction', variable: nextOutput },
-      series: [],
-      filters: [],
-      group_by: null,
-      points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
-    } : undefined
-    setSelectedPlotRecipeId(plotRecipeId)
-    applyRecipeDefaults(recipe)
-    if (state && prediction) {
-      setPredicting(true)
-      setError(null)
-      try {
-        setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericInputs, ...trainingOverlayPayload(), plot_recipe_id: plotRecipeId || undefined, ...(nextDynamicRecipe ? { plot_recipe: nextDynamicRecipe } : {}) }))
-        setHasPendingInputChanges(false)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to predict design')
-      } finally {
-        setPredicting(false)
-      }
+  async function runVisualisation(configId = selectedExperimentVisualisationConfigId) {
+    setPredicting(true)
+    setError(null)
+    try {
+      setPrediction(await predictDesignStudio(schema.project_id, { inputs: numericVisualisationFixedInputs, experiment_visualisation_enabled: true, ...trainingOverlayPayload(), ...experimentVisualisationPayload(configId) }))
+      setHasPendingInputChanges(false)
+      setVisualisationStale(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to generate visualisation')
+    } finally {
+      setPredicting(false)
     }
   }
 
   function updateInput(name: string, value: string) {
     setInputs((current) => ({ ...current, [name]: value }))
     setHasPendingInputChanges(true)
+    setVisualisationStale(true)
   }
 
   async function seedFromBatch() {
@@ -339,11 +339,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         n_candidates: 3000,
         ...trainingOverlayPayload(),
         ...searchSpacePayload(),
-        ...requestPlotPayload(),
+        ...experimentVisualisationPayload(),
       })
       setPrediction(seeded)
       setInputs(Object.fromEntries(schema.inputs.map((input) => [input.name, String(seeded.inputs[input.name] ?? inputs[input.name] ?? '')])))
       setHasPendingInputChanges(false)
+      setVisualisationStale(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to seed from batch search')
     } finally {
@@ -373,7 +374,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         max_results: 12,
         ...trainingOverlayPayload(),
         ...searchSpacePayload(),
-        ...requestPlotPayload(),
+        ...experimentVisualisationPayload(),
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to find Pareto tradeoffs')
@@ -384,6 +385,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
   async function loadParetoCandidate(candidate: DesignStudioParetoCandidate) {
     setInputs(Object.fromEntries(schema.inputs.map((input) => [input.name, String(candidate.inputs[input.name] ?? inputs[input.name] ?? '')])))
+    setVisualisationStale(true)
     await runPrediction(candidate.inputs)
   }
 
@@ -396,7 +398,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         ...trainingOverlayPayload(),
         ...searchSpacePayload(),
         comparison_candidate: savedComparison?.inputs,
-        ...requestPlotPayload(),
+        ...experimentVisualisationPayload(),
       })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -424,7 +426,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         scale: 2,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to export response curve PNG')
+      setError(err instanceof Error ? err.message : 'Unable to export experiment visualisation PNG')
     } finally {
       setExportingCurvePng(false)
     }
@@ -435,9 +437,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema.project_id])
 
-  const plotRecipes = state?.plot_recipes ?? []
-  const selectedPlotRecipe = plotRecipes.find((recipe) => recipe.id === selectedPlotRecipeId) ?? plotRecipes.find((recipe) => recipe.recommended) ?? plotRecipes[0]
-  const curveRecipe = asRecord(prediction?.curve?.recipe) as PlotRecipe | Record<string, unknown>
+  const visualisationConfigs = state?.plot_recipes ?? []
+  const selectedExperimentVisualisationConfig = visualisationConfigs.find((item) => item.id === selectedExperimentVisualisationConfigId) ?? visualisationConfigs.find((item) => item.recommended) ?? visualisationConfigs[0]
+  const curveVisualisationConfig = asRecord(prediction?.curve?.recipe) as ExperimentVisualisationConfig | Record<string, unknown>
   const curveRows = asRecord(prediction?.curve).rows as Array<Record<string, unknown>> | undefined ?? []
   const trainingOverlayRows = asRecord(prediction?.training_overlay).rows as Array<Record<string, unknown>> | undefined ?? []
   const trainingOverlay = asRecord(prediction?.training_overlay)
@@ -468,11 +470,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const cacheStatus = asRecord(traceability.cache_status)
   const defaultObjectiveName = Object.keys(state?.default_objective_weights ?? {})[0]
   const emphasizedOutputs = new Set(Object.entries(selectedObjectiveWeights).filter(([, value]) => Math.abs(value) > 1e-12).map(([name]) => name))
-  const curveXAxisVariable = asString(asRecord(asRecord(curveRecipe).x).variable) || asString(asRecord(selectedPlotRecipe?.x).variable)
-  const curveYAxisVariable = asString(asRecord(asRecord(curveRecipe).y).variable) || asString(asRecord(selectedPlotRecipe?.y).variable)
+  const curveXAxisVariable = asString(asRecord(asRecord(curveVisualisationConfig).x).variable) || asString(asRecord(selectedExperimentVisualisationConfig?.x).variable)
+  const curveYAxisVariable = asString(asRecord(asRecord(curveVisualisationConfig).y).variable) || asString(asRecord(selectedExperimentVisualisationConfig?.y).variable)
   const curveXAxisMeta = schema.inputs.find((input) => input.name === curveXAxisVariable) ?? schema.outputs.find((output) => output.name === curveXAxisVariable)
   const curveYAxisMeta = schema.outputs.find((output) => output.name === curveYAxisVariable) ?? schema.inputs.find((input) => input.name === curveYAxisVariable)
-  const curveYVariables = (Array.isArray(asRecord(curveRecipe).y_variables) ? asRecord(curveRecipe).y_variables as unknown[] : [])
+  const curveYVariables = (Array.isArray(asRecord(curveVisualisationConfig).y_variables) ? asRecord(curveVisualisationConfig).y_variables as unknown[] : [])
     .map((value) => asString(value))
     .filter(Boolean)
   const fallbackYVariables = [curveYAxisVariable, secondaryOutputName].filter((value, index, values) => value && values.indexOf(value) === index)
@@ -483,15 +485,25 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     ? `${genericOutputMetas[0]?.label ?? genericCurveYVariables[0]}${genericOutputMetas[0]?.unit ? ` / ${genericOutputMetas[0].unit}` : ''}`
     : `Selected predicted output${genericOutputUnits.length === 1 ? ` / ${genericOutputUnits[0]}` : ''}`
   const genericSwappedYAxisTitle = `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}`
+  const predictedGroupVariable = asString(asRecord(curveVisualisationConfig).group_variable)
+  const predictedGroupMeta = schema.inputs.find((input) => input.name === predictedGroupVariable)
+  const predictedGroupValues = predictedGroupVariable
+    ? Array.from(new Set(curveRows.map((row) => asNumber(row.__group_value)).filter((value): value is number => value !== undefined)))
+    : []
+  const predictedTraceGroups = predictedGroupValues.length ? predictedGroupValues : [undefined]
   const responseCurveData = asPlotData([
-        ...genericCurveYVariables.map((variable, index) => ({
-          name: `Predicted ${schema.outputs.find((output) => output.name === variable)?.label || variable}`,
-          x: curveRows.map((row) => asNumber(row[responseAxesSwapped ? variable : curveXAxisVariable])),
-          y: curveRows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : variable])),
+        ...genericCurveYVariables.flatMap((variable, index) => predictedTraceGroups.map((groupValue, groupIndex) => {
+          const rows = groupValue === undefined ? curveRows : curveRows.filter((row) => asNumber(row.__group_value) === groupValue)
+          return {
+          name: groupValue === undefined
+            ? `Predicted ${schema.outputs.find((output) => output.name === variable)?.label || variable}`
+            : `Predicted ${schema.outputs.find((output) => output.name === variable)?.label || variable} · ${predictedGroupMeta?.label ?? predictedGroupVariable} ${formatNumber(groupValue)}${predictedGroupMeta?.unit ? ` ${predictedGroupMeta.unit}` : ''}`,
+          x: rows.map((row) => asNumber(row[responseAxesSwapped ? variable : curveXAxisVariable])),
+          y: rows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : variable])),
           type: 'scatter',
           mode: 'lines+markers',
-          line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed'][index % 4], width: 3 },
-        })),
+          line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed', '#0891b2', '#ea580c'][((index + groupIndex) % 6)], width: 3 },
+        }})),
         ...genericCurveYVariables
           .filter((variable) => overlayVisible && trainingOverlayRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
           .flatMap((variable, index) => {
@@ -517,9 +529,18 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         paper_bgcolor: '#ffffff',
         plot_bgcolor: '#ffffff',
         height: 470,
+        title: { text: plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response' },
         xaxis: { title: { text: responseAxesSwapped ? genericSwappedXAxisTitle : `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false },
         yaxis: { title: { text: responseAxesSwapped ? genericSwappedYAxisTitle : `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false },
       })
+  const sweepMeta = schema.inputs.find((input) => input.name === sweepInputName)
+  const visualisationFixedConditionLabels = schema.inputs
+    .filter((input) => input.name !== sweepInputName && input.name !== curveGroupInputName)
+    .map((input) => `${input.label} = ${formatNumber(Number(visualisationFixedInputs[input.name] ?? inputs[input.name]))}${input.unit ? ` ${input.unit}` : ''}`)
+  const visualisationGroupLabels = curveGroupInputName
+    ? curveGroupValues.map((value) => `${schema.inputs.find((input) => input.name === curveGroupInputName)?.label ?? curveGroupInputName} = ${value}${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit ? ` ${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit}` : ''}`)
+    : []
+  const sweepRangeLabel = `${sweepMeta?.label ?? sweepInputName}: ${sweepRangeMin || formatNumber(sweepMeta?.min)} to ${sweepRangeMax || formatNumber(sweepMeta?.max)}${sweepMeta?.unit ? ` ${sweepMeta.unit}` : ''}, ${Math.max(10, Math.min(200, Number(sweepPointCount) || 60))} points`
 
   return (
     <div className="space-y-8">
@@ -562,7 +583,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
         <div className="grid gap-2 md:grid-cols-3">
           {[
-            ['plot', 'Plot curve', 'Predicted response + measured training overlay'],
+            ['plot', 'Experiment visualisation', 'Sweep a variable, hold fixed inputs, overlay training data'],
             ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
             ['compare', 'Compare/export', 'Save baselines and package outputs'],
           ].map(([id, label, description]) => (
@@ -579,60 +600,87 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </nav>
 
-      {activeWorkflow === 'plot' && plotRecipes.length > 0 && (
+      {activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
         <section className="rounded-[1.5rem] border border-[#d8c99b]/50 bg-[#fffdf7] p-4 shadow-sm">
-          <div className="grid gap-4 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)] lg:items-start">
+          <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(16rem,0.7fr)_minmax(0,1.1fr)] lg:items-start">
             <label className="min-w-0 text-sm font-semibold text-slate-700">
-              Curve recipe
-              <select value={selectedPlotRecipeId} onChange={(event) => choosePlotRecipe(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                {plotRecipes.filter((recipe) => recipe.safe !== false).map((recipe) => (
-                  <option key={recipe.id} value={recipe.id}>{recipe.recommended ? 'Recommended · ' : ''}{recipe.label}</option>
-                ))}
+              Visualisation type
+              <select value={visualisationType} onChange={(event) => setVisualisationType(event.target.value as VisualisationType)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                <option value="generic">Generic experiment visualisation</option>
+                <option value="electrochemical">Electrochemical device visualisation — feature not available yet</option>
+                <option value="battery_degradation">Battery degradation visualisation — feature not available yet</option>
+                <option value="energy_demand">Energy demand visualisation — feature not available yet</option>
+              </select>
+            </label>
+            <label className="min-w-0 text-sm font-semibold text-slate-700">
+              Starting setup
+              <select
+                value={selectedExperimentVisualisationConfigId}
+                onChange={(event) => {
+                  const nextId = event.target.value
+                  const next = visualisationConfigs.find((item) => item.id === nextId)
+                  setSelectedExperimentVisualisationConfigId(nextId)
+                  setSweepInputName(visualisationSweepVariable(next) || sweepInputName)
+                  setPrimaryOutputName(visualisationPrimaryOutput(next) || primaryOutputName)
+                  setSecondaryOutputName(Array.isArray(next?.series) ? asString(asRecord(next.series[0]).variable) : '')
+                  setPlotTitle(next?.label || 'Predicted response')
+                }}
+                className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                {visualisationConfigs.filter((item) => item.safe !== false).map((item) => <option key={item.id} value={item.id}>{item.recommended ? 'Recommended · ' : ''}{item.label}</option>)}
               </select>
             </label>
             <div className="min-w-0 rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
-              <strong className="text-slate-900">Current curve setup:</strong> {selectedPlotRecipe?.description || 'Mirai inferred this safe plot from approved project metadata.'}
+              {visualisationType === 'generic' ? (
+                <><strong className="text-slate-900">Current visualisation setup:</strong> {selectedExperimentVisualisationConfig?.description || 'Sweep one variable while holding fixed inputs constant, then plot predicted response points.'}</>
+              ) : (
+                <><strong className="text-slate-900">Feature not available yet.</strong> This placeholder shows where future field-level visualisation presets can be added without hardcoding domain logic into the generic workflow.</>
+              )}
             </div>
           </div>
           <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold text-slate-950">Curve plot</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose the variable to sweep, select predicted response(s), and compare the champion-model curve with measured training data that match the current design context.</p>
+                  <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose the sweep variable, fixed inputs, predicted response(s), and optional fixed-parameter curves to generate multiple predictions.</p>
                 </div>
                 <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
-                  Sweep input
-                  <select value={sweepInputName} onChange={(event) => setSweepInputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  Plot title
+                  <input value={plotTitle} onChange={(event) => setPlotTitle(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                </label>
+                <label className="min-w-0 text-sm font-semibold text-slate-700">
+                  Sweep variable
+                  <select value={sweepInputName} onChange={(event) => { const value = event.target.value; setSweepInputName(value); if (curveGroupInputName === value) { setCurveGroupInputName(''); setCurveGroupValues([]) } setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Predicted response
-                  <select value={primaryOutputName} onChange={(event) => setPrimaryOutputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={primaryOutputName} onChange={(event) => { setPrimaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
-                  Optional second output
-                  <select value={secondaryOutputName} onChange={(event) => setSecondaryOutputName(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  Optional second response
+                  <select value={secondaryOutputName} onChange={(event) => { setSecondaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="">None</option>
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Range min
-                  <input type="number" value={sweepRangeMin} onChange={(event) => setSweepRangeMin(event.target.value)} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.min ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <input type="number" value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.min ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Range max
-                  <input type="number" value={sweepRangeMax} onChange={(event) => setSweepRangeMax(event.target.value)} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.max ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <input type="number" value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.max ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Points
-                  <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => setSweepPointCount(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => { setSweepPointCount(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="rounded-2xl border border-slate-200 bg-[#fbfaf5] px-3 py-2 text-sm font-semibold text-slate-700">
                   Axis orientation
@@ -642,11 +690,95 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
+              <div className="mt-5 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">These values are used only for the multi-point visualisation. They do not change the single-result sliders above.</p>
+                  </div>
+                  <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#526949]/40">
+                    Copy current inputs into visualisation
+                  </button>
+                </div>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2">Input</th>
+                        <th className="px-3 py-2">Visualisation value</th>
+                        <th className="px-3 py-2">Schema range</th>
+                        <th className="px-3 py-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => {
+                        const grouped = curveGroupInputName === input.name
+                        return (
+                          <tr key={input.name} className="align-middle">
+                            <td className="px-3 py-3 font-semibold text-slate-800">{input.label}{input.unit ? <span className="ml-1 text-xs font-medium text-slate-400">/ {input.unit}</span> : null}</td>
+                            <td className="px-3 py-3">
+                              <input
+                                type="number"
+                                min={input.min}
+                                max={input.max}
+                                step={(input.max - input.min) / 200}
+                                value={visualisationFixedInputs[input.name] ?? inputs[input.name] ?? ''}
+                                onChange={(event) => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: event.target.value })); setVisualisationStale(true) }}
+                                disabled={grouped}
+                                className="w-36 rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm font-semibold text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                              />
+                              {grouped && <div className="mt-1 text-xs text-slate-500">Controlled by curve group values</div>}
+                            </td>
+                            <td className="px-3 py-3 text-slate-500">{formatNumber(input.min)} to {formatNumber(input.max)}</td>
+                            <td className="px-3 py-3">
+                              <button type="button" onClick={() => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: inputs[input.name] ?? '' })); setVisualisationStale(true) }} disabled={grouped} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 disabled:opacity-50">
+                                Copy slider value
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(12rem,0.4fr)_minmax(12rem,0.45fr)_auto] lg:items-end">
+                  <label className="min-w-0 text-sm font-semibold text-slate-700">
+                    Curve grouping parameter
+                    <select value={curveGroupInputName} onChange={(event) => { const value = event.target.value; setCurveGroupInputName(value); setCurveGroupValues(value ? suggestedGroupValues(value) : []); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <option value="">No grouped predicted curves</option>
+                      {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
+                    </select>
+                  </label>
+                  <label className="min-w-0 text-sm font-semibold text-slate-700">
+                    Add group value
+                    <div className="mt-2 flex gap-2">
+                      <input value={newCurveGroupValue} onChange={(event) => setNewCurveGroupValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCurveGroupValue() } }} disabled={!curveGroupInputName || curveGroupValues.length >= 5} type="number" placeholder="Numeric value" className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100" />
+                      <button type="button" onClick={() => addCurveGroupValue()} disabled={!curveGroupInputName || curveGroupValues.length >= 5} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Add</button>
+                    </div>
+                  </label>
+                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic'} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
+                    {predicting ? 'Generating...' : 'Generate visualisation'}
+                  </button>
+                </div>
+                {curveGroupInputName && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {curveGroupValues.map((value) => (
+                      <span key={value} className="inline-flex items-center gap-2 rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {schema.inputs.find((input) => input.name === curveGroupInputName)?.label ?? curveGroupInputName} = {value}{schema.inputs.find((input) => input.name === curveGroupInputName)?.unit ? ` ${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit}` : ''}
+                        <button type="button" onClick={() => removeCurveGroupValue(value)} className="text-slate-400 hover:text-slate-700" aria-label={`Remove group value ${value}`}>×</button>
+                      </span>
+                    ))}
+                    {curveGroupValues.length === 0 && <span className="text-sm text-amber-700">Add at least one group value to draw grouped curves.</span>}
+                  </div>
+                )}
+              </div>
               <div className="mt-4 rounded-3xl border border-emerald-100 bg-emerald-50/80 p-4 shadow-sm shadow-emerald-950/5">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-emerald-950">Measured training overlay</h3>
-                    <p className="mt-1 max-w-5xl text-sm leading-6 text-emerald-900">Compare this curve with measured training rows from the loaded champion artifact. Matching stays contract-driven from schema roles and available prediction columns.</p>
+                    <p className="mt-1 max-w-5xl text-sm leading-6 text-emerald-900">Compare this visualisation with measured training rows from the loaded champion artifact. Matching stays contract-driven from schema roles and available prediction columns.</p>
                   </div>
                   <span className="w-fit whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 ring-1 ring-emerald-100">
                     {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
@@ -752,7 +884,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
               {hasPendingInputChanges && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions and the response plot below.
+                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions, or <strong>Generate visualisation</strong> to refresh the multi-point plot.
                 </div>
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
@@ -941,7 +1073,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </section>}
 
             {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
-              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the response plot settings." />
+              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the experiment visualisation settings." />
               <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                   Save current as comparison
@@ -955,7 +1087,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
           {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <PanelHeader eyebrow="Predicted behavior" title={selectedPlotRecipe?.label || 'Predicted response plot'} description={selectedPlotRecipe?.description || 'Mirai selected a safe project-specific response plot from approved intake metadata.'} />
+              <PanelHeader eyebrow="Experiment visualisation" title={plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response'} description={selectedExperimentVisualisationConfig?.description || 'Sweep one variable, keep fixed inputs constant, and plot predicted response points.'} />
               <button
                 type="button"
                 onClick={exportResponseCurvePng}
@@ -967,12 +1099,19 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </div>
             {!curveRows.length && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                No response curve is available yet. Click <strong>Generate result</strong> to evaluate the current inputs, or <strong>Find best starting design</strong> to let the model choose a candidate.
+                No experiment visualisation is available yet. Click <strong>Generate visualisation</strong> to sweep the selected variable, or <strong>Find best starting design</strong> to let the model choose a candidate.
               </div>
             )}
-            {curveRows.length > 0 && hasPendingInputChanges && (
+            {curveRows.length > 0 && visualisationStale && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                Inputs have changed since this plot was generated. Click <strong>Generate result</strong> to refresh the predicted KPIs and selected response plot.
+                Inputs have changed since this plot was generated. Click <strong>Generate visualisation</strong> to refresh the multi-point plot, or <strong>Generate result</strong> to refresh only the KPI cards.
+              </div>
+            )}
+            {curveRows.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm leading-6 text-slate-600">
+                <div><strong className="text-slate-900">Sweep:</strong> {sweepRangeLabel}</div>
+                <div><strong className="text-slate-900">Fixed conditions:</strong> {visualisationFixedConditionLabels.length ? visualisationFixedConditionLabels.join(' · ') : 'Only the swept variable is varied.'}</div>
+                {visualisationGroupLabels.length > 0 && <div><strong className="text-slate-900">Grouped curves:</strong> {visualisationGroupLabels.join(' · ')}</div>}
               </div>
             )}
             <Plot
@@ -994,10 +1133,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <PanelHeader
                 eyebrow="Find alternatives"
                 title="Tradeoff candidates"
-                description="Optional starting points. Load one to update the sliders and evaluate it in the dynamic response curve above."
+                description="Optional starting points. Load one to update the sliders and evaluate it in the dynamic experiment visualisation above."
               />
               <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-                These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Load one, then judge it primarily in the response curve above. Lower raw values are better for minimized objectives.
+                These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Load one, then judge it primarily in the experiment visualisation above. Lower raw values are better for minimized objectives.
               </div>
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
