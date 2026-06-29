@@ -35,6 +35,26 @@ def test_design_curve_rows_ignores_non_response_recommended_recipes(monkeypatch)
     assert set(curve["rows"][0]) == {"x1", "y1"}
 
 
+def test_predict_design_can_skip_experiment_visualisation(monkeypatch):
+    schema = {
+        "inputs": [{"name": "x1", "type": "continuous", "min": 0, "max": 1, "unit": ""}],
+        "outputs": [{"name": "y1", "direction": "maximize", "unit": ""}],
+        "domain_metadata": {"ui_config": {"plot_recipes": [{"id": "response_x1_y1", "kind": "scatter_response", "recommended": True, "enabled": True, "x": {"variable": "x1"}, "y": {"variable": "y1"}}]}},
+    }
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+        return [{"y1": row["x1"] * 2} for row in rows], [], "model_v1"
+
+    monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+
+    result = design_studio.predict_design("generic_project", {"inputs": {"x1": 0.25}, "experiment_visualisation_enabled": False})
+
+    assert result["predictions_at_selected_point"] == {"y1": 0.5}
+    assert result["curve"] is None
+    assert result["training_overlay"] is None
+
+
 def test_design_predictions_artifact_uses_lazy_prediction_path(monkeypatch, tmp_path: Path):
     prediction_path = tmp_path / "predictions.csv"
     pd.DataFrame([{"project_id": "p", "model_name": "m", "y1_true": 1.0, "y1_pred": 1.1}]).to_csv(prediction_path, index=False)
@@ -122,25 +142,97 @@ def test_training_overlay_range_filter_empty_state(monkeypatch, tmp_path: Path):
     assert overlay["rows"] == []
 
 
-def test_fuel_cell_recipe_is_adapted_to_generic_scatter_response(monkeypatch):
+def test_experiment_visualisation_grouped_sweep_is_generic(monkeypatch):
     schema = {
-        "inputs": [{"name": "voltage", "min": 0.6, "max": 0.9}],
-        "outputs": [{"name": "current", "direction": "maximize"}],
-        "domain_metadata": {"ui_config": {"plot_recipes": [{"id": "legacy", "kind": "fuel_cell_polarization", "enabled": True, "x": {"variables": ["current"]}, "y": {"variable": "voltage"}}]}},
+        "inputs": [
+            {"name": "x1", "min": 0, "max": 1},
+            {"name": "condition", "min": 10, "max": 30},
+        ],
+        "outputs": [{"name": "y1", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": [{"id": "generic", "kind": "scatter_response", "enabled": True, "x": {"variable": "x1"}, "y": {"variable": "y1"}}]}},
     }
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
-    monkeypatch.setattr(design_studio, "_plot_recipes", lambda project_id, schema, workspace_id=None: schema["domain_metadata"]["ui_config"]["plot_recipes"])
 
     def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
-        return [{"current": row["voltage"] * 10} for row in rows], [], "model_v1"
+        return [{"y1": row["x1"] + row["condition"]} for row in rows], [], "model_v1"
 
     monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+    plot = {
+        "id": "dynamic",
+        "kind": "scatter_response",
+        "x": {"variable": "x1"},
+        "y": {"variable": "y1"},
+        "group_variable": "condition",
+        "group_values": [10, 20],
+        "points": 10,
+    }
 
-    curve, warnings, model_version = design_studio._curve_rows("p", {"voltage": 0.7}, plot_recipe_id="legacy")
+    curve, warnings, model_version = design_studio._curve_rows("p", {"x1": 0.5, "condition": 15}, plot_recipe=plot)
 
     assert warnings == []
     assert model_version == "model_v1"
-    assert curve["recipe"]["kind"] == "scatter_response"
-    assert curve["recipe"]["x"]["variable"] == "voltage"
-    assert curve["recipe"]["y"]["variable"] == "current"
-    assert set(curve["rows"][0]) == {"voltage", "current"}
+    assert curve["recipe"]["group_variable"] == "condition"
+    assert curve["recipe"]["group_values"] == [10.0, 20.0]
+    assert len(curve["rows"]) == 20
+    assert {row["__group_value"] for row in curve["rows"]} == {10.0, 20.0}
+    assert set(curve["rows"][0]) == {"x1", "condition", "__group_variable", "__group_value", "y1"}
+
+
+def test_experiment_visualisation_sweeps_one_input_and_keeps_four_input_conditions(monkeypatch):
+    schema = {
+        "inputs": [
+            {"name": "x1", "min": 0, "max": 1},
+            {"name": "a", "min": 10, "max": 20},
+            {"name": "b", "min": 100, "max": 200},
+            {"name": "c", "min": -1, "max": 1},
+        ],
+        "outputs": [{"name": "y1", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": []}},
+    }
+    captured_rows = []
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+        captured_rows.extend(rows)
+        return [{"y1": row["x1"] + row["a"] + row["b"] + row["c"]} for row in rows], [], "model_v1"
+
+    monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+
+    config = {
+        "id": "experiment_visualisation",
+        "kind": "experiment_visualisation",
+        "x": {"variable": "x1"},
+        "y": {"variable": "y1"},
+        "points": 12,
+        "x_min": 0.2,
+        "x_max": 0.8,
+    }
+    curve, warnings, model_version = design_studio._experiment_visualisation_rows("p", {"x1": 0.5, "a": 11, "b": 123, "c": -0.25}, visualisation_config=config)
+
+    assert warnings == []
+    assert model_version == "model_v1"
+    assert len(curve["rows"]) == 12
+    assert {row["a"] for row in captured_rows} == {11}
+    assert {row["b"] for row in captured_rows} == {123}
+    assert {row["c"] for row in captured_rows} == {-0.25}
+    assert min(row["x1"] for row in captured_rows) == 0.2
+    assert max(row["x1"] for row in captured_rows) == 0.8
+
+
+def test_experiment_visualisation_invalid_config_returns_schema_safe_warning(monkeypatch):
+    schema = {
+        "inputs": [{"name": "x1", "min": 0, "max": 1}],
+        "outputs": [{"name": "y1", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": []}},
+    }
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    curve, warnings, model_version = design_studio._experiment_visualisation_rows(
+        "p",
+        {"x1": 0.5},
+        visualisation_config={"id": "bad", "kind": "experiment_visualisation", "x": {"variable": "missing_input"}, "y": {"variable": "missing_output"}},
+    )
+
+    assert curve is None
+    assert model_version == "unknown"
+    assert warnings == ["Selected experiment visualisation is missing a valid sweep variable or predicted response."]

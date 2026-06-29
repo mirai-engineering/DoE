@@ -15,13 +15,6 @@ from .prediction import predict_rows
 from .project_registry import get_project_schema
 from .recommendation import _generate_candidates, _score_predictions
 
-REAL_PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
-FUEL_CELL_BOL_OUTPUT = "bol_current_density"
-FUEL_CELL_EOL_OUTPUT = "eol_current_density"
-FUEL_CELL_VOLTAGE_INPUT = "operating_voltage"
-FUEL_CELL_RH_INPUT = "operating_rh"
-
-
 def _default_inputs(schema: dict[str, Any]) -> dict[str, float]:
     return {item["name"]: float((float(item["min"]) + float(item["max"])) / 2.0) for item in schema.get("inputs", [])}
 
@@ -34,15 +27,8 @@ def _prediction_artifact_path(project_id: str, workspace_id: str | None = None) 
     return _prediction_path(project_id, workspace_id) if workspace_id else _prediction_path(project_id)
 
 
-def _is_fuel_cell_project(project_id: str, schema: dict[str, Any] | None = None) -> bool:
-    schema = schema or _project_schema(project_id)
-    return project_id == REAL_PROJECT_ID or schema.get("source_project_id") == REAL_PROJECT_ID
-
-
 def _default_objective_weights(schema: dict[str, Any], project_id: str) -> dict[str, float]:
     outputs = schema.get("outputs", [])
-    if _is_fuel_cell_project(project_id, schema) and any(item.get("name") == FUEL_CELL_BOL_OUTPUT for item in outputs):
-        return {FUEL_CELL_BOL_OUTPUT: 1.0}
     for output in outputs:
         if output.get("direction") == "maximize":
             return {output["name"]: 1.0}
@@ -52,77 +38,41 @@ def _default_objective_weights(schema: dict[str, Any], project_id: str) -> dict[
 def _predictions_artifact(project_id: str, workspace_id: str | None = None) -> pd.DataFrame:
     path = _prediction_artifact_path(project_id, workspace_id)
     if not path.exists():
-        raise FileNotFoundError("Design Studio real-cell comparisons require predictions.csv. Run real-data training first.")
+        raise FileNotFoundError("Design Studio training overlays require predictions.csv. Load a trained champion model first.")
     return pd.read_csv(path)
-
-
-def _observed_voltage_grid(project_id: str, workspace_id: str | None = None) -> list[float]:
-    schema = _project_schema(project_id, workspace_id)
-    if not _is_fuel_cell_project(project_id, schema):
-        return []
-    frame = _predictions_artifact(project_id, workspace_id)
-    schema = _project_schema(project_id, workspace_id)
-    voltage_schema = next((item for item in schema.get("inputs", []) if item.get("name") == FUEL_CELL_VOLTAGE_INPUT), None)
-    minimum = float(voltage_schema.get("min", -np.inf)) if voltage_schema else -np.inf
-    maximum = float(voltage_schema.get("max", np.inf)) if voltage_schema else np.inf
-    values = sorted(float(value) for value in frame[FUEL_CELL_VOLTAGE_INPUT].dropna().unique() if minimum <= float(value) <= maximum)
-    # The raw observed table can contain thousands of nearly duplicate voltage
-    # values from measured curves. Keep the sweep observed-data-derived, but
-    # downsample it for an interactive playground response curve.
-    if len(values) > 80:
-        indices = np.linspace(0, len(values) - 1, 80).round().astype(int)
-        values = [values[int(index)] for index in sorted(set(indices.tolist()))]
-    return values
 
 
 def _plot_recipes(project_id: str, schema: dict[str, Any], workspace_id: str | None = None) -> list[dict[str, Any]]:
     metadata = schema.get("domain_metadata") if isinstance(schema.get("domain_metadata"), dict) else {}
     ui_config = metadata.get("ui_config") if isinstance(metadata.get("ui_config"), dict) else {}
-    recipes = ui_config.get("plot_recipes") if isinstance(ui_config.get("plot_recipes"), list) else []
-    enriched: list[dict[str, Any]] = []
-    for recipe in recipes:
-        item = dict(recipe)
-        if item.get("kind") == "fuel_cell_polarization":
-            item["enabled"] = _is_fuel_cell_project(project_id, schema)
-            item["observed_voltage_grid"] = _observed_voltage_grid(project_id, workspace_id) if item["enabled"] else []
-            item["x_output_bol"] = FUEL_CELL_BOL_OUTPUT
-            item["x_output_eol"] = FUEL_CELL_EOL_OUTPUT
-            item["y_input"] = FUEL_CELL_VOLTAGE_INPUT
-        else:
-            item["enabled"] = True
-        enriched.append(item)
-    return enriched
-
-
-def _fuel_cell_preset(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
-    schema = _project_schema(project_id, workspace_id)
-    recipe = next((item for item in _plot_recipes(project_id, schema, workspace_id) if item.get("kind") == "fuel_cell_polarization"), None)
-    if not recipe:
-        return {"enabled": False}
-    return recipe
-
-
-def get_real_cell_options(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
-    try:
-        frame = _predictions_artifact(project_id, workspace_id)
-    except (FileNotFoundError, ValueError):
-        return {"project_id": project_id, "real_cell_options": []}
-    required = {"cell_id", FUEL_CELL_RH_INPUT, "split"}
-    if not required.issubset(frame.columns):
-        return {"project_id": project_id, "real_cell_options": []}
-    rows = []
-    grouped = frame.drop_duplicates(["cell_id", FUEL_CELL_RH_INPUT, "split"])
-    for _, row in grouped.sort_values(["cell_id", FUEL_CELL_RH_INPUT, "split"]).iterrows():
-        subset = frame[(frame["cell_id"] == row["cell_id"]) & (frame[FUEL_CELL_RH_INPUT] == row[FUEL_CELL_RH_INPUT]) & (frame["split"] == row["split"])]
-        rows.append(
-            {
-                "cell_id": str(row["cell_id"]),
-                "operating_rh": float(row[FUEL_CELL_RH_INPUT]),
-                "split": str(row["split"]),
-                "row_count": int(len(subset.drop_duplicates(["cell_id", FUEL_CELL_RH_INPUT, FUEL_CELL_VOLTAGE_INPUT]) if FUEL_CELL_VOLTAGE_INPUT in subset.columns else subset)),
-            }
-        )
-    return {"project_id": project_id, "real_cell_options": rows}
+    configured = ui_config.get("plot_recipes") if isinstance(ui_config.get("plot_recipes"), list) else []
+    recipes = [dict(recipe, enabled=recipe.get("enabled", True)) for recipe in configured if isinstance(recipe, dict)]
+    if any(recipe.get("kind") == "scatter_response" for recipe in recipes):
+        return recipes
+    inputs = schema.get("inputs", []) or []
+    outputs = schema.get("outputs", []) or []
+    first_input = next((item for item in inputs if item.get("name")), None)
+    first_output = next((item for item in outputs if item.get("name")), None)
+    if not first_input or not first_output:
+        return recipes
+    recipes.append(
+        {
+            "id": f"experiment_visualisation_{first_input['name']}_{first_output['name']}",
+            "label": "Generic experiment visualisation",
+            "description": "Sweep one input, hold the remaining inputs fixed, and predict the selected response.",
+            "kind": "scatter_response",
+            "template_id": "generic_tabular_doe",
+            "safe": True,
+            "recommended": True,
+            "x": {"source": "input", "variable": first_input["name"]},
+            "y": {"source": "prediction", "variable": first_output["name"]},
+            "series": [],
+            "group_by": None,
+            "filters": [],
+            "enabled": True,
+        }
+    )
+    return recipes
 
 
 def _schema_variable_lookup(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -282,101 +232,89 @@ def _training_overlay(project_id: str, x_variable: str | None, output_variables:
     return {"source": "predictions.csv", "x_variable": x_variable, "output_variables": output_variables, "group_by": group_by, "source_row_count": source_row_count, "filtered_row_count": filtered_row_count, "rows": rows}
 
 
-def _real_cell_curve(project_id: str, selection: dict[str, Any] | None, x_variable: str | None = None, output_variables: list[str] | None = None, workspace_id: str | None = None) -> dict[str, Any] | None:
-    if not selection:
-        return None
-    try:
-        frame = _predictions_artifact(project_id, workspace_id)
-    except (FileNotFoundError, ValueError):
-        return None
-    cell_id = selection.get("cell_id")
-    rh = selection.get("operating_rh")
-    if not cell_id or rh is None or "cell_id" not in frame.columns or FUEL_CELL_RH_INPUT not in frame.columns:
-        return None
-    x_variable = x_variable or FUEL_CELL_VOLTAGE_INPUT
-    output_variables = output_variables or [FUEL_CELL_BOL_OUTPUT, FUEL_CELL_EOL_OUTPUT]
-    true_columns = [f"{name}_true" for name in output_variables if f"{name}_true" in frame.columns]
-    required_columns = {x_variable, *true_columns}
-    if not true_columns or not required_columns.issubset(frame.columns):
-        return None
-    subset = frame[(frame["cell_id"].astype(str) == str(cell_id)) & (np.isclose(frame[FUEL_CELL_RH_INPUT].astype(float), float(rh)))]
-    if "split" in selection and selection["split"] and "split" in subset.columns:
-        subset = subset[subset["split"].astype(str) == str(selection["split"])]
-    # Measured values are duplicated by model_name/candidate rows; keep one physical curve.
-    dedupe_columns = ["cell_id", FUEL_CELL_RH_INPUT, x_variable, *true_columns]
-    subset = subset.drop_duplicates(dedupe_columns).sort_values(x_variable)
+def _experiment_visualisation_rows(project_id: str, inputs: dict[str, float], visualisation_config_id: str | None = None, visualisation_config: dict[str, Any] | None = None, workspace_id: str | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
+    schema = _project_schema(project_id, workspace_id)
+    response_config_kinds = {"scatter_response", "experiment_visualisation"}
+    configured_visualisations = [item for item in _plot_recipes(project_id, schema, workspace_id) if item.get("enabled", True) and item.get("kind") in response_config_kinds]
+    preset = dict(visualisation_config) if isinstance(visualisation_config, dict) else None
+    if preset is not None and preset.get("kind") not in response_config_kinds:
+        preset = None
+    if preset is None:
+        preset = next((item for item in configured_visualisations if item.get("id") == visualisation_config_id), None) if visualisation_config_id else None
+    preset = preset or next((item for item in configured_visualisations if item.get("recommended")), None)
+    if not preset or not preset.get("enabled", True):
+        return None, [], "unknown"
+
+    x_variable = (preset.get("x") or {}).get("variable") or preset.get("sweep_variable")
+    y_variable = (preset.get("y") or {}).get("variable") or preset.get("response_variable")
+    series_variables = [item.get("variable") for item in preset.get("series", []) if isinstance(item, dict) and item.get("variable")]
+    y_variables: list[str] = []
+    for variable in [y_variable, *series_variables]:
+        if variable and str(variable) not in y_variables:
+            y_variables.append(str(variable))
+    input_schema = next((item for item in schema.get("inputs", []) if item.get("name") == x_variable), None)
+    output_names = {item.get("name") for item in schema.get("outputs", [])}
+    invalid_outputs = [name for name in y_variables if name not in output_names]
+    if not x_variable or not y_variables or not input_schema or invalid_outputs:
+        return None, ["Selected experiment visualisation is missing a valid sweep variable or predicted response."], "unknown"
+
+    points = int(preset.get("points") or 60)
+    points = max(10, min(points, 200))
+    min_value = float(preset.get("x_min") if preset.get("x_min") is not None else input_schema.get("min", 0))
+    max_value = float(preset.get("x_max") if preset.get("x_max") is not None else input_schema.get("max", 1))
+    if min_value > max_value:
+        min_value, max_value = max_value, min_value
+    grid = np.linspace(min_value, max_value, points)
+
+    input_names = {item.get("name") for item in schema.get("inputs", [])}
+    group_variable = preset.get("group_variable") or preset.get("group_by")
+    group_values_raw = preset.get("group_values") if isinstance(preset.get("group_values"), list) else []
+    group_values: list[float | None] = []
+    if group_variable in input_names and group_variable != x_variable:
+        for raw in group_values_raw:
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if value not in group_values:
+                group_values.append(value)
+    if not group_values:
+        group_variable = None
+        group_values = [None]
+
+    sweep_rows: list[dict[str, float]] = []
+    row_groups: list[float | None] = []
+    for group_value in group_values:
+        for value in grid:
+            row = {**inputs, str(x_variable): float(value)}
+            if group_variable and group_value is not None:
+                row[str(group_variable)] = float(group_value)
+            sweep_rows.append(row)
+            row_groups.append(group_value)
+    predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
     rows = []
-    for _, row in subset.iterrows():
-        item = {
-            "cell_id": str(row["cell_id"]),
-            "split": str(row["split"]) if "split" in row else "",
-            "operating_rh": float(row[FUEL_CELL_RH_INPUT]),
-            str(x_variable): float(row[x_variable]),
-        }
-        for column in true_columns:
-            item[column] = float(row[column])
-        rows.append(item)
-    return {"selection": selection, "x_variable": x_variable, "output_variables": output_variables, "rows": rows}
+    for row, pred, group_value in zip(sweep_rows, predictions, row_groups, strict=True):
+        next_row: dict[str, Any] = {str(x_variable): float(row[str(x_variable)])}
+        if group_variable and group_value is not None:
+            next_row["__group_variable"] = str(group_variable)
+            next_row["__group_value"] = float(group_value)
+            next_row[str(group_variable)] = float(group_value)
+        for variable in y_variables:
+            next_row[variable] = float(pred[variable])
+        rows.append(next_row)
+    resolved_config = {**preset, "kind": "scatter_response", "y_variables": y_variables, "points": points, "group_variable": group_variable, "group_values": [value for value in group_values if value is not None]}
+    return {"preset": preset.get("id", "experiment_visualisation"), "recipe": resolved_config, "rows": rows}, warnings, model_version
 
 
 def _curve_rows(project_id: str, inputs: dict[str, float], plot_recipe_id: str | None = None, plot_recipe: dict[str, Any] | None = None, workspace_id: str | None = None) -> tuple[dict[str, Any] | None, list[str], str]:
-    schema = _project_schema(project_id, workspace_id)
-    response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
-    recipes = [recipe for recipe in _plot_recipes(project_id, schema, workspace_id) if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
-    preset = dict(plot_recipe) if isinstance(plot_recipe, dict) else None
-    if preset is not None and preset.get("kind") not in response_recipe_kinds:
-        preset = None
-    if preset is None:
-        preset = next((item for item in recipes if item.get("id") == plot_recipe_id), None) if plot_recipe_id else None
-    preset = preset or next((item for item in recipes if item.get("recommended")), None)
-    if not preset or not preset.get("enabled", True):
-        return None, [], "unknown"
-    if preset.get("kind") == "fuel_cell_polarization":
-        x_variables = (preset.get("x") or {}).get("variables") or []
-        preset = {
-            **preset,
-            "kind": "scatter_response",
-            "x": {"source": "input", "variable": (preset.get("y") or {}).get("variable")},
-            "y": {"source": "prediction", "variable": x_variables[0] if x_variables else None},
-            "series": [{"variable": variable} for variable in x_variables[1:] if variable],
-        }
-    if preset.get("kind") == "scatter_response":
-        x_variable = (preset.get("x") or {}).get("variable")
-        y_variable = (preset.get("y") or {}).get("variable")
-        series_variables = [item.get("variable") for item in preset.get("series", []) if isinstance(item, dict) and item.get("variable")]
-        y_variables = []
-        for variable in [y_variable, *series_variables]:
-            if variable and variable not in y_variables:
-                y_variables.append(str(variable))
-        input_schema = next((item for item in schema.get("inputs", []) if item.get("name") == x_variable), None)
-        output_names = {item.get("name") for item in schema.get("outputs", [])}
-        invalid_outputs = [name for name in y_variables if name not in output_names]
-        if not x_variable or not y_variables or not input_schema or invalid_outputs:
-            return None, ["Selected response plot is missing a valid sweep input or output variable."], "unknown"
-        points = int(preset.get("points") or 60)
-        points = max(10, min(points, 200))
-        min_value = float(preset.get("x_min") if preset.get("x_min") is not None else input_schema.get("min", 0))
-        max_value = float(preset.get("x_max") if preset.get("x_max") is not None else input_schema.get("max", 1))
-        if min_value > max_value:
-            min_value, max_value = max_value, min_value
-        grid = np.linspace(min_value, max_value, points)
-        sweep_rows = [{**inputs, str(x_variable): float(value)} for value in grid]
-        predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
-        rows = []
-        for row, pred in zip(sweep_rows, predictions, strict=True):
-            next_row = {str(x_variable): float(row[str(x_variable)])}
-            for variable in y_variables:
-                next_row[variable] = float(pred[variable])
-            rows.append(next_row)
-        recipe = {**preset, "y_variables": y_variables, "points": points}
-        return {"preset": preset.get("id", "scatter_response"), "recipe": recipe, "rows": rows}, warnings, model_version
-    return None, [f"Plot recipe kind is not supported yet: {preset.get('kind')}"], "unknown"
+    """Compatibility wrapper for older tests/callers using curve/plot_recipe names."""
+    return _experiment_visualisation_rows(project_id, inputs, plot_recipe_id, plot_recipe, workspace_id)
 
 
 def get_design_studio_state(project_id: str, workspace_id: str | None = None) -> dict[str, Any]:
     schema = _project_schema(project_id, workspace_id)
     recipes = _plot_recipes(project_id, schema, workspace_id)
-    response_recipe_kinds = {"fuel_cell_polarization", "scatter_response"}
+    response_recipe_kinds = {"scatter_response", "experiment_visualisation"}
     design_recipes = [recipe for recipe in recipes if recipe.get("enabled", True) and recipe.get("kind") in response_recipe_kinds]
     ui_config = schema.get("domain_metadata", {}).get("ui_config", {}) if isinstance(schema.get("domain_metadata"), dict) else {}
     design_config = ui_config.get("design_studio", {}) if isinstance(ui_config.get("design_studio"), dict) else {}
@@ -394,7 +332,7 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
         "default_objective_weights": _default_objective_weights(schema, project_id),
         "plot_recipes": design_recipes,
         "selected_plot_recipe_id": selected_recipe_id,
-        "presets": {"fuel_cell_polarization": _fuel_cell_preset(project_id, workspace_id)},
+        "presets": {},
         "real_cell_options": [],
         "training_overlay_options": training_overlay_options(project_id, workspace_id),
     }
@@ -403,9 +341,13 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
 def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
     inputs = {key: float(value) for key, value in payload.get("inputs", {}).items()}
     predictions, point_warnings, point_model_version = predict_rows(project_id, [inputs], warn_near_bounds=True, workspace_id=workspace_id)
-    curve, curve_warnings, curve_model_version = _curve_rows(project_id, inputs, payload.get("plot_recipe_id"), payload.get("plot_recipe"), workspace_id=workspace_id)
+    generate_visualisation = bool(payload.get("experiment_visualisation_enabled", True))
+    curve, curve_warnings, curve_model_version = (None, [], "unknown")
+    if generate_visualisation:
+        visualisation_config = payload.get("experiment_visualisation") if isinstance(payload.get("experiment_visualisation"), dict) else payload.get("plot_recipe")
+        curve, curve_warnings, curve_model_version = _experiment_visualisation_rows(project_id, inputs, payload.get("plot_recipe_id"), visualisation_config, workspace_id=workspace_id)
     curve_recipe = curve.get("recipe", {}) if isinstance(curve, dict) else {}
-    comparison_x = ((curve_recipe.get("x") or {}).get("variable") if isinstance(curve_recipe, dict) else None) or FUEL_CELL_VOLTAGE_INPUT
+    comparison_x = ((curve_recipe.get("x") or {}).get("variable") if isinstance(curve_recipe, dict) else None)
     comparison_outputs = curve_recipe.get("y_variables") if isinstance(curve_recipe, dict) else None
     if not comparison_outputs and isinstance(curve_recipe, dict):
         y_variable = (curve_recipe.get("y") or {}).get("variable")
@@ -414,12 +356,12 @@ def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str |
     comparison_output_names = [str(item) for item in comparison_outputs] if comparison_outputs else None
     training_overlay = _training_overlay(
         project_id,
-        str(comparison_x),
+        str(comparison_x) if comparison_x else None,
         comparison_output_names,
         group_by=str(payload.get("training_overlay_group_by") or "") or None,
         filters=payload.get("training_overlay_filters") if isinstance(payload.get("training_overlay_filters"), dict) else None,
         ranges=payload.get("training_overlay_ranges") if isinstance(payload.get("training_overlay_ranges"), dict) else None,
-        enabled=bool(payload.get("training_overlay_enabled", True)),
+        enabled=generate_visualisation and bool(payload.get("training_overlay_enabled", True)),
         workspace_id=workspace_id,
     )
     return {
@@ -583,7 +525,7 @@ def seed_batch_candidate(project_id: str, payload: dict[str, Any], workspace_id:
     predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
     scores = _score_predictions(schema, predictions, request.objective_weights)
     index = int(np.argsort(-scores)[0])
-    design = predict_design(project_id, {"inputs": candidates[index], "plot_recipe_id": payload.get("plot_recipe_id"), "plot_recipe": payload.get("plot_recipe"), "training_overlay_enabled": payload.get("training_overlay_enabled", True), "training_overlay_filters": payload.get("training_overlay_filters"), "training_overlay_ranges": payload.get("training_overlay_ranges"), "training_overlay_group_by": payload.get("training_overlay_group_by")}, workspace_id=workspace_id)
+    design = predict_design(project_id, {"inputs": candidates[index], "plot_recipe_id": payload.get("plot_recipe_id"), "experiment_visualisation": payload.get("experiment_visualisation") or payload.get("plot_recipe"), "training_overlay_enabled": payload.get("training_overlay_enabled", True), "training_overlay_filters": payload.get("training_overlay_filters"), "training_overlay_ranges": payload.get("training_overlay_ranges"), "training_overlay_group_by": payload.get("training_overlay_group_by")}, workspace_id=workspace_id)
     design["seed"] = {
         "source": "batch_search",
         "score": float(scores[index]),
