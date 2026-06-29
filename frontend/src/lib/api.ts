@@ -678,6 +678,7 @@ export interface DesignStudioState {
   inputs: SchemaInput[]
   outputs: SchemaOutput[]
   default_inputs: Record<string, number>
+  default_inputs_source?: string
   default_objective_weights: Record<string, number>
   plot_recipes?: PlotRecipe[]
   selected_plot_recipe_id?: string

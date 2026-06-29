@@ -92,8 +92,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const responseCurvePlotRef = useRef<unknown>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const numericInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(inputs[input.name])])), [inputs, schema.inputs])
-  const numericVisualisationFixedInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(visualisationFixedInputs[input.name] ?? inputs[input.name])])), [inputs, schema.inputs, visualisationFixedInputs])
+  const currentDesignPoint = inputs
+  const numericInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(currentDesignPoint[input.name])])), [currentDesignPoint, schema.inputs])
+  const numericVisualisationFixedInputs = useMemo(() => Object.fromEntries(schema.inputs.map((input) => [input.name, Number(visualisationFixedInputs[input.name] ?? currentDesignPoint[input.name])])), [currentDesignPoint, schema.inputs, visualisationFixedInputs])
   const objectivePresets = useMemo<ObjectivePreset[]>(() => {
     const singleOutputPresets = schema.outputs.map((output) => {
       const weight = output.direction === 'minimize' ? -1 : 1
@@ -112,6 +113,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     return preset?.weights ?? numericObjectiveWeights(objectiveWeights)
   }, [objectiveMode, objectivePresets, objectiveWeights])
   const selectedObjective = objectivePresets.find((item) => item.id === objectiveMode)
+  const defaultInputSourceLabel = state?.default_inputs_source === 'observed_prediction_artifact_median'
+    ? 'Initial design point uses observed artifact medians.'
+    : 'Initial design point uses schema midpoint fallback.'
   const currentGoalLabel = selectedObjective?.label || 'Selected objective'
   const activeObjectiveCount = Object.values(selectedObjectiveWeights).filter((value) => Math.abs(value) > 1e-12).length
   function visualisationSweepVariable(config?: ExperimentVisualisationConfig) {
@@ -121,7 +125,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     return asString(asRecord(config?.y).variable) || schema.outputs[0]?.name
   }
   function copyCurrentInputsToVisualisation() {
-    setVisualisationFixedInputs(inputs)
+    setVisualisationFixedInputs(currentDesignPoint)
     setVisualisationStale(true)
   }
 
@@ -326,7 +330,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         ...experimentVisualisationPayload(),
       })
       setPrediction(seeded)
-      setInputs(Object.fromEntries(schema.inputs.map((input) => [input.name, String(seeded.inputs[input.name] ?? inputs[input.name] ?? '')])))
+      const nextDesignPoint = Object.fromEntries(schema.inputs.map((input) => [input.name, String(seeded.inputs[input.name] ?? currentDesignPoint[input.name] ?? '')]))
+      setInputs(nextDesignPoint)
+      setVisualisationFixedInputs(nextDesignPoint)
       setHasPendingInputChanges(false)
       setVisualisationStale(false)
     } catch (err) {
@@ -368,8 +374,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   }
 
   async function loadParetoCandidate(candidate: DesignStudioParetoCandidate) {
-    setInputs(Object.fromEntries(schema.inputs.map((input) => [input.name, String(candidate.inputs[input.name] ?? inputs[input.name] ?? '')])))
-    setVisualisationStale(true)
+    const nextDesignPoint = Object.fromEntries(schema.inputs.map((input) => [input.name, String(candidate.inputs[input.name] ?? currentDesignPoint[input.name] ?? '')]))
+    setInputs(nextDesignPoint)
+    setVisualisationFixedInputs(nextDesignPoint)
+    setVisualisationStale(false)
     await runPrediction(candidate.inputs)
   }
 
@@ -569,6 +577,9 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Served-model predictions</span>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
           {defaultObjectiveName && <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-800">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">{defaultInputSourceLabel}</span>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">Schema bounds enforced</span>
+          {prediction?.warnings?.length ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</span> : null}
         </div>
         <details className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm text-slate-600">
           <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
@@ -598,8 +609,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
         <div className="grid gap-2 md:grid-cols-5">
           {[
-            ['single_result', 'Single result', 'Tune one input set and generate KPI predictions'],
-            ['plot', 'Experiment visualisation', 'Sweep X, fix other inputs, predict Y'],
+            ['single_result', 'Single result', 'Edit the current design point and generate KPIs'],
+            ['plot', 'Experiment visualisation', 'Sweep one input around fixed conditions from the current design point'],
             ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
             ['compare', 'Compare/export', 'Save baselines and package outputs'],
             ['model_map', 'Model map', 'Schema inputs and predicted responses'],
@@ -718,10 +729,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">These values are used only for the multi-point visualisation. They do not change the Single result tab inputs.</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">These fixed values define the design point used for the multi-point visualisation. They are initialized from the current design point and stay synchronized when optimizer candidates are loaded.</p>
                   </div>
                   <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#526949]/40">
-                    Copy Single result inputs into visualisation
+                    Use current design point for visualisation
                   </button>
                 </div>
                 <div className="mt-4 overflow-x-auto">
@@ -798,9 +809,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     <h3 className="font-semibold text-slate-950">Measured training overlay</h3>
                     <p className="mt-1 max-w-5xl text-sm leading-6 text-slate-600">Optional: compare this visualisation with measured training rows from the loaded champion artifact. Hidden by default so predicted sweep setup stays primary.</p>
                   </div>
-                  <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 ring-1 ring-slate-200">
-                    {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
-                  </span>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 ring-1 ring-slate-200">
+                      {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
+                    </span>
+                    {trainingOverlayRows.length ? <span className="w-fit whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800 ring-1 ring-amber-200">Compare predicted line vs measured markers</span> : null}
+                  </div>
                 </div>
                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(16rem,0.45fr)_minmax(0,1fr)] xl:items-start">
                   <label className="min-w-0 text-sm font-semibold text-slate-700">
@@ -877,6 +891,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       )}
 
       {error && <Alert tone="error" title="Design Studio issue" messages={[error]} />}
+      {prediction?.warnings?.length ? <Alert tone="warning" title="Model/support warnings" messages={prediction.warnings} /> : null}
       {loading && <div className="rounded-[2rem] bg-white/80 p-6 text-slate-600">Loading Design Studio...</div>}
 
       {!loading && state && (
@@ -895,7 +910,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
             {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
               <div className="flex flex-wrap items-start justify-between gap-4">
-                <PanelHeader eyebrow="Experiment inputs" title="Tune test conditions" description="Adjust the current composition/test values, then generate one model result for the selected design. The KPI cards below belong to this single generated result." />
+                <PanelHeader eyebrow="Current design point" title="Tune one design point" description="Adjust the current composition/test values, then generate one model result. Experiment visualisation can sweep one input around this same design point." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
                   <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate result'}
@@ -977,7 +992,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
             {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. They do not change the direct single-result prediction above until a searched candidate is loaded." />
+                <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. Loading a candidate updates the current design point and the visualisation fixed conditions together." />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={seedFromBatch} disabled={seeding} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-slate-950/15 disabled:opacity-50">
                     {seeding ? 'Searching designs...' : 'Find best starting design'}
@@ -994,7 +1009,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     <div>
                       <h3 className="font-semibold text-blue-950">Optimization goal</h3>
                       <p className="mt-1 text-sm leading-6 text-blue-900">
-                        Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate into Single result inputs.
+                        Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate as the current design point.
                       </p>
                     </div>
                     <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-blue-800">Current goal: {currentGoalLabel}</span>
@@ -1077,7 +1092,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <div key={input.name} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
-                          <div className="text-xs text-slate-500">Current: {formatNumber(Number(inputs[input.name]))}</div>
+                          <div className="text-xs text-slate-500">Current design point: {formatNumber(Number(currentDesignPoint[input.name]))}</div>
                         </div>
                         <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr] md:items-center">
                           <select value={mode} onChange={(event) => setSearchSpaceModes((current) => ({ ...current, [input.name]: event.target.value as 'free' | 'fixed' | 'range' }))} className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm">
@@ -1156,10 +1171,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <PanelHeader
                 eyebrow="Find alternatives"
                 title="Tradeoff candidates"
-                description="Optional starting points. Load one to update the sliders and evaluate it in the dynamic experiment visualisation above."
+                description="Optional starting points. Use one as the current design point to update Single result inputs and visualisation fixed conditions together."
               />
               <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-                These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Load one, then judge it primarily in the experiment visualisation above. Lower raw values are better for minimized objectives.
+                These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Use one as the current design point, then plot a sweep around that point. Lower raw values are better for minimized objectives.
               </div>
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
@@ -1170,7 +1185,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         <p className="mt-1 text-xs text-slate-500">Rank {candidate.rank} · score {formatNumber(candidate.score)}</p>
                       </div>
                       <button type="button" onClick={() => loadParetoCandidate(candidate)} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white">
-                        Load
+                        Use as current design point
                       </button>
                     </div>
                     <div className="mt-4 grid gap-2 text-sm md:grid-cols-2">
