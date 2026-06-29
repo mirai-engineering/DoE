@@ -267,3 +267,47 @@ def test_experiment_visualisation_rejects_sweep_range_outside_schema(monkeypatch
     assert curve is None
     assert model_version == "unknown"
     assert warnings == ["Sweep range for 'x5' must stay within allowed bounds [0, 1.1]."]
+
+
+def test_simple_experiment_visualisation_predicts_exactly_requested_points_without_grouping(monkeypatch):
+    schema = {
+        "inputs": [
+            {"name": "sweep", "min": 0, "max": 2},
+            {"name": "fixed_a", "min": -10, "max": 10},
+            {"name": "fixed_b", "min": 100, "max": 200},
+        ],
+        "outputs": [{"name": "response", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": []}},
+    }
+    captured_rows = []
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+        captured_rows.extend(rows)
+        return [{"response": row["sweep"] + row["fixed_a"] + row["fixed_b"]} for row in rows], [], "model_v1"
+
+    monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+
+    curve, warnings, model_version = design_studio._experiment_visualisation_rows(
+        "p",
+        {"sweep": 1.0, "fixed_a": -3.5, "fixed_b": 123.25},
+        visualisation_config={
+            "id": "simple",
+            "kind": "experiment_visualisation",
+            "x": {"variable": "sweep"},
+            "y": {"variable": "response"},
+            "points": 13,
+            "x_min": 0,
+            "x_max": 2,
+        },
+    )
+
+    assert warnings == []
+    assert model_version == "model_v1"
+    assert len(captured_rows) == 13
+    assert len(curve["rows"]) == 13
+    assert all("__group_value" not in row and "__group_variable" not in row for row in curve["rows"])
+    assert {row["fixed_a"] for row in captured_rows} == {-3.5}
+    assert {row["fixed_b"] for row in captured_rows} == {123.25}
+    assert curve["recipe"]["group_variable"] is None
+    assert curve["recipe"]["group_values"] == []
