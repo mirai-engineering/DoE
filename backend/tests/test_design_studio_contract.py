@@ -236,3 +236,34 @@ def test_experiment_visualisation_invalid_config_returns_schema_safe_warning(mon
     assert curve is None
     assert model_version == "unknown"
     assert warnings == ["Selected experiment visualisation is missing a valid sweep variable or predicted response."]
+
+
+def test_experiment_visualisation_rejects_sweep_range_outside_schema(monkeypatch):
+    schema = {
+        "inputs": [{"name": "x5", "min": 0, "max": 1.1}, {"name": "condition", "min": 0, "max": 10}],
+        "outputs": [{"name": "y1", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": []}},
+    }
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    def fail_predict_rows(*args, **kwargs):
+        raise AssertionError("predict_rows should not be called for invalid sweep ranges")
+
+    monkeypatch.setattr(design_studio, "predict_rows", fail_predict_rows)
+
+    curve, warnings, model_version = design_studio._experiment_visualisation_rows(
+        "p",
+        {"x5": 0.5, "condition": 3},
+        visualisation_config={
+            "id": "bad_range",
+            "kind": "experiment_visualisation",
+            "x": {"variable": "x5"},
+            "y": {"variable": "y1"},
+            "x_min": 0,
+            "x_max": 2,
+        },
+    )
+
+    assert curve is None
+    assert model_version == "unknown"
+    assert warnings == ["Sweep range for 'x5' must stay within allowed bounds [0, 1.1]."]

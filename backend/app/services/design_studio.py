@@ -260,22 +260,32 @@ def _experiment_visualisation_rows(project_id: str, inputs: dict[str, float], vi
 
     points = int(preset.get("points") or 60)
     points = max(10, min(points, 200))
-    min_value = float(preset.get("x_min") if preset.get("x_min") is not None else input_schema.get("min", 0))
-    max_value = float(preset.get("x_max") if preset.get("x_max") is not None else input_schema.get("max", 1))
+    schema_min = float(input_schema.get("min", 0))
+    schema_max = float(input_schema.get("max", 1))
+    min_value = float(preset.get("x_min") if preset.get("x_min") is not None else schema_min)
+    max_value = float(preset.get("x_max") if preset.get("x_max") is not None else schema_max)
     if min_value > max_value:
         min_value, max_value = max_value, min_value
+    if min_value < schema_min or max_value > schema_max:
+        return None, [f"Sweep range for '{x_variable}' must stay within allowed bounds [{schema_min:g}, {schema_max:g}]."], "unknown"
     grid = np.linspace(min_value, max_value, points)
 
     input_names = {item.get("name") for item in schema.get("inputs", [])}
+    input_schema_by_name = {item.get("name"): item for item in schema.get("inputs", []) if item.get("name")}
     group_variable = preset.get("group_variable") or preset.get("group_by")
     group_values_raw = preset.get("group_values") if isinstance(preset.get("group_values"), list) else []
     group_values: list[float | None] = []
     if group_variable in input_names and group_variable != x_variable:
+        group_schema = input_schema_by_name.get(group_variable, {})
+        group_min = float(group_schema.get("min", -np.inf))
+        group_max = float(group_schema.get("max", np.inf))
         for raw in group_values_raw:
             try:
                 value = float(raw)
             except (TypeError, ValueError):
                 continue
+            if value < group_min or value > group_max:
+                return None, [f"Group value for '{group_variable}' must stay within allowed bounds [{group_min:g}, {group_max:g}]."], "unknown"
             if value not in group_values:
                 group_values.append(value)
     if not group_values:
