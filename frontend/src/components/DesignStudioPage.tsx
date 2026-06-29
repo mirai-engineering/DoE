@@ -43,7 +43,7 @@ type ObjectivePreset = {
   weights: Record<string, number>
 }
 
-type DesignWorkflow = 'plot' | 'optimize' | 'compare'
+type DesignWorkflow = 'plot' | 'optimize' | 'compare' | 'model_map'
 type VisualisationType = 'generic' | 'electrochemical' | 'battery_degradation' | 'energy_demand'
 type OverlayMode = 'comparable' | 'same_current_conditions' | 'custom' | 'none'
 
@@ -151,6 +151,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   function copyCurrentInputsToVisualisation() {
     setVisualisationFixedInputs(inputs)
     setVisualisationStale(true)
+  }
+
+  function visualisationRangeIssue() {
+    if (!sweepMeta) return null
+    const min = sweepRangeMin === '' ? sweepMeta.min : Number(sweepRangeMin)
+    const max = sweepRangeMax === '' ? sweepMeta.max : Number(sweepRangeMax)
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return 'Sweep range must use numeric values.'
+    if (min < sweepMeta.min || max > sweepMeta.max) return `${sweepMeta.label} sweep range must stay within the schema bounds ${formatNumber(sweepMeta.min)} to ${formatNumber(sweepMeta.max)}${sweepMeta.unit ? ` ${sweepMeta.unit}` : ''}.`
+    return null
   }
 
   function dynamicExperimentVisualisationConfig(configId = selectedExperimentVisualisationConfigId): ExperimentVisualisationConfig | undefined {
@@ -311,6 +320,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   }
 
   async function runVisualisation(configId = selectedExperimentVisualisationConfigId) {
+    const rangeIssue = visualisationRangeIssue()
+    if (rangeIssue) {
+      setError(rangeIssue)
+      return
+    }
     setPredicting(true)
     setError(null)
     try {
@@ -540,6 +554,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const visualisationGroupLabels = curveGroupInputName
     ? curveGroupValues.map((value) => `${schema.inputs.find((input) => input.name === curveGroupInputName)?.label ?? curveGroupInputName} = ${value}${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit ? ` ${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit}` : ''}`)
     : []
+  const sweepRangeIssue = visualisationRangeIssue()
   const sweepRangeLabel = `${sweepMeta?.label ?? sweepInputName}: ${sweepRangeMin || formatNumber(sweepMeta?.min)} to ${sweepRangeMax || formatNumber(sweepMeta?.max)}${sweepMeta?.unit ? ` ${sweepMeta.unit}` : ''}, ${Math.max(10, Math.min(200, Number(sweepPointCount) || 60))} points`
 
   return (
@@ -581,11 +596,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       </section>
 
       <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
-        <div className="grid gap-2 md:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-4">
           {[
             ['plot', 'Experiment visualisation', 'Sweep a variable, hold fixed inputs, overlay training data'],
             ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
             ['compare', 'Compare/export', 'Save baselines and package outputs'],
+            ['model_map', 'Model map', 'Schema inputs and predicted responses'],
           ].map(([id, label, description]) => (
             <button
               key={id}
@@ -671,12 +687,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
-                  Range min
-                  <input type="number" value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.min ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  Sweep min
+                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.min ?? '')} className={`mt-2 w-full rounded-2xl border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
-                  Range max
-                  <input type="number" value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(schema.inputs.find((input) => input.name === sweepInputName)?.max ?? '')} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  Sweep max
+                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.max ?? '')} className={`mt-2 w-full rounded-2xl border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Points
@@ -690,6 +706,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </span>
                 </label>
               </div>
+              <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+                <strong>Sweep range = model input range.</strong> It must stay inside the approved schema bounds{ sweepMeta ? ` for ${sweepMeta.label}: ${formatNumber(sweepMeta.min)} to ${formatNumber(sweepMeta.max)}${sweepMeta.unit ? ` ${sweepMeta.unit}` : ''}` : '' }. Use Plotly zoom/pan on the chart for display-only axis zooming.
+              </div>
+              {sweepRangeIssue && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                <span>{sweepRangeIssue}</span>
+                {sweepMeta && <button type="button" onClick={() => { setSweepRangeMin(String(sweepMeta.min)); setSweepRangeMax(String(sweepMeta.max)); setVisualisationStale(true) }} className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900">Use schema range</button>}
+              </div>}
               <div className="mt-5 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -758,7 +781,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <button type="button" onClick={() => addCurveGroupValue()} disabled={!curveGroupInputName || curveGroupValues.length >= 5} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Add</button>
                     </div>
                   </label>
-                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic'} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
+                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate visualisation'}
                   </button>
                 </div>
@@ -864,11 +887,16 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       {!loading && state && (
         <>
           <section id="design-workspace" className="scroll-mt-8 space-y-6">
-            {activeWorkflow === 'plot' && <ModelMap
-              inputs={schema.inputs}
-              outputs={schema.outputs}
-              modelName={prediction?.model_version || asString(champion.version) || 'loaded champion'}
-            />}
+            {activeWorkflow === 'model_map' && <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+              <PanelHeader eyebrow="Model map" title="From experiment settings to predicted response" description="A schema view of the loaded model inputs and outputs. This is separated from Experiment visualisation so it does not interrupt plot setup." />
+              <div className="mt-4">
+                <ModelMap
+                  inputs={schema.inputs}
+                  outputs={schema.outputs}
+                  modelName={prediction?.model_version || asString(champion.version) || 'loaded champion'}
+                />
+              </div>
+            </section>}
 
             {activeWorkflow === 'plot' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
               <div className="flex flex-wrap items-start justify-between gap-4">
