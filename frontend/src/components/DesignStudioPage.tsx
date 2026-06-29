@@ -43,9 +43,10 @@ type ObjectivePreset = {
   weights: Record<string, number>
 }
 
-type DesignWorkflow = 'plot' | 'optimize' | 'compare' | 'model_map'
+type DesignWorkflow = 'single_result' | 'plot' | 'optimize' | 'compare' | 'model_map'
 type VisualisationType = 'generic' | 'electrochemical' | 'battery_degradation' | 'energy_demand'
 type OverlayMode = 'comparable' | 'same_current_conditions' | 'custom' | 'none'
+type PlotAnnotationMode = 'none' | 'selected' | 'all'
 
 function numericObjectiveWeights(weights: Record<string, string>) {
   return Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Number(value) || 0]))
@@ -58,8 +59,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [prediction, setPrediction] = useState<DesignStudioPrediction | null>(null)
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
   const [activeWorkflow, setActiveWorkflow] = useState<DesignWorkflow>('plot')
-  const [overlayMode, setOverlayMode] = useState<OverlayMode>('comparable')
-  const [trainingOverlayEnabled, setTrainingOverlayEnabled] = useState(true)
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>('none')
+  const [trainingOverlayEnabled, setTrainingOverlayEnabled] = useState(false)
   const [trainingOverlayFilters, setTrainingOverlayFilters] = useState<Record<string, string>>({})
   const [trainingOverlayRanges, setTrainingOverlayRanges] = useState<Record<string, { min?: string, max?: string }>>({})
   const [searchSpaceModes, setSearchSpaceModes] = useState<Record<string, 'free' | 'fixed' | 'range'>>({})
@@ -74,9 +75,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [sweepRangeMin, setSweepRangeMin] = useState('')
   const [sweepRangeMax, setSweepRangeMax] = useState('')
   const [responseAxesSwapped, setResponseAxesSwapped] = useState(false)
-  const [curveGroupInputName, setCurveGroupInputName] = useState('')
-  const [curveGroupValues, setCurveGroupValues] = useState<string[]>([])
-  const [newCurveGroupValue, setNewCurveGroupValue] = useState('')
+  const [plotAnnotationMode, setPlotAnnotationMode] = useState<PlotAnnotationMode>('none')
+  const [selectedAnnotationInputs, setSelectedAnnotationInputs] = useState<string[]>([])
   const [trainingOverlayGroupBy, setTrainingOverlayGroupBy] = useState('')
   const [objectiveMode, setObjectiveMode] = useState('')
   const [objectiveWeights, setObjectiveWeights] = useState<Record<string, string>>({})
@@ -120,34 +120,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   function visualisationPrimaryOutput(config?: ExperimentVisualisationConfig) {
     return asString(asRecord(config?.y).variable) || schema.outputs[0]?.name
   }
-  function suggestedGroupValues(inputName: string) {
-    const input = schema.inputs.find((item) => item.name === inputName)
-    if (!input) return []
-    const current = Number(visualisationFixedInputs[input.name] ?? inputs[input.name])
-    const midpoint = Number.isFinite(current) ? current : (input.min + input.max) / 2
-    return [input.min, midpoint, input.max]
-      .filter((value, index, values) => values.findIndex((candidate) => Math.abs(candidate - value) < 1e-9) === index)
-      .map((value) => String(Number(value.toPrecision(8))))
-      .slice(0, 5)
-  }
-  function parsedGroupValues() {
-    return curveGroupValues
-      .map((value) => Number(value.trim()))
-      .filter((value, index, values) => Number.isFinite(value) && values.indexOf(value) === index)
-      .slice(0, 5)
-  }
-  function addCurveGroupValue(value = newCurveGroupValue) {
-    const numericValue = Number(value)
-    if (!Number.isFinite(numericValue)) return
-    const normalized = String(Number(numericValue.toPrecision(8)))
-    setCurveGroupValues((current) => current.includes(normalized) || current.length >= 5 ? current : [...current, normalized])
-    setNewCurveGroupValue('')
-    setVisualisationStale(true)
-  }
-  function removeCurveGroupValue(value: string) {
-    setCurveGroupValues((current) => current.filter((item) => item !== value))
-    setVisualisationStale(true)
-  }
   function copyCurrentInputsToVisualisation() {
     setVisualisationFixedInputs(inputs)
     setVisualisationStale(true)
@@ -181,8 +153,6 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       series: secondary ? [{ variable: secondary }] : [],
       filters: [],
       group_by: null,
-      group_variable: curveGroupInputName || undefined,
-      group_values: curveGroupInputName ? parsedGroupValues() : undefined,
       points: Math.max(10, Math.min(200, Number(sweepPointCount) || 60)),
       x_min: sweepRangeMin === '' ? undefined : Number(sweepRangeMin),
       x_max: sweepRangeMax === '' ? undefined : Number(sweepRangeMax),
@@ -505,6 +475,37 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     ? Array.from(new Set(curveRows.map((row) => asNumber(row.__group_value)).filter((value): value is number => value !== undefined)))
     : []
   const predictedTraceGroups = predictedGroupValues.length ? predictedGroupValues : [undefined]
+  const annotationInputNames = plotAnnotationMode === 'all'
+    ? schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => input.name)
+    : plotAnnotationMode === 'selected'
+      ? selectedAnnotationInputs.filter((name) => name !== sweepInputName)
+      : []
+  const plotAnnotationLabels = annotationInputNames
+    .map((name) => {
+      const input = schema.inputs.find((item) => item.name === name)
+      if (!input) return ''
+      const value = Number(visualisationFixedInputs[input.name] ?? inputs[input.name])
+      return `${input.label} = ${Number.isFinite(value) ? formatNumber(value) : '—'}${input.unit ? ` ${input.unit}` : ''}`
+    })
+    .filter(Boolean)
+  const plotAnnotations = plotAnnotationLabels.length
+    ? [{
+      xref: 'paper',
+      yref: 'paper',
+      x: 0.02,
+      y: 0.98,
+      xanchor: 'left',
+      yanchor: 'top',
+      align: 'left',
+      showarrow: false,
+      text: `<b>Fixed conditions</b><br>${plotAnnotationLabels.join('<br>')}`,
+      bgcolor: 'rgba(255,255,255,0.88)',
+      bordercolor: '#cbd5e1',
+      borderwidth: 1,
+      borderpad: 8,
+      font: { size: 12, color: '#334155' },
+    }]
+    : []
   const responseCurveData = asPlotData([
         ...genericCurveYVariables.flatMap((variable, index) => predictedTraceGroups.map((groupValue, groupIndex) => {
           const rows = groupValue === undefined ? curveRows : curveRows.filter((row) => asNumber(row.__group_value) === groupValue)
@@ -546,14 +547,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         title: { text: plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response' },
         xaxis: { title: { text: responseAxesSwapped ? genericSwappedXAxisTitle : `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false },
         yaxis: { title: { text: responseAxesSwapped ? genericSwappedYAxisTitle : `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false },
+        annotations: plotAnnotations,
       })
   const sweepMeta = schema.inputs.find((input) => input.name === sweepInputName)
   const visualisationFixedConditionLabels = schema.inputs
-    .filter((input) => input.name !== sweepInputName && input.name !== curveGroupInputName)
+    .filter((input) => input.name !== sweepInputName)
     .map((input) => `${input.label} = ${formatNumber(Number(visualisationFixedInputs[input.name] ?? inputs[input.name]))}${input.unit ? ` ${input.unit}` : ''}`)
-  const visualisationGroupLabels = curveGroupInputName
-    ? curveGroupValues.map((value) => `${schema.inputs.find((input) => input.name === curveGroupInputName)?.label ?? curveGroupInputName} = ${value}${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit ? ` ${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit}` : ''}`)
-    : []
+  const visualisationGroupLabels: string[] = []
   const sweepRangeIssue = visualisationRangeIssue()
   const sweepRangeLabel = `${sweepMeta?.label ?? sweepInputName}: ${sweepRangeMin || formatNumber(sweepMeta?.min)} to ${sweepRangeMax || formatNumber(sweepMeta?.max)}${sweepMeta?.unit ? ` ${sweepMeta.unit}` : ''}, ${Math.max(10, Math.min(200, Number(sweepPointCount) || 60))} points`
 
@@ -596,9 +596,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       </section>
 
       <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
-        <div className="grid gap-2 md:grid-cols-4">
+        <div className="grid gap-2 md:grid-cols-5">
           {[
-            ['plot', 'Experiment visualisation', 'Sweep a variable, hold fixed inputs, overlay training data'],
+            ['single_result', 'Single result', 'Tune one input set and generate KPI predictions'],
+            ['plot', 'Experiment visualisation', 'Sweep X, fix other inputs, predict Y'],
             ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
             ['compare', 'Compare/export', 'Save baselines and package outputs'],
             ['model_map', 'Model map', 'Schema inputs and predicted responses'],
@@ -658,7 +659,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose the sweep variable, fixed inputs, predicted response(s), and optional fixed-parameter curves to generate multiple predictions.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose X, predicted Y, the sweep range, and fixed values for every other input. A 60-point sweep generates exactly 60 model predictions.</p>
                 </div>
                 <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
@@ -669,7 +670,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Sweep variable
-                  <select value={sweepInputName} onChange={(event) => { const value = event.target.value; setSweepInputName(value); if (curveGroupInputName === value) { setCurveGroupInputName(''); setCurveGroupValues([]) } setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={sweepInputName} onChange={(event) => { setSweepInputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
                   </select>
                 </label>
@@ -698,12 +699,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   Points
                   <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => { setSweepPointCount(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
-                <label className="rounded-2xl border border-slate-200 bg-[#fbfaf5] px-3 py-2 text-sm font-semibold text-slate-700">
-                  Axis orientation
-                  <span className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-600">
-                    <input type="checkbox" checked={responseAxesSwapped} onChange={(event) => setResponseAxesSwapped(event.target.checked)} className="h-4 w-4 accent-[#526949]" />
-                    Switch axes
-                  </span>
+                <label className="min-w-0 text-sm font-semibold text-slate-700 xl:col-span-2">
+                  Plot orientation
+                  <select value={responseAxesSwapped ? 'response_x' : 'sweep_x'} onChange={(event) => setResponseAxesSwapped(event.target.value === 'response_x')} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <option value="sweep_x">X = sweep variable, Y = predicted response</option>
+                    <option value="response_x">X = predicted response, Y = sweep variable</option>
+                  </select>
                 </label>
               </div>
               <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
@@ -717,10 +718,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">These values are used only for the multi-point visualisation. They do not change the single-result sliders above.</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">These values are used only for the multi-point visualisation. They do not change the Single result tab inputs.</p>
                   </div>
                   <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#526949]/40">
-                    Copy current inputs into visualisation
+                    Copy Single result inputs into visualisation
                   </button>
                 </div>
                 <div className="mt-4 overflow-x-auto">
@@ -734,90 +735,84 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => {
-                        const grouped = curveGroupInputName === input.name
-                        return (
-                          <tr key={input.name} className="align-middle">
-                            <td className="px-3 py-3 font-semibold text-slate-800">{input.label}{input.unit ? <span className="ml-1 text-xs font-medium text-slate-400">/ {input.unit}</span> : null}</td>
-                            <td className="px-3 py-3">
-                              <input
-                                type="number"
-                                min={input.min}
-                                max={input.max}
-                                step={(input.max - input.min) / 200}
-                                value={visualisationFixedInputs[input.name] ?? inputs[input.name] ?? ''}
-                                onChange={(event) => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: event.target.value })); setVisualisationStale(true) }}
-                                disabled={grouped}
-                                className="w-36 rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm font-semibold text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
-                              />
-                              {grouped && <div className="mt-1 text-xs text-slate-500">Controlled by curve group values</div>}
-                            </td>
-                            <td className="px-3 py-3 text-slate-500">{formatNumber(input.min)} to {formatNumber(input.max)}</td>
-                            <td className="px-3 py-3">
-                              <button type="button" onClick={() => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: inputs[input.name] ?? '' })); setVisualisationStale(true) }} disabled={grouped} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 disabled:opacity-50">
-                                Copy slider value
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })}
+                      {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => (
+                        <tr key={input.name} className="align-middle">
+                          <td className="px-3 py-2 font-semibold text-slate-800">{input.label}{input.unit ? <span className="ml-1 text-xs font-medium text-slate-400">/ {input.unit}</span> : null}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={input.min}
+                              max={input.max}
+                              step={(input.max - input.min) / 200}
+                              value={visualisationFixedInputs[input.name] ?? inputs[input.name] ?? ''}
+                              onChange={(event) => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: event.target.value })); setVisualisationStale(true) }}
+                              className="w-36 rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm font-semibold text-slate-900"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-slate-500">{formatNumber(input.min)} to {formatNumber(input.max)}</td>
+                          <td className="px-3 py-2">
+                            <button type="button" onClick={() => { setVisualisationFixedInputs((current) => ({ ...current, [input.name]: inputs[input.name] ?? '' })); setVisualisationStale(true) }} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                              Copy single-result value
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
               <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
-                <div className="grid gap-3 lg:grid-cols-[minmax(12rem,0.4fr)_minmax(12rem,0.45fr)_auto] lg:items-end">
+                <div className="grid gap-3 lg:grid-cols-[minmax(14rem,0.45fr)_minmax(0,1fr)_auto] lg:items-end">
                   <label className="min-w-0 text-sm font-semibold text-slate-700">
-                    Curve grouping parameter
-                    <select value={curveGroupInputName} onChange={(event) => { const value = event.target.value; setCurveGroupInputName(value); setCurveGroupValues(value ? suggestedGroupValues(value) : []); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                      <option value="">No grouped predicted curves</option>
-                      {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
+                    Plot label
+                    <select value={plotAnnotationMode} onChange={(event) => setPlotAnnotationMode(event.target.value as PlotAnnotationMode)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <option value="none">No in-plot fixed-condition label</option>
+                      <option value="selected">Show selected fixed parameters</option>
+                      <option value="all">Show all fixed parameters</option>
                     </select>
                   </label>
-                  <label className="min-w-0 text-sm font-semibold text-slate-700">
-                    Add group value
-                    <div className="mt-2 flex gap-2">
-                      <input value={newCurveGroupValue} onChange={(event) => setNewCurveGroupValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCurveGroupValue() } }} disabled={!curveGroupInputName || curveGroupValues.length >= 5} type="number" placeholder="Numeric value" className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100" />
-                      <button type="button" onClick={() => addCurveGroupValue()} disabled={!curveGroupInputName || curveGroupValues.length >= 5} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Add</button>
-                    </div>
-                  </label>
+                  <div className="min-w-0 rounded-2xl bg-[#fbfaf5] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
+                    {plotAnnotationMode === 'none' ? (
+                      <span>Plot label hidden by default. Enable it only when exported figures need fixed-condition context.</span>
+                    ) : plotAnnotationMode === 'selected' ? (
+                      <div className="flex flex-wrap gap-2">
+                        {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => (
+                          <label key={input.name} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                            <input type="checkbox" checked={selectedAnnotationInputs.includes(input.name)} onChange={(event) => setSelectedAnnotationInputs((current) => event.target.checked ? [...new Set([...current, input.name])] : current.filter((name) => name !== input.name))} className="h-3.5 w-3.5 accent-[#526949]" />
+                            {input.label}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <span>All fixed parameters will be shown in the plot label. The swept variable is excluded.</span>
+                    )}
+                  </div>
                   <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate visualisation'}
                   </button>
                 </div>
-                {curveGroupInputName && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {curveGroupValues.map((value) => (
-                      <span key={value} className="inline-flex items-center gap-2 rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                        {schema.inputs.find((input) => input.name === curveGroupInputName)?.label ?? curveGroupInputName} = {value}{schema.inputs.find((input) => input.name === curveGroupInputName)?.unit ? ` ${schema.inputs.find((input) => input.name === curveGroupInputName)?.unit}` : ''}
-                        <button type="button" onClick={() => removeCurveGroupValue(value)} className="text-slate-400 hover:text-slate-700" aria-label={`Remove group value ${value}`}>×</button>
-                      </span>
-                    ))}
-                    {curveGroupValues.length === 0 && <span className="text-sm text-amber-700">Add at least one group value to draw grouped curves.</span>}
-                  </div>
-                )}
               </div>
-              <div className="mt-4 rounded-3xl border border-emerald-100 bg-emerald-50/80 p-4 shadow-sm shadow-emerald-950/5">
+              <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-emerald-950">Measured training overlay</h3>
-                    <p className="mt-1 max-w-5xl text-sm leading-6 text-emerald-900">Compare this visualisation with measured training rows from the loaded champion artifact. Matching stays contract-driven from schema roles and available prediction columns.</p>
+                    <h3 className="font-semibold text-slate-950">Measured training overlay</h3>
+                    <p className="mt-1 max-w-5xl text-sm leading-6 text-slate-600">Optional: compare this visualisation with measured training rows from the loaded champion artifact. Hidden by default so predicted sweep setup stays primary.</p>
                   </div>
-                  <span className="w-fit whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 ring-1 ring-slate-200">
                     {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
                   </span>
                 </div>
                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(16rem,0.45fr)_minmax(0,1fr)] xl:items-start">
-                  <label className="min-w-0 text-sm font-semibold text-emerald-950">
+                  <label className="min-w-0 text-sm font-semibold text-slate-700">
                     Overlay mode
-                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
+                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
                       <option value="comparable">Comparable training data</option>
                       <option value="same_current_conditions">Re-suggest matches from current values</option>
                       <option value="custom">Custom matching filters</option>
                       <option value="none">No measured overlay</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-2xl bg-white p-3 text-sm text-slate-600 ring-1 ring-emerald-100">
+                  <div className="min-w-0 rounded-2xl bg-[#fbfaf5] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
                     <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Matching by</div>
                     {overlayMode === 'none' ? (
                       <div className="mt-2 font-medium text-slate-700">Overlay hidden</div>
@@ -898,7 +893,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'plot' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <PanelHeader eyebrow="Experiment inputs" title="Tune test conditions" description="Adjust the current composition/test values, then generate one model result for the selected design. The KPI cards below belong to this single generated result." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -912,7 +907,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
               {hasPendingInputChanges && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions, or <strong>Generate visualisation</strong> to refresh the multi-point plot.
+                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions. Use the copy action in Experiment visualisation when you want these values as sweep fixed conditions.
                 </div>
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
@@ -999,7 +994,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     <div>
                       <h3 className="font-semibold text-blue-950">Optimization goal</h3>
                       <p className="mt-1 text-sm leading-6 text-blue-900">
-                        Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate into Experiment inputs.
+                        Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate into Single result inputs.
                       </p>
                     </div>
                     <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-blue-800">Current goal: {currentGoalLabel}</span>
@@ -1070,7 +1065,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Experiment inputs; constrained inputs search only inside the selected range.</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Single result inputs; constrained inputs search only inside the selected range.</p>
                   </div>
                   <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">generic inputs</span>
                 </div>
@@ -1132,7 +1127,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             )}
             {curveRows.length > 0 && visualisationStale && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                Inputs have changed since this plot was generated. Click <strong>Generate visualisation</strong> to refresh the multi-point plot, or <strong>Generate result</strong> to refresh only the KPI cards.
+                Fixed values or plot setup changed since this plot was generated. Click <strong>Generate visualisation</strong> to refresh the multi-point plot.
               </div>
             )}
             {curveRows.length > 0 && (
