@@ -540,14 +540,25 @@ def download_run_artifacts(project_id: str, run_id: str, *, refresh: bool = Fals
             shutil.rmtree(dst)
         dst.mkdir(parents=True, exist_ok=True)
         marker.write_text(run_id, encoding="utf-8")
-    names = ["schema.json", "preprocessing.json", "metadata.json", "training_manifest.json"]
+    names = [
+        "schema.json",
+        "preprocessing.json",
+        "preprocessing_fitted.json",
+        "feature_map.json",
+        "target_map.json",
+        "metadata.json",
+        "training_manifest.json",
+        "model_table_preprocessed_manifest.json",
+    ]
     if include_quality:
-        names.extend(["metrics_summary.json", "candidate_comparison.csv", "preprocessing_report.json", "artifact_summary.json"])
+        names.extend(["metrics_summary.json", "candidate_comparison.csv", "preprocessing_report.json", "ml_preprocessing_report.json", "artifact_summary.json"])
     if include_predictions:
         names.append("predictions.csv")
+    listed_artifacts = True
     try:
         available = {artifact.path for artifact in client.list_artifacts(run_id)}
     except Exception:
+        listed_artifacts = False
         available = set(names)
     for name in names:
         if name not in available or (dst / name).exists():
@@ -556,6 +567,17 @@ def download_run_artifacts(project_id: str, run_id: str, *, refresh: bool = Fals
             mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=name, dst_path=str(dst))
         except Exception:
             continue
+    ml_preprocessing_v1 = False
+    manifest_path = dst / "training_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            ml_preprocessing_v1 = str(manifest.get("preprocessing_contract_version") or manifest.get("ml_preprocessing_contract_version") or "") == "mirai-ml-preprocessing-v1"
+        except Exception:
+            ml_preprocessing_v1 = False
+    ml_preprocessing_v1 = ml_preprocessing_v1 or (listed_artifacts and "model_table_preprocessed_manifest.json" in available) or (dst / "model_table_preprocessed_manifest.json").exists()
+    if ml_preprocessing_v1:
+        required.extend(["preprocessing_fitted.json", "feature_map.json", "target_map.json"])
     missing = [name for name in required if not (dst / name).exists()]
     if missing:
         raise FileNotFoundError(f"MLflow run artifacts for {project_id}/{run_id} are missing: {', '.join(missing)}")

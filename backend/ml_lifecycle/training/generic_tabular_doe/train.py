@@ -568,7 +568,7 @@ class GenericTorchMLPRegressor(BaseEstimator, RegressorMixin):
         return self.output_scaler_.inverse_transform(pred_scaled)
 
 
-def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *, sample_x: pd.DataFrame) -> dict[str, Any]:
+def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *, sample_x: pd.DataFrame, input_name: str = "raw_features") -> dict[str, Any]:
     import torch
 
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -584,9 +584,9 @@ def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *
         export_params=True,
         opset_version=17,
         do_constant_folding=True,
-        input_names=["raw_features"],
+        input_names=[input_name],
         output_names=["raw_outputs"],
-        dynamic_axes={"raw_features": {0: "batch_size"}, "raw_outputs": {0: "batch_size"}},
+        dynamic_axes={input_name: {0: "batch_size"}, "raw_outputs": {0: "batch_size"}},
         dynamo=False,
     )
     try:
@@ -600,7 +600,7 @@ def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *
             sidecar_path.unlink()
     except ImportError:
         pass
-    report: dict[str, Any] = {"path": str(onnx_path), "input_name": "raw_features", "output_name": "raw_outputs", "opset_version": 17, "verified": False}
+    report: dict[str, Any] = {"path": str(onnx_path), "input_name": input_name, "output_name": "raw_outputs", "opset_version": 17, "verified": False}
     try:
         import onnxruntime as ort
 
@@ -616,7 +616,7 @@ def _export_generic_mlp_onnx(model: GenericTorchMLPRegressor, onnx_path: Path, *
     return report
 
 
-def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.DataFrame) -> dict[str, Any]:
+def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.DataFrame, input_name: str = "raw_features") -> dict[str, Any]:
     """Export simple sklearn generic candidates as raw-feature ONNX models.
 
     The generic training candidates are intentionally constrained to mean baseline,
@@ -691,9 +691,9 @@ def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.Da
             module,
             dummy_input,
             str(onnx_path),
-            input_names=["raw_features"],
+            input_names=[input_name],
             output_names=["raw_outputs"],
-            dynamic_axes={"raw_features": {0: "batch"}, "raw_outputs": {0: "batch"}},
+            dynamic_axes={input_name: {0: "batch"}, "raw_outputs": {0: "batch"}},
             opset_version=17,
             dynamo=False,
         )
@@ -708,7 +708,7 @@ def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.Da
             sidecar_path.unlink()
     except ImportError:
         pass
-    report: dict[str, Any] = {"path": str(onnx_path), "input_name": "raw_features", "output_name": "raw_outputs", "opset_version": 17, "verified": False}
+    report: dict[str, Any] = {"path": str(onnx_path), "input_name": input_name, "output_name": "raw_outputs", "opset_version": 17, "verified": False}
     try:
         import onnxruntime as ort
 
@@ -770,6 +770,8 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
     else:
         inputs = list(preprocessing.get("input_order") or [item["name"] for item in schema.get("inputs", [])])
         outputs = list(preprocessing.get("output_order") or [item["name"] for item in schema.get("outputs", [])])
+    serving_input_space = "model_table_preprocessed" if uses_ml_preprocessing_v1 else "schema_raw"
+    onnx_input_name = "model_table_features" if uses_ml_preprocessing_v1 else "raw_features"
     train = model_table[model_table["split"] == "train"]
     validation = model_table[model_table["split"] == "validation"]
     test = model_table[model_table["split"] == "test"]
@@ -803,9 +805,9 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         candidate_payload: dict[str, Any] = {"model_name": name, "model_family": name.split("_")[0], "validation": metric, "model_path": str(path)}
         onnx_path = models_dir / f"{name}.onnx"
         if isinstance(model, GenericTorchMLPRegressor):
-            onnx_report = _export_generic_mlp_onnx(model, onnx_path, sample_x=x_val)
+            onnx_report = _export_generic_mlp_onnx(model, onnx_path, sample_x=x_val, input_name=onnx_input_name)
         else:
-            onnx_report = _export_generic_sklearn_onnx(model, onnx_path, sample_x=x_val)
+            onnx_report = _export_generic_sklearn_onnx(model, onnx_path, sample_x=x_val, input_name=onnx_input_name)
         _write_json(models_dir / f"{name}_onnx_report.json", onnx_report)
         candidate_payload.update({"onnx_path": str(onnx_path), "onnx_report_path": str(models_dir / f"{name}_onnx_report.json"), "onnx_verified": bool(onnx_report.get("verified")), "onnx_max_abs_diff": onnx_report.get("max_abs_diff")})
         joblib.dump(model, path)
@@ -878,6 +880,9 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         "split_metrics": split_metrics,
         "input_order": inputs,
         "output_order": outputs,
+        "serving_input_space": serving_input_space,
+        "requires_ml_preprocessing_v1": uses_ml_preprocessing_v1,
+        "model_feature_order": inputs,
         "predictions_artifact": str(artifact_dir / "predictions.csv"),
         "generic_training": True,
         "deployment_note": "Generic MVP stores sklearn joblib and logs a challenger run to MLflow when available.",
@@ -889,7 +894,7 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
     }
     _write_json(artifact_dir / "metrics_summary.json", metrics_summary)
     _write_json(artifact_dir / "metrics.json", metrics_summary)
-    _write_json(artifact_dir / "metadata.json", {"project_id": project_id, "created_at": _now(), "best_model": best["model_name"], "model_artifact": best["model_path"], "onnx_artifact": best.get("onnx_path"), "schema_driven": True})
+    _write_json(artifact_dir / "metadata.json", {"project_id": project_id, "created_at": _now(), "best_model": best["model_name"], "model_artifact": best["model_path"], "onnx_artifact": best.get("onnx_path"), "schema_driven": True, "serving_input_space": serving_input_space, "requires_ml_preprocessing_v1": uses_ml_preprocessing_v1, "model_feature_order": inputs})
     if best.get("onnx_path") and Path(str(best["onnx_path"])).exists():
         shutil.copyfile(str(best["onnx_path"]), artifact_dir / "model.onnx")
     mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}

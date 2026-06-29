@@ -39,6 +39,10 @@ def _cache_key(project_id: str, workspace_id: str | None = None) -> str:
     return f"{workspace_id or '_default'}::{project_id}"
 
 
+def _requires_external_preprocessing(preprocessing: dict) -> bool:
+    return preprocessing.get("preprocessing_contract_version") == "mirai-ml-preprocessing-v1" and bool(preprocessing.get("fitted_parameters"))
+
+
 def load_model(project_id: str, workspace_id: str | None = None) -> ProjectModel:
     cache_key = _cache_key(project_id, workspace_id)
     cached = _MODEL_CACHE.get(cache_key)
@@ -72,7 +76,14 @@ def load_model(project_id: str, workspace_id: str | None = None) -> ProjectModel
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
     template_id = preprocessing.get("template_id") or (schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else None)
-    model_kind = "onnx_raw" if template_id == "generic_tabular_doe" and input_name == "raw_features" else "onnx_scaled"
+    requires_preprocessing = _requires_external_preprocessing(preprocessing)
+    model_kind = "onnx_scaled" if requires_preprocessing else ("onnx_raw" if template_id == "generic_tabular_doe" and input_name == "raw_features" else "onnx_scaled")
+    serving_metadata = {
+        **metadata,
+        "model_artifact_format": "onnx",
+        "serving_input_space": "schema_raw" if not requires_preprocessing else "model_table_preprocessed",
+        "requires_ml_preprocessing_v1": bool(requires_preprocessing),
+    }
 
     model = ProjectModel(
         project_id=project_id,
@@ -80,7 +91,7 @@ def load_model(project_id: str, workspace_id: str | None = None) -> ProjectModel
         input_name=input_name,
         output_name=output_name,
         schema=schema,
-        metadata={**metadata, "model_artifact_format": "onnx"},
+        metadata=serving_metadata,
         preprocessing=preprocessing,
         model_kind=model_kind,
     )

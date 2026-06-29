@@ -433,11 +433,50 @@ def get_project_metadata(project_id: str, workspace_id: str | None = None) -> di
     return _read_json(metadata_path)
 
 
+def _normalise_fitted_preprocessing(artifact_dir: Path, fitted: dict, lineage: dict | None = None) -> dict:
+    payload = dict(fitted)
+    contract = payload.get("preprocessing_contract_version") or payload.get("version")
+    if contract:
+        payload["preprocessing_contract_version"] = str(contract)
+    feature_map_path = artifact_dir / "feature_map.json"
+    target_map_path = artifact_dir / "target_map.json"
+    if feature_map_path.exists():
+        feature_map = _read_json(feature_map_path)
+        if not payload.get("feature_columns") and isinstance(feature_map.get("feature_columns"), list):
+            payload["feature_columns"] = feature_map["feature_columns"]
+        payload.setdefault("feature_map", feature_map)
+    if target_map_path.exists():
+        target_map = _read_json(target_map_path)
+        if not payload.get("target_columns") and isinstance(target_map.get("target_columns"), list):
+            payload["target_columns"] = target_map["target_columns"]
+        payload.setdefault("target_map", target_map)
+    if not payload.get("input_order"):
+        payload["input_order"] = payload.get("feature_columns") or payload.get("feature_input_order") or []
+    if not payload.get("output_order"):
+        payload["output_order"] = payload.get("target_columns") or payload.get("target_output_order") or []
+    if lineage:
+        payload.setdefault("source_preprocessing", lineage)
+        for key in ["source", "package_dir", "workspace_id", "project_id", "dataset_id", "session_id", "training_request_id", "exported_at", "source_checksums"]:
+            if key in lineage and key not in payload:
+                payload[key] = lineage[key]
+    if payload.get("preprocessing_contract_version") == "mirai-ml-preprocessing-v1":
+        missing = [name for name in ["input_order", "output_order", "fitted_parameters"] if not payload.get(name)]
+        if missing:
+            raise FileNotFoundError(f"ML preprocessing v1 fitted artifact in {artifact_dir} is missing required serving fields: {', '.join(missing)}")
+    return payload
+
+
 @lru_cache(maxsize=32)
 def get_project_preprocessing(project_id: str, workspace_id: str | None = None) -> dict:
     artifact_dir = _latest_project_artifact_dir(project_id, workspace_id)
     if artifact_dir is not None:
         preprocessing_path = artifact_dir / "preprocessing.json"
+        fitted_path = artifact_dir / "preprocessing_fitted.json"
+        lineage = _read_json(preprocessing_path) if preprocessing_path.exists() else None
+        if fitted_path.exists():
+            return _normalise_fitted_preprocessing(artifact_dir, _read_json(fitted_path), lineage)
+        if (artifact_dir / "model_table_preprocessed_manifest.json").exists() or (lineage and lineage.get("version") == "mirai-ml-preprocessing-v1"):
+            raise FileNotFoundError(f"Fitted ML preprocessing artifact not found for project_id: {project_id}; expected preprocessing_fitted.json for serving model_table_preprocessed champions")
         if not preprocessing_path.exists():
             raise FileNotFoundError(f"Preprocessing artifact not found for project_id: {project_id}")
         return _read_json(preprocessing_path)

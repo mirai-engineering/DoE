@@ -107,43 +107,85 @@ def rows_to_feature_matrix(
     return np.asarray(matrix, dtype=np.float32), warnings
 
 
+def _safe_scale(value: Any, default: float = 1.0) -> float:
+    scale = float(value if value is not None else default)
+    return scale if abs(scale) > 1e-12 else 1.0
+
+
+def _apply_fitted_input_action(col: np.ndarray, item: dict[str, Any]) -> np.ndarray:
+    params = item.get("parameters") or {}
+    tool = item.get("tool")
+    if tool == "impute_numeric":
+        fill = params.get("value", params.get("fill_value", params.get("median", params.get("mean"))))
+        if fill is not None:
+            col = np.where(np.isfinite(col), col, float(fill)).astype(np.float32)
+    elif tool == "minmax_scaler":
+        col = ((col - float(params.get("min", 0.0))) / _safe_scale(params.get("scale", 1.0))).astype(np.float32)
+    elif tool == "standard_scaler":
+        col = ((col - float(params.get("mean", 0.0))) / _safe_scale(params.get("std", 1.0))).astype(np.float32)
+    elif tool == "robust_scaler":
+        col = ((col - float(params.get("median", 0.0))) / _safe_scale(params.get("iqr", 1.0))).astype(np.float32)
+    elif tool == "log1p_feature":
+        col = np.log1p(col).astype(np.float32)
+    elif tool == "clip_numeric":
+        lower = params.get("lower")
+        upper = params.get("upper")
+        col = np.clip(col, -np.inf if lower is None else float(lower), np.inf if upper is None else float(upper)).astype(np.float32)
+    elif tool == "passthrough":
+        pass
+    else:
+        raise ValueError(f"Unsupported ML preprocessing input tool: {tool}")
+    return col.astype(np.float32)
+
+
 def _transform_inputs_v1(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
     values = np.asarray(input_matrix, dtype=np.float32).copy()
-    columns = preprocessing.get("input_order") or preprocessing.get("feature_input_order") or []
+    input_order = preprocessing.get("input_order") or preprocessing.get("feature_input_order") or preprocessing.get("feature_columns") or []
+    feature_columns = preprocessing.get("feature_columns") or input_order
+    if not input_order:
+        raise ValueError("ML preprocessing v1 artifact is missing input_order")
+    if not feature_columns:
+        raise ValueError("ML preprocessing v1 artifact is missing feature_columns/input_order")
+    if values.shape[1] != len(input_order):
+        raise ValueError(f"Input matrix column count {values.shape[1]} does not match preprocessing input_order count {len(input_order)}")
+    column_index = {str(name): idx for idx, name in enumerate(input_order)}
     fitted = preprocessing.get("fitted_parameters") or []
-    column_index = {name: idx for idx, name in enumerate(columns)}
-    output_columns: list[np.ndarray] = []
+    actions_by_variable: dict[str, list[dict[str, Any]]] = {}
+    dropped: set[str] = set()
     for item in fitted:
-        if item.get("role") in {"target", "output"} or item.get("tool") in {"target_transform", "drop_from_training"}:
-            continue
-        name = item.get("variable_id")
-        if name not in column_index:
-            continue
-        col = values[:, column_index[name]].astype(np.float32)
-        params = item.get("parameters") or {}
         tool = item.get("tool")
-        method = item.get("method")
-        if tool == "impute_numeric":
-            fill = params.get("value")
-            if fill is not None:
-                col = np.where(np.isfinite(col), col, float(fill)).astype(np.float32)
-        elif tool == "minmax_scaler" or (tool == "target_transform" and method == "minmax"):
-            col = ((col - float(params.get("min", 0.0))) / float(params.get("scale", 1.0))).astype(np.float32)
-        elif tool == "standard_scaler" or (tool == "target_transform" and method == "standard"):
-            col = ((col - float(params.get("mean", 0.0))) / float(params.get("std", 1.0))).astype(np.float32)
-        elif tool == "robust_scaler":
-            col = ((col - float(params.get("median", 0.0))) / float(params.get("iqr", 1.0))).astype(np.float32)
-        elif tool == "log1p_feature":
-            col = np.log1p(col).astype(np.float32)
-        elif tool == "clip_numeric":
-            lower = params.get("lower"); upper = params.get("upper")
-            col = np.clip(col, -np.inf if lower is None else float(lower), np.inf if upper is None else float(upper)).astype(np.float32)
-        elif tool in {"passthrough", "impute_numeric"}:
-            pass
-        output_columns.append(col.reshape(-1, 1))
-    if not output_columns:
-        return values
-    return np.concatenate(output_columns, axis=1).astype(np.float32)
+        if item.get("role") in {"target", "output"} or tool == "target_transform":
+            continue
+        variable = item.get("variable_id")
+        if not variable:
+            continue
+        name = str(variable)
+        if tool == "drop_from_training":
+            dropped.add(name)
+            continue
+        if name in column_index:
+            actions_by_variable.setdefault(name, []).append(item)
+    transformed_by_variable: dict[str, np.ndarray] = {}
+    for name, idx in column_index.items():
+        if name in dropped:
+            continue
+        col = values[:, idx].astype(np.float32)
+        for item in actions_by_variable.get(name, []):
+            col = _apply_fitted_input_action(col, item)
+        transformed_by_variable[name] = col.astype(np.float32)
+    output_columns: list[np.ndarray] = []
+    missing_features: list[str] = []
+    for feature in [str(item) for item in feature_columns]:
+        if feature in transformed_by_variable:
+            output_columns.append(transformed_by_variable[feature].reshape(-1, 1))
+        else:
+            missing_features.append(feature)
+    if missing_features:
+        raise ValueError(f"ML preprocessing v1 artifact did not produce required feature column(s): {', '.join(missing_features)}")
+    output = np.concatenate(output_columns, axis=1).astype(np.float32)
+    if output.shape[1] != len(feature_columns):
+        raise ValueError(f"Transformed feature count {output.shape[1]} does not match expected feature count {len(feature_columns)}")
+    return output
 
 
 def transform_inputs(input_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
