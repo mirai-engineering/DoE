@@ -311,3 +311,44 @@ def test_simple_experiment_visualisation_predicts_exactly_requested_points_witho
     assert {row["fixed_b"] for row in captured_rows} == {123.25}
     assert curve["recipe"]["group_variable"] is None
     assert curve["recipe"]["group_values"] == []
+
+
+def test_experiment_visualisation_generates_raw_schema_rows_and_delegates_prediction(monkeypatch):
+    schema = {
+        "inputs": [
+            {"name": "x_raw", "min": 100, "max": 200},
+            {"name": "fixed", "min": 10, "max": 20},
+        ],
+        "outputs": [{"name": "y", "direction": "maximize"}],
+        "domain_metadata": {"ui_config": {"plot_recipes": []}},
+    }
+    captured_rows = []
+    monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
+
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+        captured_rows.extend(rows)
+        return [{"y": row["x_raw"] + row["fixed"]} for row in rows], [], "model_v1"
+
+    monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
+
+    curve, warnings, model_version = design_studio._experiment_visualisation_rows(
+        "p",
+        {"x_raw": 150, "fixed": 12.5},
+        visualisation_config={
+            "id": "raw_sweep",
+            "kind": "experiment_visualisation",
+            "x": {"variable": "x_raw"},
+            "y": {"variable": "y"},
+            "points": 14,
+            "x_min": 120,
+            "x_max": 180,
+        },
+    )
+
+    assert warnings == []
+    assert model_version == "model_v1"
+    assert len(captured_rows) == 14
+    assert len(curve["rows"]) == 14
+    assert captured_rows[0] == {"x_raw": 120.0, "fixed": 12.5}
+    assert captured_rows[-1] == {"x_raw": 180.0, "fixed": 12.5}
+    assert {row["fixed"] for row in captured_rows} == {12.5}
