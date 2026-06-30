@@ -31,13 +31,13 @@ html {
 .mirai-auth-shell [class*="bg-[#fbfaf5]"],
 .mirai-auth-shell [class*="bg-[#f8f6ef]"],
 .mirai-auth-shell [class*="bg-[#fffdf7]"] {
-  background-color: rgba(10, 22, 48, 0.72) !important;
+  background-color: #0b1220 !important;
 }
 
 .mirai-auth-shell [class*="border-slate-200"],
 .mirai-auth-shell [class*="border-white"],
 .mirai-auth-shell [class*="border-slate-300"] {
-  border-color: rgba(124, 92, 255, 0.16) !important;
+  border-color: rgba(51, 65, 85, 0.9) !important;
 }
 
 .mirai-auth-shell [class*="text-slate-950"],
@@ -50,15 +50,15 @@ html {
 .mirai-auth-shell [class*="text-slate-600"],
 .mirai-auth-shell [class*="text-slate-500"],
 .mirai-auth-shell [class*="text-slate-400"] {
-  color: #9BA8C0 !important;
+  color: #CBD5E1 !important;
 }
 
 .mirai-auth-shell input,
 .mirai-auth-shell select,
 .mirai-auth-shell textarea {
-  background-color: rgba(3, 7, 22, 0.82) !important;
-  border-color: rgba(124, 92, 255, 0.18) !important;
-  color: #F6F4EA !important;
+  background-color: #050914 !important;
+  border-color: rgba(51, 65, 85, 0.95) !important;
+  color: #F8FAFC !important;
 }
 
 .mirai-auth-shell input::placeholder,
@@ -67,16 +67,16 @@ html {
 }
 
 .mirai-auth-shell table thead {
-  color: #63D7FF;
+  color: #BAE6FD;
 }
 
 .mirai-auth-shell tbody tr {
-  border-color: rgba(124, 92, 255, 0.1);
+  border-color: rgba(51, 65, 85, 0.75);
 }
 
 .mirai-auth-shell .js-plotly-plot,
 .mirai-auth-shell .plot-container {
-  border-radius: 1.5rem;
+  border-radius: 0.5rem;
 }
 
 .constellation-grid {

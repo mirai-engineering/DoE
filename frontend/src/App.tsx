@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { ProjectHeader } from './components/ProjectHeader'
+import { Tabs } from './components/Tabs'
 import { PredictPanel } from './components/PredictPanel'
 import { RecommendPanel } from './components/RecommendPanel'
 import { RecommendationsPage } from './components/RecommendationsPage'
@@ -40,6 +41,7 @@ function App() {
   const [appError, setAppError] = useState<string | null>(null)
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [schemaLoading, setSchemaLoading] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('mirai.sidebarCollapsed') === 'true')
 
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [prediction, setPrediction] = useState<PredictionMap | null>(null)
@@ -89,6 +91,10 @@ function App() {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('mirai.sidebarCollapsed', String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     if (!selectedProjectId) return
@@ -233,49 +239,48 @@ function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
 
   return (
-    <main className="mirai-auth-shell min-h-screen overflow-x-hidden bg-[#010412] text-[#F6F4EA]">
+    <main className="mirai-auth-shell min-h-screen overflow-x-hidden bg-[#050914] text-[#F8FAFC]">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_0%,rgba(124,92,255,0.18),transparent_34%),radial-gradient(ellipse_at_85%_18%,rgba(99,215,255,0.12),transparent_32%),linear-gradient(180deg,#030716_0%,#010412_52%,#061226_100%)]" />
-        <div className="absolute inset-0 opacity-[0.08] constellation-grid" />
-        <div className="absolute -left-32 top-[-18rem] h-[34rem] w-[34rem] rounded-full bg-[#7C5CFF]/25 blur-3xl" />
-        <div className="absolute right-[-12rem] top-36 h-[32rem] w-[32rem] rounded-full bg-[#63D7FF]/10 blur-3xl" />
-        <div className="absolute left-1/2 top-[-8rem] h-[22rem] w-[42rem] -translate-x-1/2 rounded-full bg-[#3B82F6]/10 blur-3xl" />
-        <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-[#010412] to-transparent" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,#08111F_0%,#050914_46%,#07101D_100%)]" />
+        <div className="absolute inset-0 opacity-[0.055] constellation-grid" />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-400/30 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#050914] to-transparent" />
       </div>
 
-      <div className="relative mx-auto flex max-w-7xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
-        <ProjectHeader
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          selectedProject={selectedProject}
-          schema={schema}
-          workspaces={workspaces}
-          projectsLoading={projectsLoading}
-          activeTab={activeTab}
-          onProjectChange={handleProjectChange}
-          onTabChange={setActiveTab}
-        />
+      <div className={`relative mx-auto grid max-w-[98rem] gap-5 px-4 py-5 transition-[grid-template-columns] duration-200 sm:px-6 lg:px-8 ${sidebarCollapsed ? 'lg:grid-cols-[5rem_minmax(0,1fr)]' : 'lg:grid-cols-[16.5rem_minmax(0,1fr)]'}`}>
+        <Tabs activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        {appError && <Alert tone="error" title="Backend connection issue" messages={[appError]} />}
-
-        {account && account.status !== 'active_single_workspace' && (
-          <Alert
-            tone="warning"
-            title="Workspace setup required"
-            messages={[account.message ?? 'Your account is active, but no client workspace has been assigned yet.']}
+        <div className="min-w-0 space-y-6">
+          <ProjectHeader
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            selectedProject={selectedProject}
+            schema={schema}
+            workspaces={workspaces}
+            projectsLoading={projectsLoading}
+            onProjectChange={handleProjectChange}
           />
-        )}
 
-        {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
-          <div className="rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-8 text-[#9BA8C0] shadow-2xl shadow-black/30 backdrop-blur-xl">
+          {appError && <Alert tone="error" title="Backend connection issue" messages={[appError]} />}
+
+          {account && account.status !== 'active_single_workspace' && (
+            <Alert
+              tone="warning"
+              title="Workspace setup required"
+              messages={[account.message ?? 'Your account is active, but no client workspace has been assigned yet.']}
+            />
+          )}
+
+          {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
+          <div className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 text-slate-300 shadow-xl shadow-black/25">
             Loading project schema...
           </div>
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
               <div className="space-y-8">
-                <section className="rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7C5CFF]">
+                <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 shadow-xl shadow-black/25">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
                     Batch Search
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#F6F4EA]">
@@ -294,8 +299,8 @@ function App() {
                         key={view.id}
                         type="button"
                         onClick={() => setBatchView(view.id as 'configure' | 'results' | 'visuals')}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          batchView === view.id ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/25' : 'border border-violet-300/15 bg-white/5 text-[#9BA8C0] hover:border-[#7C5CFF]/40 hover:bg-white/10 hover:text-[#F6F4EA]'
+                        className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
+                          batchView === view.id ? 'bg-[#2F6BFF] text-white shadow-sm shadow-black/20' : 'border border-slate-700 bg-[#080D18] text-slate-300 hover:border-slate-500 hover:bg-[#0E1729] hover:text-white'
                         }`}
                       >
                         {view.label}
@@ -378,9 +383,10 @@ function App() {
 
             {activeTab === 'data-scientist' && schema && <DataScientistPage schema={schema} />}
           </>
-        ) : activeTab === 'data-intake' ? (
-          <DataIntakePage schema={null} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />
-        ) : null}
+          ) : activeTab === 'data-intake' ? (
+            <DataIntakePage schema={null} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />
+          ) : null}
+        </div>
       </div>
     </main>
   )

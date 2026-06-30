@@ -1,12 +1,11 @@
-import { useMemo, useState } from 'react'
 import type { ActiveTab } from '../types/doe'
 
 type NavItem = {
-  id?: ActiveTab
+  id: ActiveTab
   label: string
   description: string
-  disabled?: boolean
-  note?: string
+  badge?: string
+  short: string
 }
 
 const tabGroups: Array<{
@@ -15,29 +14,29 @@ const tabGroups: Array<{
   items: NavItem[]
 }> = [
   {
-    title: 'Model setup',
-    subtitle: 'Prepare',
+    title: 'Setup',
+    subtitle: 'Dev/admin workflow',
     items: [
-      { id: 'data-intake', label: 'Data Intake', description: 'Upload data and create a project.' },
-      { id: 'preprocessing-review', label: 'Preprocessing', description: 'Approve metadata, evidence, and training.' },
-      { id: 'model-quality', label: 'Model Quality', description: 'Review model performance.' },
-      { id: 'data-scientist', label: 'Data Scientist', description: 'Ask scoped questions about data and models.' },
+      { id: 'data-intake', label: 'Data Intake', description: 'Upload data and create a project.', short: 'DI' },
+      { id: 'preprocessing-review', label: 'Preprocessing', description: 'Approve metadata, evidence, and training.', short: 'PR' },
+      { id: 'model-quality', label: 'Model Quality', description: 'Confirm trained-model readiness.', badge: 'Product', short: 'MQ' },
+      { id: 'data-scientist', label: 'Data Scientist', description: 'Ask scoped questions about data and models.', short: 'DS' },
     ],
   },
   {
     title: 'Design',
-    subtitle: 'Use model',
+    subtitle: 'Scientist workflow',
     items: [
-      { id: 'design-studio', label: 'Design Studio', description: 'Explore predictions interactively.' },
-      { id: 'batch', label: 'Batch Search', description: 'Rank virtual candidates.' },
-      { id: 'optimization', label: 'Explore & Exploit', description: 'Plan sequential experiments.' },
+      { id: 'design-studio', label: 'Design Studio', description: 'Explore predictions interactively.', badge: 'Product', short: 'ST' },
+      { id: 'batch', label: 'Batch Search', description: 'Rank virtual candidates.', short: 'BS' },
+      { id: 'optimization', label: 'Explore & Exploit', description: 'Plan sequential experiments.', short: 'EE' },
     ],
   },
   {
     title: 'Impact',
-    subtitle: 'Value',
+    subtitle: 'Decision support',
     items: [
-      { id: 'impact', label: 'Business Impact', description: 'Estimate time and cost savings.' },
+      { id: 'impact', label: 'Business Impact', description: 'Estimate time and cost savings.', short: 'BI' },
     ],
   },
 ]
@@ -45,79 +44,88 @@ const tabGroups: Array<{
 export function Tabs({
   activeTab,
   onTabChange,
+  collapsed,
+  onCollapsedChange,
 }: {
   activeTab: ActiveTab
   onTabChange: (tab: ActiveTab) => void
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
 }) {
-  const [openGroup, setOpenGroup] = useState<string | null>(null)
-
-  const activeGroup = useMemo(
-    () => tabGroups.find((group) => group.items.some((item) => item.id === activeTab)),
-    [activeTab],
-  )
-
   return (
-    <nav className="relative z-[90] mt-6" aria-label="Primary product navigation">
-      {openGroup && <button type="button" aria-label="Close navigation menu" className="fixed inset-0 z-[85] cursor-default bg-transparent" onClick={() => setOpenGroup(null)} />}
-      <div className="relative z-[90] flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-violet-300/15 bg-white/[0.04] p-2 shadow-inner shadow-white/5 backdrop-blur-xl">
-        {tabGroups.map((group) => {
-          const groupActive = group.title === activeGroup?.title
-          const activeItem = group.items.find((item) => item.id === activeTab)
-          const isOpen = openGroup === group.title
-          return (
-            <div key={group.title} className="relative">
-              <button
-                type="button"
-                onClick={() => setOpenGroup(isOpen ? null : group.title)}
-                className={`flex min-w-[10rem] items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition ${
-                  groupActive ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/25 ring-1 ring-white/20' : 'bg-white/5 text-[#F6F4EA] shadow-sm shadow-black/10 hover:bg-white/10'
-                }`}
-                aria-haspopup="menu"
-                aria-expanded={isOpen}
-              >
-                <span>
-                  <span className="block text-sm font-semibold">{group.title}</span>
-                  <span className={`mt-0.5 block text-xs ${groupActive ? 'text-white/70' : 'text-[#9BA8C0]'}`}>{activeItem?.label ?? group.subtitle}</span>
-                </span>
-                <span className={`grid h-6 w-6 place-items-center rounded-full text-sm transition ${groupActive ? 'bg-white/10' : 'bg-[#030716]/70 text-[#9BA8C0]'} ${isOpen ? 'rotate-180' : ''}`}>⌄</span>
-              </button>
-
-              {isOpen && (
-                <div role="menu" className="absolute left-0 z-[95] mt-3 w-[20rem] overflow-hidden rounded-3xl border border-violet-300/15 bg-[#0A1630] shadow-2xl shadow-black/40 ring-1 ring-white/10">
-                  <div className="p-2">
-                    {group.items.map((item) => {
-                      const itemActive = item.id === activeTab
-                      return (
-                        <button
-                          key={item.label}
-                          type="button"
-                          role="menuitem"
-                          disabled={item.disabled}
-                          onClick={() => {
-                            if (!item.id) return
-                            onTabChange(item.id)
-                            setOpenGroup(null)
-                          }}
-                          className={`w-full rounded-2xl px-4 py-3 text-left transition ${
-                            itemActive
-                              ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/20'
-                              : item.disabled
-                                ? 'cursor-not-allowed border border-dashed border-violet-300/10 bg-white/5 text-[#5A6B89]'
-                                : 'text-[#F6F4EA] hover:bg-white/10'
-                          }`}
-                        >
-                          <span className="font-semibold">{item.label}</span>
-                          <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/70' : 'text-[#9BA8C0]'}`}>{item.description}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+    <aside className="sticky top-5 z-[90] flex max-h-[calc(100vh-2.5rem)] flex-col overflow-hidden rounded-lg border border-slate-700/80 bg-[#080D18] shadow-xl shadow-black/25" aria-label="Primary product navigation">
+      <div className={`border-b border-slate-700/70 ${collapsed ? 'p-3' : 'p-4'}`}>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
+          <img src="/assets/mirai-mark.png" alt="Mirai" className="h-10 w-10 rounded-md border border-slate-600 bg-[#050914] object-cover" />
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#74C7F5]">Mirai</p>
+              <p className="mt-0.5 text-sm font-semibold tracking-[-0.01em] text-slate-100">AI-guided acceleration</p>
             </div>
-          )
-        })}
+          )}
+        </div>
+        {!collapsed && <p className="mt-4 text-xs leading-5 text-slate-400">Process and product acceleration for industrial R&amp;D.</p>}
+        <button
+          type="button"
+          onClick={() => onCollapsedChange(!collapsed)}
+          className={`mt-4 inline-flex h-9 items-center justify-center rounded-md border border-slate-700 bg-[#050914] text-xs font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-slate-500 hover:text-white ${collapsed ? 'w-full px-0' : 'w-full px-3'}`}
+          aria-label={collapsed ? 'Show dashboard navigation' : 'Hide dashboard navigation'}
+          title={collapsed ? 'Show dashboard' : 'Hide dashboard'}
+        >
+          {collapsed ? '›' : 'Hide dashboard'}
+        </button>
       </div>
-    </nav>
+
+      <nav className={`min-h-0 flex-1 space-y-5 overflow-y-auto ${collapsed ? 'p-2' : 'p-2.5'}`} aria-label="Workflow sections">
+        {tabGroups.map((group) => (
+          <div key={group.title}>
+            {!collapsed && (
+              <div className="mb-2 px-2">
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">{group.title}</p>
+                <p className="mt-0.5 text-[0.72rem] text-slate-500">{group.subtitle}</p>
+              </div>
+            )}
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const itemActive = item.id === activeTab
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onTabChange(item.id)}
+                    aria-current={itemActive ? 'page' : undefined}
+                    aria-label={collapsed ? item.label : undefined}
+                    title={collapsed ? item.label : undefined}
+                    className={`group relative w-full rounded-md border text-left transition ${
+                      collapsed ? 'px-2 py-3 text-center' : 'px-3 py-3'
+                    } ${
+                      itemActive
+                        ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-sm shadow-black/20 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-[#74C7F5]'
+                        : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-[#0D1524] hover:text-white'
+                    }`}
+                  >
+                    {collapsed ? (
+                      <span className="block text-xs font-bold tracking-[0.08em]">{item.short}</span>
+                    ) : (
+                      <>
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-semibold tracking-[-0.01em]">{item.label}</span>
+                          {item.badge && (
+                            <span className={`rounded px-2 py-0.5 text-[0.62rem] font-bold uppercase tracking-[0.14em] ${itemActive ? 'bg-[#74C7F5]/15 text-[#BDEAFF]' : 'bg-slate-800 text-[#74C7F5]'}`}>
+                              {item.badge}
+                            </span>
+                          )}
+                        </span>
+                        <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/[.72]' : 'text-[#7F8EA8]'}`}>{item.description}</span>
+                      </>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+    </aside>
   )
 }

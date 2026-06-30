@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { ActiveTab } from '../types/doe'
 import type { ProjectArtifactStatus, ProjectSchema, ProjectSummary, WorkspaceSummary } from '../lib/api'
 import { getProjectArtifactStatus } from '../lib/api'
 import { Metadata } from './ui'
-import { Tabs } from './Tabs'
 
 export function ProjectHeader({
   projects,
@@ -12,9 +10,7 @@ export function ProjectHeader({
   schema,
   workspaces,
   projectsLoading,
-  activeTab,
   onProjectChange,
-  onTabChange,
 }: {
   projects: ProjectSummary[]
   selectedProjectId: string
@@ -22,9 +18,7 @@ export function ProjectHeader({
   schema: ProjectSchema | null
   workspaces: WorkspaceSummary[]
   projectsLoading: boolean
-  activeTab: ActiveTab
   onProjectChange: (projectId: string) => void
-  onTabChange: (tab: ActiveTab) => void
 }) {
   const [artifactStatus, setArtifactStatus] = useState<ProjectArtifactStatus | null>(null)
   const [artifactStatusError, setArtifactStatusError] = useState<string | null>(null)
@@ -62,51 +56,42 @@ export function ProjectHeader({
   }
 
   return (
-    <section className="relative z-[80] overflow-visible rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/80 shadow-2xl shadow-black/30 backdrop-blur-xl">
-      <div className="p-5 md:p-6">
-        <div className="grid gap-5 lg:grid-cols-[1fr_24rem] lg:items-start">
-          <div>
-            <div className="flex items-center gap-4">
-              <img src="/assets/doe_logo.png" alt="Mirai DoE" className="h-20 w-20 shrink-0 rounded-2xl border border-violet-300/15 bg-white/95 object-contain shadow-lg shadow-[#7C5CFF]/10" />
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7C5CFF]">Mirai DoE</p>
-                <h1 className="mt-1 text-3xl font-semibold tracking-[-0.055em] text-[#F6F4EA] sm:text-4xl">ML-guided experiments</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9BA8C0]">Create models, choose better experiments, and review impact.</p>
-              </div>
-            </div>
-            <Tabs activeTab={activeTab} onTabChange={onTabChange} />
+    <section className="relative z-[80] overflow-hidden rounded-lg border border-slate-700/80 bg-[#0B1220] shadow-xl shadow-black/25">
+      <div className="border-b border-slate-700/70 px-5 py-5 md:px-6">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(32rem,0.95fr)] xl:items-end">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">Mirai</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-50 sm:text-4xl">AI-guided process and product acceleration</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Design better experiments before you run them with a controlled scientific workflow.</p>
           </div>
 
-          <div className="rounded-3xl border border-violet-300/15 bg-white/[0.04] p-4 shadow-inner shadow-white/5">
-            <div className="grid gap-3">
-              <label htmlFor="workspace" className="text-xs font-bold uppercase tracking-[0.14em] text-[#63D7FF]">
-                Workspace
-                <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full rounded-2xl border border-violet-300/15 bg-[#030716] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[#F6F4EA] outline-none transition focus:border-[#7C5CFF] focus:ring-4 focus:ring-[#7C5CFF]/20">
-                  {workspaceOptions.length ? workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>) : <option value={selectedWorkspace}>{selectedWorkspace}</option>}
-                </select>
-              </label>
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
+            <label htmlFor="workspace" className="min-w-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+              Workspace
+              <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full min-w-0 rounded-md border border-slate-700 bg-[#050914] px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#2F6BFF] focus:ring-2 focus:ring-[#2F6BFF]/25">
+                {workspaceOptions.length ? workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>) : <option value={selectedWorkspace}>{selectedWorkspace}</option>}
+              </select>
+            </label>
 
-              <label htmlFor="project" className="text-xs font-bold uppercase tracking-[0.14em] text-[#63D7FF]">
-                Project
-                <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full rounded-2xl border border-violet-300/15 bg-[#030716] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[#F6F4EA] outline-none transition focus:border-[#7C5CFF] focus:ring-4 focus:ring-[#7C5CFF]/20">
-                  {visibleProjects.length ? visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>) : <option value="">No projects yet</option>}
-                </select>
-              </label>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <Metadata label="Inputs" value={schema ? String(schema.inputs.length) : '-'} />
-              <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/15 bg-[#030716]/75 px-4 py-3 text-sm">
-              <div>
-                <div className="font-semibold text-[#F6F4EA]">Model quality</div>
-                <div className="mt-0.5 text-xs text-[#9BA8C0]">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
-              </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/20' : 'bg-amber-300/15 text-amber-100 ring-1 ring-amber-300/20'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
-            </div>
+            <label htmlFor="project" className="min-w-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+              Project
+              <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full min-w-0 rounded-md border border-slate-700 bg-[#050914] px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#2F6BFF] focus:ring-2 focus:ring-[#2F6BFF]/25">
+                {visibleProjects.length ? visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>) : <option value="">No projects yet</option>}
+              </select>
+            </label>
           </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 px-5 py-4 md:grid-cols-[8rem_8rem_minmax(0,1fr)] md:px-6">
+        <Metadata label="Inputs" value={schema ? String(schema.inputs.length) : '-'} />
+        <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
+        <div className="flex min-w-0 items-center justify-between gap-4 rounded-md border border-slate-700 bg-[#070C16] px-3 py-2.5 text-sm">
+          <div className="min-w-0">
+            <div className="font-semibold text-slate-100">Model quality</div>
+            <div className="mt-0.5 truncate text-xs text-slate-400">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
+          </div>
+          <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'border border-emerald-400/30 bg-emerald-950/40 text-emerald-200' : 'border border-amber-300/30 bg-amber-950/40 text-amber-100'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
         </div>
       </div>
     </section>

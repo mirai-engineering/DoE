@@ -10,15 +10,15 @@ export type LifecycleStep = {
 
 export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
   return (
-    <div className="rounded-[1.5rem] border border-violet-300/15 bg-[#0A1630]/70 p-3 backdrop-blur-xl">
+    <div className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-3">
       <div className="grid gap-2 md:grid-cols-5">
         {steps.map((step, index) => {
           const isDone = step.status === 'done'
           const isCurrent = step.status === 'current'
           return (
-            <div key={step.id} className={`rounded-2xl px-3 py-3 ${isCurrent ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/20' : isDone ? 'bg-[#63D7FF]/10 text-[#F6F4EA] ring-1 ring-[#63D7FF]/20' : 'bg-white/5 text-[#5A6B89]'}`}>
+            <div key={step.id} className={`rounded-md border px-3 py-3 ${isCurrent ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white' : isDone ? 'border-[#74C7F5]/30 bg-[#0D1B2D] text-slate-100' : 'border-slate-800 bg-[#070C16] text-slate-500'}`}>
               <div className="flex items-center gap-2">
-                <span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${isCurrent ? 'bg-white/15 text-white' : isDone ? 'bg-[#63D7FF]/20 text-[#63D7FF]' : 'bg-[#030716] text-[#5A6B89]'}`}>
+                <span className={`grid h-6 w-6 place-items-center rounded text-xs font-bold ${isCurrent ? 'bg-[#2F6BFF] text-white' : isDone ? 'bg-[#74C7F5]/15 text-[#74C7F5]' : 'bg-[#050914] text-slate-500'}`}>
                   {isDone ? '✓' : index + 1}
                 </span>
                 <span className="text-sm font-semibold">{step.label}</span>
@@ -32,29 +32,29 @@ export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
 }
 
 export function SectionCard({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-6 shadow-2xl shadow-black/25 backdrop-blur-xl ${className}`}>{children}</section>
+  return <section className={`rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 shadow-xl shadow-black/25 ${className}`}>{children}</section>
 }
 
 export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-2xl border border-violet-300/15 bg-white/[0.04]">
-      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-[#F6F4EA]">
+    <div className="rounded-md border border-slate-700 bg-[#070C16]">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-slate-100">
         {title}
-        <span className={`grid h-7 w-7 place-items-center rounded-full bg-[#030716]/70 text-[#9BA8C0] transition ${open ? 'rotate-180' : ''}`}>⌄</span>
+        <span className={`grid h-7 w-7 place-items-center rounded bg-[#050914] text-slate-400 transition ${open ? 'rotate-180' : ''}`}>⌄</span>
       </button>
-      {open && <div className="border-t border-violet-300/10 px-4 py-4">{children}</div>}
+      {open && <div className="border-t border-slate-700 px-4 py-4">{children}</div>}
     </div>
   )
 }
 
 export function Metadata({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-violet-300/15 bg-[#030716]/75 p-3">
-      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[#5A6B89]">
+    <div className="rounded-md border border-slate-700 bg-[#070C16] p-3">
+      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
         {label}
       </div>
-      <div className="mt-1 truncate text-sm font-semibold text-[#F6F4EA]">{value}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-100">{value}</div>
     </div>
   )
 }
@@ -74,7 +74,7 @@ export function PanelHeader({
     <div>
       <p
         className={`text-xs font-semibold uppercase tracking-[0.22em] ${
-          dark ? 'text-[#63D7FF]' : 'text-[#7C5CFF]'
+          dark ? 'text-[#74C7F5]' : 'text-[#2F6BFF]'
         }`}
       >
         {eyebrow}
@@ -132,10 +132,10 @@ export function NumberField({
         step="any"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`mt-2 w-full rounded-2xl border px-4 py-3 text-sm font-medium outline-none transition focus:ring-4 ${
+        className={`mt-2 w-full rounded-md border px-3 py-2.5 text-sm font-medium outline-none transition focus:ring-2 ${
           dark
-            ? 'border-white/10 bg-white/10 text-white focus:border-[#d8c49a] focus:ring-[#d8c49a]/20'
-            : 'border-slate-200 bg-white text-slate-950 focus:border-[#60745c] focus:ring-[#60745c]/20'
+            ? 'border-slate-700 bg-[#050914] text-white focus:border-[#74C7F5] focus:ring-[#74C7F5]/20'
+            : 'border-slate-300 bg-white text-slate-950 focus:border-[#475569] focus:ring-slate-500/20'
         }`}
       />
       <span className={`mt-1 block text-xs ${dark ? 'text-white/40' : 'text-slate-400'}`}>
@@ -165,7 +165,7 @@ export function SelectField({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20"
+        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-950 outline-none transition focus:border-[#475569] focus:ring-2 focus:ring-slate-500/20"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -191,7 +191,7 @@ export function WeightField({
   onChange: (value: string) => void
 }) {
   return (
-    <label htmlFor={id} className="block rounded-2xl border border-white/10 bg-white/5 p-3">
+    <label htmlFor={id} className="block rounded-md border border-slate-700 bg-[#070C16] p-3">
       <span className="flex items-center justify-between gap-3 text-sm font-semibold text-white/90">
         {label}
         <span className="text-xs font-medium uppercase tracking-[0.16em] text-white/40">
@@ -204,7 +204,7 @@ export function WeightField({
         step="0.01"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm font-medium text-white outline-none transition focus:border-[#d8c49a] focus:ring-4 focus:ring-[#d8c49a]/20"
+        className="mt-2 w-full rounded-md border border-slate-700 bg-[#050914] px-3 py-2 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-2 focus:ring-[#74C7F5]/20"
       />
     </label>
   )
@@ -224,13 +224,13 @@ export function FixedInputField({
   onValueChange: (value: string) => void
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+    <div className="rounded-md border border-slate-700 bg-[#070C16] p-3">
       <label className="flex items-center gap-3 text-sm font-semibold text-white/90">
         <input
           type="checkbox"
           checked={enabled}
           onChange={(event) => onEnabledChange(event.target.checked)}
-          className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-[#d8c49a]"
+          className="h-4 w-4 rounded border-slate-600 bg-slate-950 accent-[#74C7F5]"
         />
         {input.label}
       </label>
@@ -242,7 +242,7 @@ export function FixedInputField({
         value={value}
         disabled={!enabled}
         onChange={(event) => onValueChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm font-medium text-white outline-none transition focus:border-[#d8c49a] focus:ring-4 focus:ring-[#d8c49a]/20 disabled:brightness-50"
+        className="mt-2 w-full rounded-md border border-slate-700 bg-[#050914] px-3 py-2 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-2 focus:ring-[#74C7F5]/20 disabled:brightness-50"
       />
       <span className="mt-1 block text-xs text-white/40">
         {input.unit} | {formatNumber(input.min)} to {formatNumber(input.max)}
@@ -263,10 +263,10 @@ export function KpiCard({
   direction: 'maximize' | 'minimize'
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+    <div className="rounded-lg border border-slate-300 bg-[#fbfaf5] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <span className="rounded-full bg-[#e8eadf] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#526949]">
+        <span className="rounded bg-[#e8eadf] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#526949]">
           {direction}
         </span>
       </div>
@@ -295,7 +295,7 @@ export function Alert({
       : 'border-amber-200 bg-amber-50 text-amber-950'
 
   return (
-    <div className={`rounded-2xl border p-4 ${className}`}>
+    <div className={`rounded-lg border p-4 ${className}`}>
       <p className="font-semibold">{title}</p>
       <ul className="mt-2 space-y-1 text-sm">
         {messages.map((message) => (
@@ -308,7 +308,7 @@ export function Alert({
 
 export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }) {
   return (
-    <section className="rounded-[2rem] border border-dashed border-slate-300 bg-white/80 p-10 text-center shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-lg border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-xl shadow-slate-900/10">
       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
         Awaiting candidate search
       </p>
@@ -322,7 +322,7 @@ export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }
       <button
         type="button"
         onClick={onGoHome}
-        className="mt-6 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329]"
+        className="mt-6 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 transition hover:bg-[#263329]"
       >
         Go to Batch Search
       </button>
