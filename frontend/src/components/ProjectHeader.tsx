@@ -62,33 +62,33 @@ export function ProjectHeader({
   }
 
   return (
-    <section className="relative z-[80] overflow-visible rounded-[2rem] border border-white/70 bg-[#f8f6ef]/95 shadow-2xl shadow-slate-900/10 backdrop-blur">
+    <section className="relative z-[80] overflow-visible rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/80 shadow-2xl shadow-black/30 backdrop-blur-xl">
       <div className="p-5 md:p-6">
         <div className="grid gap-5 lg:grid-cols-[1fr_24rem] lg:items-start">
           <div>
             <div className="flex items-center gap-4">
-              <img src="/assets/doe_logo.png" alt="Mirai DoE" className="h-20 w-20 shrink-0 rounded-2xl border border-slate-200 bg-white object-contain shadow-sm" />
+              <img src="/assets/doe_logo.png" alt="Mirai DoE" className="h-20 w-20 shrink-0 rounded-2xl border border-violet-300/15 bg-white/95 object-contain shadow-lg shadow-[#7C5CFF]/10" />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">Mirai DoE</p>
-                <h1 className="mt-1 text-3xl font-semibold tracking-[-0.055em] text-slate-950 sm:text-4xl">ML-guided experiments</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Create models, choose better experiments, and review impact.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7C5CFF]">Mirai DoE</p>
+                <h1 className="mt-1 text-3xl font-semibold tracking-[-0.055em] text-[#F6F4EA] sm:text-4xl">ML-guided experiments</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9BA8C0]">Create models, choose better experiments, and review impact.</p>
               </div>
             </div>
             <Tabs activeTab={activeTab} onTabChange={onTabChange} />
           </div>
 
-          <div className="rounded-3xl border border-slate-900/10 bg-white/75 p-4 shadow-inner shadow-white">
+          <div className="rounded-3xl border border-violet-300/15 bg-white/[0.04] p-4 shadow-inner shadow-white/5">
             <div className="grid gap-3">
-              <label htmlFor="workspace" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+              <label htmlFor="workspace" className="text-xs font-bold uppercase tracking-[0.14em] text-[#63D7FF]">
                 Workspace
-                <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
+                <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full rounded-2xl border border-violet-300/15 bg-[#030716] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[#F6F4EA] outline-none transition focus:border-[#7C5CFF] focus:ring-4 focus:ring-[#7C5CFF]/20">
                   {workspaceOptions.length ? workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>) : <option value={selectedWorkspace}>{selectedWorkspace}</option>}
                 </select>
               </label>
 
-              <label htmlFor="project" className="text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+              <label htmlFor="project" className="text-xs font-bold uppercase tracking-[0.14em] text-[#63D7FF]">
                 Project
-                <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-[#60745c] focus:ring-4 focus:ring-[#60745c]/20">
+                <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full rounded-2xl border border-violet-300/15 bg-[#030716] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[#F6F4EA] outline-none transition focus:border-[#7C5CFF] focus:ring-4 focus:ring-[#7C5CFF]/20">
                   {visibleProjects.length ? visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>) : <option value="">No projects yet</option>}
                 </select>
               </label>
@@ -99,12 +99,12 @@ export function ProjectHeader({
               <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-[#f8f6ef] px-4 py-3 text-sm">
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/15 bg-[#030716]/75 px-4 py-3 text-sm">
               <div>
-                <div className="font-semibold text-slate-800">Model quality</div>
-                <div className="mt-0.5 text-xs text-slate-500">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
+                <div className="font-semibold text-[#F6F4EA]">Model quality</div>
+                <div className="mt-0.5 text-xs text-[#9BA8C0]">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
               </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/20' : 'bg-amber-300/15 text-amber-100 ring-1 ring-amber-300/20'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
             </div>
           </div>
         </div>

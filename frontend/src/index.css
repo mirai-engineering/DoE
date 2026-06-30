@@ -23,6 +23,62 @@ html {
   scroll-behavior: smooth;
 }
 
+.mirai-auth-shell {
+  color-scheme: dark;
+}
+
+.mirai-auth-shell [class*="bg-white"],
+.mirai-auth-shell [class*="bg-[#fbfaf5]"],
+.mirai-auth-shell [class*="bg-[#f8f6ef]"],
+.mirai-auth-shell [class*="bg-[#fffdf7]"] {
+  background-color: rgba(10, 22, 48, 0.72) !important;
+}
+
+.mirai-auth-shell [class*="border-slate-200"],
+.mirai-auth-shell [class*="border-white"],
+.mirai-auth-shell [class*="border-slate-300"] {
+  border-color: rgba(124, 92, 255, 0.16) !important;
+}
+
+.mirai-auth-shell [class*="text-slate-950"],
+.mirai-auth-shell [class*="text-slate-900"],
+.mirai-auth-shell [class*="text-slate-800"],
+.mirai-auth-shell [class*="text-slate-700"] {
+  color: #F6F4EA !important;
+}
+
+.mirai-auth-shell [class*="text-slate-600"],
+.mirai-auth-shell [class*="text-slate-500"],
+.mirai-auth-shell [class*="text-slate-400"] {
+  color: #9BA8C0 !important;
+}
+
+.mirai-auth-shell input,
+.mirai-auth-shell select,
+.mirai-auth-shell textarea {
+  background-color: rgba(3, 7, 22, 0.82) !important;
+  border-color: rgba(124, 92, 255, 0.18) !important;
+  color: #F6F4EA !important;
+}
+
+.mirai-auth-shell input::placeholder,
+.mirai-auth-shell textarea::placeholder {
+  color: rgba(155, 168, 192, 0.62);
+}
+
+.mirai-auth-shell table thead {
+  color: #63D7FF;
+}
+
+.mirai-auth-shell tbody tr {
+  border-color: rgba(124, 92, 255, 0.1);
+}
+
+.mirai-auth-shell .js-plotly-plot,
+.mirai-auth-shell .plot-container {
+  border-radius: 1.5rem;
+}
+
 .constellation-grid {
   background-image: radial-gradient(rgba(216, 201, 155, 0.08) 1px, transparent 1px);
   background-size: 36px 36px;
@@ -49,3 +105,4 @@ html {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}

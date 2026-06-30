@@ -233,12 +233,14 @@ function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#eef0ea] text-slate-950">
+    <main className="mirai-auth-shell min-h-screen overflow-x-hidden bg-[#010412] text-[#F6F4EA]">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute -left-32 top-[-18rem] h-[34rem] w-[34rem] rounded-full bg-[#d4c3a3]/70 blur-3xl" />
-        <div className="absolute right-[-12rem] top-36 h-[32rem] w-[32rem] rounded-full bg-[#526949]/25 blur-3xl" />
-        <div className="absolute left-1/2 top-[-8rem] h-[22rem] w-[42rem] -translate-x-1/2 rounded-full bg-slate-950/10 blur-3xl" />
-        <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-[#dfe4d7] to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_0%,rgba(124,92,255,0.18),transparent_34%),radial-gradient(ellipse_at_85%_18%,rgba(99,215,255,0.12),transparent_32%),linear-gradient(180deg,#030716_0%,#010412_52%,#061226_100%)]" />
+        <div className="absolute inset-0 opacity-[0.08] constellation-grid" />
+        <div className="absolute -left-32 top-[-18rem] h-[34rem] w-[34rem] rounded-full bg-[#7C5CFF]/25 blur-3xl" />
+        <div className="absolute right-[-12rem] top-36 h-[32rem] w-[32rem] rounded-full bg-[#63D7FF]/10 blur-3xl" />
+        <div className="absolute left-1/2 top-[-8rem] h-[22rem] w-[42rem] -translate-x-1/2 rounded-full bg-[#3B82F6]/10 blur-3xl" />
+        <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-[#010412] to-transparent" />
       </div>
 
       <div className="relative mx-auto flex max-w-7xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
@@ -265,21 +267,21 @@ function App() {
         )}
 
         {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
-          <div className="rounded-[2rem] border border-white/70 bg-white/70 p-8 text-slate-600 shadow-xl">
+          <div className="rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-8 text-[#9BA8C0] shadow-2xl shadow-black/30 backdrop-blur-xl">
             Loading project schema...
           </div>
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
               <div className="space-y-8">
-                <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
+                <section className="rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7C5CFF]">
                     Batch Search
                   </p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#F6F4EA]">
                     Design-space scan with weighted KPI ranking
                   </h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#9BA8C0]">
                     Configure candidate scans, review ranked results, and inspect response-surface visuals in one workflow.
                   </p>
                   <div className="mt-5 flex flex-wrap gap-2">
@@ -293,7 +295,7 @@ function App() {
                         type="button"
                         onClick={() => setBatchView(view.id as 'configure' | 'results' | 'visuals')}
                         className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          batchView === view.id ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/20' : 'border border-slate-900/10 bg-white/70 text-slate-600 hover:bg-white'
+                          batchView === view.id ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/25' : 'border border-violet-300/15 bg-white/5 text-[#9BA8C0] hover:border-[#7C5CFF]/40 hover:bg-white/10 hover:text-[#F6F4EA]'
                         }`}
                       >
                         {view.label}

@@ -10,15 +10,15 @@ export type LifecycleStep = {
 
 export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
   return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white/80 p-3">
+    <div className="rounded-[1.5rem] border border-violet-300/15 bg-[#0A1630]/70 p-3 backdrop-blur-xl">
       <div className="grid gap-2 md:grid-cols-5">
         {steps.map((step, index) => {
           const isDone = step.status === 'done'
           const isCurrent = step.status === 'current'
           return (
-            <div key={step.id} className={`rounded-2xl px-3 py-3 ${isCurrent ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/15' : isDone ? 'bg-[#eef0ea] text-slate-900' : 'bg-slate-50 text-slate-400'}`}>
+            <div key={step.id} className={`rounded-2xl px-3 py-3 ${isCurrent ? 'bg-[#7C5CFF] text-white shadow-lg shadow-[#7C5CFF]/20' : isDone ? 'bg-[#63D7FF]/10 text-[#F6F4EA] ring-1 ring-[#63D7FF]/20' : 'bg-white/5 text-[#5A6B89]'}`}>
               <div className="flex items-center gap-2">
-                <span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${isCurrent ? 'bg-white/15 text-white' : isDone ? 'bg-[#526949] text-white' : 'bg-slate-200 text-slate-500'}`}>
+                <span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${isCurrent ? 'bg-white/15 text-white' : isDone ? 'bg-[#63D7FF]/20 text-[#63D7FF]' : 'bg-[#030716] text-[#5A6B89]'}`}>
                   {isDone ? '✓' : index + 1}
                 </span>
                 <span className="text-sm font-semibold">{step.label}</span>
@@ -32,29 +32,29 @@ export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
 }
 
 export function SectionCard({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5 ${className}`}>{children}</section>
+  return <section className={`rounded-[2rem] border border-violet-300/15 bg-[#0A1630]/75 p-6 shadow-2xl shadow-black/25 backdrop-blur-xl ${className}`}>{children}</section>
 }
 
 export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80">
-      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+    <div className="rounded-2xl border border-violet-300/15 bg-white/[0.04]">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-[#F6F4EA]">
         {title}
-        <span className={`grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-slate-500 transition ${open ? 'rotate-180' : ''}`}>⌄</span>
+        <span className={`grid h-7 w-7 place-items-center rounded-full bg-[#030716]/70 text-[#9BA8C0] transition ${open ? 'rotate-180' : ''}`}>⌄</span>
       </button>
-      {open && <div className="border-t border-slate-100 px-4 py-4">{children}</div>}
+      {open && <div className="border-t border-violet-300/10 px-4 py-4">{children}</div>}
     </div>
   )
 }
 
 export function Metadata({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-[#f8f6ef] p-3">
-      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
+    <div className="rounded-2xl border border-violet-300/15 bg-[#030716]/75 p-3">
+      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[#5A6B89]">
         {label}
       </div>
-      <div className="mt-1 truncate text-sm font-semibold text-slate-800">{value}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-[#F6F4EA]">{value}</div>
     </div>
   )
 }
@@ -74,19 +74,19 @@ export function PanelHeader({
     <div>
       <p
         className={`text-xs font-semibold uppercase tracking-[0.22em] ${
-          dark ? 'text-[#d8c49a]' : 'text-[#60745c]'
+          dark ? 'text-[#63D7FF]' : 'text-[#7C5CFF]'
         }`}
       >
         {eyebrow}
       </p>
       <h2
         className={`mt-2 text-2xl font-semibold tracking-[-0.04em] ${
-          dark ? 'text-white' : 'text-slate-950'
+          dark ? 'text-white' : 'text-[#F6F4EA]'
         }`}
       >
         {title}
       </h2>
-      <p className={`mt-2 text-sm leading-6 ${dark ? 'text-white/70' : 'text-slate-600'}`}>
+      <p className={`mt-2 text-sm leading-6 ${dark ? 'text-white/70' : 'text-[#9BA8C0]'}`}>
         {description}
       </p>
     </div>
