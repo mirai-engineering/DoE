@@ -159,6 +159,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
   const [diagnosticGroup, setDiagnosticGroup] = useState(defaultDiagnosticGroup)
   const [selectedCellId, setSelectedCellId] = useState('')
   const [selectedRh, setSelectedRh] = useState('')
+  const [qualityView, setQualityView] = useState<'overview' | 'outputs' | 'diagnostics' | 'artifacts'>('overview')
 
   async function loadSummary() {
     setLoading(true)
@@ -298,7 +299,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
         <PanelHeader
           eyebrow="Model Quality"
           title="Training credibility and validation diagnostics"
-          description="Inspect split metrics, preprocessing artifacts, active champion version, and prediction diagnostics before trusting DoE recommendations."
+          description="Inspect split metrics, preprocessing artifacts, active champion version, and prediction diagnostics before trusting optimization recommendations."
         />
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           All-cells MVP workflow. Splits are grouped by cell_id, three cells are reserved exclusively for BO replay, and acceptance thresholds are provisional/report-only.
@@ -312,19 +313,29 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
         )}
       </section>
 
-      <nav className="rounded-[1.5rem] border border-white/70 bg-white/70 p-3 shadow-sm backdrop-blur" aria-label="Model Quality page sections">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">On this page</span>
+      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-xl shadow-black/20" aria-label="Model Quality workbench sections">
+        <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Model Quality views">
           {[
-            ['Trust summary', '#quality-trust-summary'],
-            ['Split evidence', '#quality-splits'],
-            ['Error scale', '#quality-error-scale'],
-            ['Prediction diagnostics', '#quality-diagnostics'],
-          ].map(([label, href]) => (
-            <a key={href} href={href} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 transition hover:border-[#526949]/40 hover:text-[#526949]">
-              {label}
-            </a>
-          ))}
+            { id: 'overview', label: 'Overview', helper: 'Champion, splits, model comparison' },
+            { id: 'outputs', label: 'Outputs', helper: 'Per-KPI trust and error scale' },
+            { id: 'diagnostics', label: 'Diagnostics', helper: 'Measured vs predicted behavior' },
+            { id: 'artifacts', label: 'Artifacts', helper: 'Preprocessing and assistant state' },
+          ].map((view) => {
+            const active = qualityView === view.id
+            return (
+              <button
+                key={view.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setQualityView(view.id as typeof qualityView)}
+                className={`rounded-md border px-3 py-3 text-left transition ${active ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-slate-500 hover:bg-[#0D1524] hover:text-white'}`}
+              >
+                <span className="block text-sm font-semibold">{view.label}</span>
+                <span className={`mt-1 block text-xs leading-5 ${active ? 'text-white/[.72]' : 'text-slate-500'}`}>{view.helper}</span>
+              </button>
+            )
+          })}
         </div>
       </nav>
 
@@ -333,6 +344,8 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
 
       {!loading && summary && (
         <>
+          {qualityView === 'overview' && (
+          <>
           <section id="quality-trust-summary" className="scroll-mt-8 grid gap-4 md:grid-cols-4">
             <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Active model</div>
@@ -507,6 +520,10 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </div>
           </section>
 
+          </>
+          )}
+
+          {qualityView === 'outputs' && (
           <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
             <PanelHeader
               eyebrow="Per-output accuracy"
@@ -644,6 +661,9 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </div>
           </section>
 
+          )}
+
+          {qualityView === 'diagnostics' && (
           <section id="quality-diagnostics" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <PanelHeader
@@ -885,12 +905,15 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 </div>}
 
                 <p className="mt-4 text-xs leading-5 text-slate-500">
-                  DoE live predictions are intentionally not mixed into these validation plots yet. Generated Design Studio predictions should be labeled as served-model predictions and compared separately from training-run diagnostics.
+                  Live served-model predictions are intentionally not mixed into these validation plots yet. Generated Design Studio predictions should be labeled as served-model predictions and compared separately from training-run diagnostics.
                 </p>
               </>
             )}
           </section>
 
+          )}
+
+          {qualityView === 'artifacts' && (
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
               <PanelHeader
@@ -935,6 +958,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               <p className="mt-3 text-xs text-white/50">No autonomous preprocessing is active in this build.</p>
             </div>
           </section>
+          )}
         </>
       )}
     </div>
