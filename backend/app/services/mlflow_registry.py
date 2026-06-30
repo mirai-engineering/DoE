@@ -577,7 +577,12 @@ def download_run_artifacts(project_id: str, run_id: str, *, refresh: bool = Fals
             ml_preprocessing_v1 = False
     ml_preprocessing_v1 = ml_preprocessing_v1 or (listed_artifacts and "model_table_preprocessed_manifest.json" in available) or (dst / "model_table_preprocessed_manifest.json").exists()
     if ml_preprocessing_v1:
-        required.extend(["preprocessing_fitted.json", "feature_map.json", "target_map.json"])
+        # feature_map.json/target_map.json are useful lineage artifacts when present,
+        # but older ML-preprocessing-v1 runs already carry feature_columns,
+        # target_columns, and fitted_parameters inside preprocessing_fitted.json.
+        # Do not reject otherwise usable champions solely because optional maps
+        # were not logged.
+        required.append("preprocessing_fitted.json")
     missing = [name for name in required if not (dst / name).exists()]
     if missing:
         raise FileNotFoundError(f"MLflow run artifacts for {project_id}/{run_id} are missing: {', '.join(missing)}")
