@@ -15,6 +15,7 @@ def predict_rows(
     *,
     warn_near_bounds: bool = True,
     workspace_id: str | None = None,
+    force_ml_preprocessing_v1: bool = False,
 ) -> tuple[list[dict[str, float]], list[str], str]:
     model = get_model_bundle(project_id, workspace_id)
 
@@ -23,7 +24,9 @@ def predict_rows(
         rows,
         warn_near_bounds=warn_near_bounds,
     )
-    if getattr(model, "model_kind", "onnx_scaled") in {"sklearn_raw", "onnx_raw"}:
+    has_fitted_v1 = model.preprocessing.get("preprocessing_contract_version") == "mirai-ml-preprocessing-v1" and bool(model.preprocessing.get("fitted_parameters"))
+    should_apply_preprocessing = getattr(model, "model_kind", "onnx_scaled") not in {"sklearn_raw", "onnx_raw"} or (force_ml_preprocessing_v1 and has_fitted_v1)
+    if not should_apply_preprocessing:
         outputs = predict(project_id, raw_features, workspace_id)
     else:
         features = transform_inputs(raw_features, model.preprocessing)

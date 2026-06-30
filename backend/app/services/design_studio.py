@@ -333,7 +333,7 @@ def _experiment_visualisation_rows(project_id: str, inputs: dict[str, float], vi
                 row[str(group_variable)] = float(group_value)
             sweep_rows.append(row)
             row_groups.append(group_value)
-    predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id)
+    predictions, warnings, model_version = predict_rows(project_id, sweep_rows, warn_near_bounds=False, workspace_id=workspace_id, force_ml_preprocessing_v1=True)
     rows = []
     for row, pred, group_value in zip(sweep_rows, predictions, row_groups, strict=True):
         next_row: dict[str, Any] = {str(x_variable): float(row[str(x_variable)])}
@@ -384,7 +384,7 @@ def get_design_studio_state(project_id: str, workspace_id: str | None = None) ->
 
 def predict_design(project_id: str, payload: dict[str, Any], workspace_id: str | None = None) -> dict[str, Any]:
     inputs = {key: float(value) for key, value in payload.get("inputs", {}).items()}
-    predictions, point_warnings, point_model_version = predict_rows(project_id, [inputs], warn_near_bounds=True, workspace_id=workspace_id)
+    predictions, point_warnings, point_model_version = predict_rows(project_id, [inputs], warn_near_bounds=True, workspace_id=workspace_id, force_ml_preprocessing_v1=True)
     generate_visualisation = bool(payload.get("experiment_visualisation_enabled", True))
     curve, curve_warnings, curve_model_version = (None, [], "unknown")
     if generate_visualisation:
@@ -518,7 +518,7 @@ def pareto_tradeoff_candidates(project_id: str, payload: dict[str, Any], workspa
     )
     max_results = max(1, min(int(payload.get("max_results", 12)), 25))
     candidates = _generate_candidates(schema, request)
-    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
+    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id, force_ml_preprocessing_v1=True)
     transformed = _objective_matrix(predictions, objectives)
     pareto_mask = _non_dominated_mask(transformed)
     frontier_indices = np.flatnonzero(pareto_mask)
@@ -566,7 +566,7 @@ def seed_batch_candidate(project_id: str, payload: dict[str, Any], workspace_id:
         random_seed=payload.get("random_seed", 13),
     )
     candidates = _generate_candidates(schema, request)
-    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id)
+    predictions, warnings, model_version = predict_rows(project_id, candidates, warn_near_bounds=False, workspace_id=workspace_id, force_ml_preprocessing_v1=True)
     scores = _score_predictions(schema, predictions, request.objective_weights)
     index = int(np.argsort(-scores)[0])
     design = predict_design(project_id, {"inputs": candidates[index], "plot_recipe_id": payload.get("plot_recipe_id"), "experiment_visualisation": payload.get("experiment_visualisation") or payload.get("plot_recipe"), "training_overlay_enabled": payload.get("training_overlay_enabled", True), "training_overlay_filters": payload.get("training_overlay_filters"), "training_overlay_ranges": payload.get("training_overlay_ranges"), "training_overlay_group_by": payload.get("training_overlay_group_by")}, workspace_id=workspace_id)

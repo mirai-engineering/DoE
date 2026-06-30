@@ -77,11 +77,17 @@ def load_model(project_id: str, workspace_id: str | None = None) -> ProjectModel
     output_name = session.get_outputs()[0].name
     template_id = preprocessing.get("template_id") or (schema.get("metadata", {}).get("template_id") if isinstance(schema.get("metadata"), dict) else None)
     requires_preprocessing = _requires_external_preprocessing(preprocessing)
-    model_kind = "onnx_scaled" if requires_preprocessing else ("onnx_raw" if template_id == "generic_tabular_doe" and input_name == "raw_features" else "onnx_scaled")
+    # Keep the legacy serving heuristic for generic DOE models whose ONNX input
+    # is named raw_features. Design Studio explicitly opts into v1 preprocessing
+    # because it accepts schema/raw UI inputs and must serve model-table-trained
+    # champions with fitted preprocessing parity. Other serving routes retain
+    # their historical contract unless a future exporter names the ONNX input
+    # for model-table features instead of raw_features.
+    model_kind = "onnx_raw" if template_id == "generic_tabular_doe" and input_name == "raw_features" else "onnx_scaled"
     serving_metadata = {
         **metadata,
         "model_artifact_format": "onnx",
-        "serving_input_space": "schema_raw" if not requires_preprocessing else "model_table_preprocessed",
+        "serving_input_space": "model_table_preprocessed" if requires_preprocessing else ("schema_raw" if model_kind == "onnx_raw" else "model_table_preprocessed"),
         "requires_ml_preprocessing_v1": bool(requires_preprocessing),
     }
 
