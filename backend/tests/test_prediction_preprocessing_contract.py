@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.services import prediction, project_registry
+from app.services import mlflow_registry, prediction, project_registry
 from app.services.model_loader import ProjectModel
 from app.services.preprocessing import transform_inputs
 
@@ -28,6 +28,46 @@ def test_transform_inputs_v1_composes_chained_actions_once_per_feature():
     assert transformed[0, 1] == pytest.approx(7.0)
 
 
+def test_download_run_artifacts_accepts_v1_fitted_without_optional_maps(monkeypatch, tmp_path: Path):
+    class Artifact:
+        def __init__(self, path: str):
+            self.path = path
+
+    available = [
+        "schema.json",
+        "preprocessing.json",
+        "preprocessing_fitted.json",
+        "training_manifest.json",
+        "model_table_preprocessed_manifest.json",
+    ]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def list_artifacts(self, run_id):
+            return [Artifact(path) for path in available]
+
+    class FakeArtifacts:
+        @staticmethod
+        def download_artifacts(*, run_id, artifact_path, dst_path):
+            Path(dst_path, artifact_path).write_text("{}", encoding="utf-8")
+            return str(Path(dst_path, artifact_path))
+
+    class FakeMlflow:
+        artifacts = FakeArtifacts()
+
+    monkeypatch.setattr(mlflow_registry, "MODEL_CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(mlflow_registry, "configure_mlflow", lambda: FakeMlflow())
+    monkeypatch.setattr("mlflow.tracking.MlflowClient", FakeClient)
+
+    artifact_dir = mlflow_registry.download_run_artifacts("p", "run123")
+
+    assert (artifact_dir / "preprocessing_fitted.json").exists()
+    assert not (artifact_dir / "feature_map.json").exists()
+    assert not (artifact_dir / "target_map.json").exists()
+
+
 def test_get_project_preprocessing_fails_for_v1_model_table_without_fitted(monkeypatch, tmp_path: Path):
     artifact_dir = tmp_path / "artifacts"
     artifact_dir.mkdir()
@@ -42,7 +82,7 @@ def test_get_project_preprocessing_fails_for_v1_model_table_without_fitted(monke
     project_registry.get_project_preprocessing.cache_clear()
 
 
-def test_predict_rows_transforms_schema_raw_inputs_for_ml_preprocessing_v1(monkeypatch):
+def test_predict_rows_transforms_schema_raw_inputs_for_ml_preprocessing_v1_when_forced(monkeypatch):
     schema = {
         "inputs": [
             {"name": "x1", "min": 0.0, "max": 10.0},
@@ -64,12 +104,12 @@ def test_predict_rows_transforms_schema_raw_inputs_for_ml_preprocessing_v1(monke
     model = ProjectModel(
         project_id="p",
         session=None,
-        input_name="model_table_features",
+        input_name="raw_features",
         output_name="raw_outputs",
         schema=schema,
         metadata={"model_version": "test-v1"},
         preprocessing=preprocessing,
-        model_kind="onnx_scaled",
+        model_kind="onnx_raw",
     )
     captured = {}
     monkeypatch.setattr(prediction, "get_model_bundle", lambda project_id, workspace_id=None: model)
@@ -80,7 +120,7 @@ def test_predict_rows_transforms_schema_raw_inputs_for_ml_preprocessing_v1(monke
 
     monkeypatch.setattr(prediction, "predict", fake_predict)
 
-    result, warnings, model_version = prediction.predict_rows("p", [{"x1": 5.0, "x2": 10.0}], warn_near_bounds=False, workspace_id="w")
+    result, warnings, model_version = prediction.predict_rows("p", [{"x1": 5.0, "x2": 10.0}], warn_near_bounds=False, workspace_id="w", force_ml_preprocessing_v1=True)
 
     assert warnings == []
     assert model_version == "test-v1"
@@ -90,7 +130,7 @@ def test_predict_rows_transforms_schema_raw_inputs_for_ml_preprocessing_v1(monke
     assert captured["features"][0, 1] == pytest.approx(1.0)
 
 
-def test_predict_rows_preserves_legacy_onnx_raw_without_transform(monkeypatch):
+def test_predict_rows_preserves_onnx_raw_without_transform_by_default(monkeypatch):
     schema = {"inputs": [{"name": "x1", "min": 0.0, "max": 10.0}], "outputs": [{"name": "y1"}]}
     model = ProjectModel(
         project_id="legacy",

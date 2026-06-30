@@ -21,7 +21,7 @@ def test_design_curve_rows_ignores_non_response_recommended_recipes(monkeypatch)
     }
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         return [{"y1": row["x1"] * 2} for row in rows], [], "model_v1"
 
     monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
@@ -43,7 +43,7 @@ def test_predict_design_can_skip_experiment_visualisation(monkeypatch):
     }
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         return [{"y1": row["x1"] * 2} for row in rows], [], "model_v1"
 
     monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
@@ -153,7 +153,7 @@ def test_experiment_visualisation_grouped_sweep_is_generic(monkeypatch):
     }
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         return [{"y1": row["x1"] + row["condition"]} for row in rows], [], "model_v1"
 
     monkeypatch.setattr(design_studio, "predict_rows", fake_predict_rows)
@@ -192,7 +192,7 @@ def test_experiment_visualisation_sweeps_one_input_and_keeps_four_input_conditio
     captured_rows = []
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         captured_rows.extend(rows)
         return [{"y1": row["x1"] + row["a"] + row["b"] + row["c"]} for row in rows], [], "model_v1"
 
@@ -282,7 +282,7 @@ def test_simple_experiment_visualisation_predicts_exactly_requested_points_witho
     captured_rows = []
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         captured_rows.extend(rows)
         return [{"response": row["sweep"] + row["fixed_a"] + row["fixed_b"]} for row in rows], [], "model_v1"
 
@@ -325,7 +325,7 @@ def test_experiment_visualisation_generates_raw_schema_rows_and_delegates_predic
     captured_rows = []
     monkeypatch.setattr(design_studio, "get_project_schema", lambda project_id: schema)
 
-    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None):
+    def fake_predict_rows(project_id, rows, warn_near_bounds=True, workspace_id=None, force_ml_preprocessing_v1=False):
         captured_rows.extend(rows)
         return [{"y": row["x_raw"] + row["fixed"]} for row in rows], [], "model_v1"
 
