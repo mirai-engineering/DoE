@@ -50,6 +50,10 @@ training-runs/
 logs/
 context.md
 
+# Local Higgsfield generated/source exports
+higgsfield/
+@higgsfield/
+
 # Tooling
 .pi/*
 !.pi/
