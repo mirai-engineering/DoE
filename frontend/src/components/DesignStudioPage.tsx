@@ -525,7 +525,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           y: rows.map((row) => asNumber(row[responseAxesSwapped ? curveXAxisVariable : variable])),
           type: 'scatter',
           mode: 'lines+markers',
-          line: { color: ['#526949', '#2563eb', '#dc2626', '#7c3aed', '#0891b2', '#ea580c'][((index + groupIndex) % 6)], width: 3 },
+          line: { color: ['#2F6BFF', '#2563eb', '#dc2626', '#7c3aed', '#0891b2', '#ea580c'][((index + groupIndex) % 6)], width: 3 },
         }})),
         ...genericCurveYVariables
           .filter((variable) => overlayVisible && trainingOverlayRows.some((row) => asNumber(row[`${variable}_true`]) !== undefined))
@@ -574,14 +574,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           description="Seed a candidate, move schema-driven inputs, watch predictions update, compare against real experiments, and export a design package for lab review."
         />
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
-          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Served-model predictions</span>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
-          {defaultObjectiveName && <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-800">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-600">{defaultInputSourceLabel}</span>
-          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">Schema bounds enforced</span>
+          <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Served-model predictions</span>
+          <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
+          {defaultObjectiveName && <span className="rounded-md border border-[#2F6BFF]/50 bg-[#10203A] px-3 py-1 text-[#BDEAFF]">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
+          <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">{defaultInputSourceLabel}</span>
+          <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Schema bounds enforced</span>
           {prediction?.warnings?.length ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</span> : null}
         </div>
-        <details className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm text-slate-600">
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-600">
           <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {[
@@ -606,7 +606,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </details>
       </section>
 
-      <nav className="rounded-[1.5rem] border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur" aria-label="Design Studio workflows">
+      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-xl shadow-black/20" aria-label="Design Studio workflows">
         <div className="grid gap-2 md:grid-cols-5">
           {[
             ['single_result', 'Single result', 'Edit the current design point and generate KPIs'],
@@ -619,7 +619,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               key={id}
               type="button"
               onClick={() => setActiveWorkflow(id as DesignWorkflow)}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${activeWorkflow === id ? 'border-[#526949] bg-[#526949] text-white shadow-lg shadow-[#526949]/20' : 'border-slate-200 bg-white text-slate-700 hover:border-[#526949]/40'}`}
+              className={`rounded-md border px-4 py-3 text-left transition ${activeWorkflow === id ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-sm shadow-black/20' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-[#74C7F5]/50 hover:bg-[#0D1524] hover:text-white'}`}
             >
               <div className="font-semibold">{label}</div>
               <div className={`mt-1 text-xs ${activeWorkflow === id ? 'text-white/80' : 'text-slate-500'}`}>{description}</div>
@@ -629,7 +629,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       </nav>
 
       {activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
-        <section className="rounded-[1.5rem] border border-[#d8c99b]/50 bg-[#fffdf7] p-4 shadow-sm">
+        <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-4 shadow-xl shadow-black/20">
           <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(16rem,0.7fr)_minmax(0,1.1fr)] lg:items-start">
             <label className="min-w-0 text-sm font-semibold text-slate-700">
               Visualisation type
@@ -658,7 +658,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 {visualisationConfigs.filter((item) => item.safe !== false).map((item) => <option key={item.id} value={item.id}>{item.recommended ? 'Recommended · ' : ''}{item.label}</option>)}
               </select>
             </label>
-            <div className="min-w-0 rounded-2xl border border-[#d8c99b]/40 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
+            <div className="min-w-0 rounded-md border border-slate-700/80 bg-[#070C16] px-4 py-3 text-sm leading-6 text-slate-300">
               {visualisationType === 'generic' ? (
                 <><strong className="text-slate-900">Current visualisation setup:</strong> {selectedExperimentVisualisationConfig?.description || 'Sweep one variable while holding fixed inputs constant, then plot predicted response points.'}</>
               ) : (
@@ -672,7 +672,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
                   <p className="mt-1 text-sm leading-6 text-slate-600">Choose X, predicted Y, the sweep range, and fixed values for every other input. A 60-point sweep generates exactly 60 model predictions.</p>
                 </div>
-                <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
+                <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
@@ -718,20 +718,20 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </select>
                 </label>
               </div>
-              <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+              <div className="mt-3 rounded-2xl border border-[#2F6BFF]/35 bg-[#10203A] px-4 py-3 text-sm leading-6 text-[#BDEAFF]">
                 <strong>Sweep range = model input range.</strong> It must stay inside the approved schema bounds{ sweepMeta ? ` for ${sweepMeta.label}: ${formatNumber(sweepMeta.min)} to ${formatNumber(sweepMeta.max)}${sweepMeta.unit ? ` ${sweepMeta.unit}` : ''}` : '' }. Use Plotly zoom/pan on the chart for display-only axis zooming.
               </div>
               {sweepRangeIssue && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                 <span>{sweepRangeIssue}</span>
                 {sweepMeta && <button type="button" onClick={() => { setSweepRangeMin(String(sweepMeta.min)); setSweepRangeMax(String(sweepMeta.max)); setVisualisationStale(true) }} className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900">Use schema range</button>}
               </div>}
-              <div className="mt-5 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+              <div className="mt-5 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
                     <p className="mt-1 text-sm leading-6 text-slate-600">These fixed values define the design point used for the multi-point visualisation. They are initialized from the current design point and stay synchronized when optimizer candidates are loaded.</p>
                   </div>
-                  <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#526949]/40">
+                  <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#2F6BFF]/40">
                     Use current design point for visualisation
                   </button>
                 </div>
@@ -782,14 +782,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <option value="all">Show all fixed parameters</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-2xl bg-[#fbfaf5] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
+                  <div className="min-w-0 rounded-2xl bg-[#0B1220] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
                     {plotAnnotationMode === 'none' ? (
                       <span>Plot label hidden by default. Enable it only when exported figures need fixed-condition context.</span>
                     ) : plotAnnotationMode === 'selected' ? (
                       <div className="flex flex-wrap gap-2">
                         {schema.inputs.filter((input) => input.name !== sweepInputName).map((input) => (
                           <label key={input.name} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                            <input type="checkbox" checked={selectedAnnotationInputs.includes(input.name)} onChange={(event) => setSelectedAnnotationInputs((current) => event.target.checked ? [...new Set([...current, input.name])] : current.filter((name) => name !== input.name))} className="h-3.5 w-3.5 accent-[#526949]" />
+                            <input type="checkbox" checked={selectedAnnotationInputs.includes(input.name)} onChange={(event) => setSelectedAnnotationInputs((current) => event.target.checked ? [...new Set([...current, input.name])] : current.filter((name) => name !== input.name))} className="h-3.5 w-3.5 accent-[#2F6BFF]" />
                             {input.label}
                           </label>
                         ))}
@@ -798,7 +798,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <span>All fixed parameters will be shown in the plot label. The swept variable is excluded.</span>
                     )}
                   </div>
-                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
+                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate visualisation'}
                   </button>
                 </div>
@@ -826,14 +826,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <option value="none">No measured overlay</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-2xl bg-[#fbfaf5] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
+                  <div className="min-w-0 rounded-2xl bg-[#0B1220] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
                     <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Matching by</div>
                     {overlayMode === 'none' ? (
                       <div className="mt-2 font-medium text-slate-700">Overlay hidden</div>
                     ) : displayedOverlaySummaryLabels.length ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {displayedOverlaySummaryLabels.map((label) => (
-                          <span key={label} className="max-w-full rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">
+                          <span key={label} className="max-w-full rounded-md bg-[#0D1B2D] px-3 py-1 text-xs font-semibold text-[#BDEAFF] ring-1 ring-[#74C7F5]/30">
                             <span className="block max-w-[22rem] truncate">{label}</span>
                           </span>
                         ))}
@@ -846,11 +846,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
               </div>
 
-              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
                 <summary className="cursor-pointer select-none font-semibold text-slate-950">Refine matching / Advanced filters</summary>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
                   <label className="flex items-center gap-2 font-semibold text-slate-700">
-                    <input type="checkbox" checked={trainingOverlayEnabled && overlayMode !== 'none'} onChange={(event) => { setTrainingOverlayEnabled(event.target.checked); if (event.target.checked && overlayMode === 'none') setOverlayMode('custom'); if (!event.target.checked) setOverlayMode('none') }} className="h-4 w-4 accent-[#526949]" />
+                    <input type="checkbox" checked={trainingOverlayEnabled && overlayMode !== 'none'} onChange={(event) => { setTrainingOverlayEnabled(event.target.checked); if (event.target.checked && overlayMode === 'none') setOverlayMode('custom'); if (!event.target.checked) setOverlayMode('none') }} className="h-4 w-4 accent-[#2F6BFF]" />
                     Show measured training overlay
                   </label>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -912,10 +912,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <PanelHeader eyebrow="Current design point" title="Tune one design point" description="Adjust the current composition/test values, then generate one model result. Experiment visualisation can sweep one input around this same design point." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
-                  <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#526949] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#526949]/20 disabled:opacity-50">
+                  <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate result'}
                   </button>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${hasPendingInputChanges ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' : prediction ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                  <span className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${hasPendingInputChanges ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' : prediction ? 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30' : 'bg-[#070C16] text-slate-500 ring-1 ring-slate-700'}`}>
                     {hasPendingInputChanges ? 'Inputs changed' : prediction ? 'Result current' : 'No result yet'}
                   </span>
                 </div>
@@ -927,7 +927,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
                 {schema.inputs.map((input) => (
-                  <label key={input.name} className="block rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4 shadow-sm">
+                  <label key={input.name} className="block rounded-3xl border border-slate-200 bg-[#0B1220] p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-900">{input.label}</span>
                       <span className="rounded-full bg-white px-2 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-400">{input.unit}</span>
@@ -939,7 +939,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       step={(input.max - input.min) / 200}
                       value={inputs[input.name] ?? input.min}
                       onChange={(event) => updateInput(input.name, event.target.value)}
-                      className="mt-4 w-full accent-[#526949]"
+                      className="mt-4 w-full accent-[#2F6BFF]"
                     />
                     <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
                       <span>{formatNumber(input.min)}</span>
@@ -962,7 +962,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <PanelHeader eyebrow="Predicted outputs" title="Model-estimated KPIs" description="These values are the single generated result for the currently shown input settings. Objective weights are not needed for this direct prediction." />
                 {predicting && <div className="mt-3 text-sm text-slate-500">Generating result...</div>}
                 {prediction?.seed && (
-                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">
+                  <div className="mt-4 rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
                     <strong>Why this candidate?</strong> It had the highest model score among {formatNumber(asNumber(asRecord(prediction.seed).n_candidates))} sampled virtual candidates for the selected goal: {currentGoalLabel}. Score: {formatNumber(asNumber(asRecord(prediction.seed).score))}. Model version: {prediction.model_version || 'unknown'}.
                   </div>
                 )}
@@ -973,7 +973,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     const delta = value !== undefined && comparisonValue !== undefined ? value - comparisonValue : undefined
                     const emphasized = emphasizedOutputs.has(output.name)
                     return (
-                      <div key={output.name} className={`rounded-3xl border p-4 ${emphasized ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-[#fbfaf5]'}`}>
+                      <div key={output.name} className={`rounded-3xl border p-4 ${emphasized ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#0B1220]'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold text-slate-900">{output.label}</div>
@@ -982,7 +982,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                           <span className="text-xs text-slate-500">{output.unit}</span>
                         </div>
                         <div className="mt-3 text-2xl font-semibold text-slate-950">{value === undefined ? '-' : `${formatNumber(value)} ${output.unit}`}</div>
-                        {delta !== undefined && <div className={`mt-2 text-sm font-semibold ${delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{delta >= 0 ? '+' : ''}{formatNumber(delta)} vs saved comparison</div>}
+                        {delta !== undefined && <div className={`mt-2 text-sm font-semibold ${delta >= 0 ? 'text-[#74C7F5]' : 'text-rose-700'}`}>{delta >= 0 ? '+' : ''}{formatNumber(delta)} vs saved comparison</div>}
                       </div>
                     )
                   })}
@@ -1004,15 +1004,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
 
               <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                <div className="rounded-3xl border border-blue-100 bg-blue-50 p-4">
+                <div className="rounded-3xl border border-[#2F6BFF]/35 bg-[#10203A] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="font-semibold text-blue-950">Optimization goal</h3>
-                      <p className="mt-1 text-sm leading-6 text-blue-900">
+                      <p className="mt-1 text-sm leading-6 text-[#BDEAFF]">
                         Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate as the current design point.
                       </p>
                     </div>
-                    <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-blue-800">Current goal: {currentGoalLabel}</span>
+                    <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#BDEAFF]">Current goal: {currentGoalLabel}</span>
                   </div>
                   <label className="mt-4 block text-sm font-semibold text-blue-950">
                     Objective preset
@@ -1031,10 +1031,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       {objectivePresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
                     </select>
                   </label>
-                  {selectedObjective?.description && <p className="mt-2 text-xs leading-5 text-blue-800">{selectedObjective.description}</p>}
+                  {selectedObjective?.description && <p className="mt-2 text-xs leading-5 text-[#BDEAFF]">{selectedObjective.description}</p>}
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+                <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold text-slate-950">Objective mix</h3>
                     <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">custom tradeoffs</span>
@@ -1045,7 +1045,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       const checked = Math.abs(Number(objectiveWeights[output.name] ?? '0')) > 1e-12
                       const defaultWeight = output.direction === 'minimize' ? '-1' : '1'
                       return (
-                        <div key={output.name} className={`grid gap-2 rounded-2xl border px-3 py-2 text-sm md:grid-cols-[1fr_5.5rem] md:items-center ${checked ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                        <div key={output.name} className={`grid gap-2 rounded-2xl border px-3 py-2 text-sm md:grid-cols-[1fr_5.5rem] md:items-center ${checked ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
                           <label className="flex items-center gap-3 font-semibold text-slate-800">
                             <input
                               type="checkbox"
@@ -1054,7 +1054,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                                 setObjectiveMode('custom')
                                 setObjectiveWeights((current) => ({ ...current, [output.name]: event.target.checked ? (current[output.name] && current[output.name] !== '0' ? current[output.name] : defaultWeight) : '0' }))
                               }}
-                              className="h-4 w-4 accent-[#526949]"
+                              className="h-4 w-4 accent-[#2F6BFF]"
                             />
                             <span>{output.label} <span className="font-normal text-slate-400">({output.unit || output.direction})</span></span>
                           </label>
@@ -1082,14 +1082,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
                     <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Single result inputs; constrained inputs search only inside the selected range.</p>
                   </div>
-                  <span className="rounded-full bg-[#fbfaf5] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">generic inputs</span>
+                  <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">generic inputs</span>
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
                   {schema.inputs.map((input) => {
                     const mode = searchSpaceModes[input.name] || 'free'
                     const range = searchSpaceRanges[input.name] || { min: String(input.min), max: String(input.max) }
                     return (
-                      <div key={input.name} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-3">
+                      <div key={input.name} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
                           <div className="text-xs text-slate-500">Current design point: {formatNumber(Number(currentDesignPoint[input.name]))}</div>
@@ -1116,7 +1116,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                   Save current as comparison
                 </button>
-                <button type="button" onClick={exportZip} disabled={exporting || !prediction} className="rounded-full bg-[#526949] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
+                <button type="button" onClick={exportZip} disabled={exporting || !prediction} className="rounded-full bg-[#2F6BFF] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
                   {exporting ? 'Exporting...' : 'Export design package'}
                 </button>
               </div>
@@ -1130,7 +1130,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 type="button"
                 onClick={exportResponseCurvePng}
                 disabled={!curveRows.length || exportingCurvePng}
-                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#d8c99b] hover:bg-[#fffdf7] disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#74C7F5] hover:bg-[#0D1524] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {exportingCurvePng ? 'Exporting PNG…' : 'Export plot PNG'}
               </button>
@@ -1146,7 +1146,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             )}
             {curveRows.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4 text-sm leading-6 text-slate-600">
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm leading-6 text-slate-600">
                 <div><strong className="text-slate-900">Sweep:</strong> {sweepRangeLabel}</div>
                 <div><strong className="text-slate-900">Fixed conditions:</strong> {visualisationFixedConditionLabels.length ? visualisationFixedConditionLabels.join(' · ') : 'Only the swept variable is varied.'}</div>
                 {visualisationGroupLabels.length > 0 && <div><strong className="text-slate-900">Grouped curves:</strong> {visualisationGroupLabels.join(' · ')}</div>}
@@ -1161,7 +1161,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               useResizeHandler
               style={{ width: '100%', height: '470px' }}
             />
-            <p className="mt-3 rounded-2xl bg-[#fbfaf5] px-4 py-3 text-sm leading-6 text-slate-600">
+            <p className="mt-3 rounded-2xl bg-[#0B1220] px-4 py-3 text-sm leading-6 text-slate-600">
               Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns and the generic filters above.
             </p>
           </section>}
@@ -1173,12 +1173,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 title="Tradeoff candidates"
                 description="Optional starting points. Use one as the current design point to update Single result inputs and visualisation fixed conditions together."
               />
-              <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+              <div className="mt-4 rounded-2xl border border-[#2F6BFF]/35 bg-[#10203A] p-4 text-sm leading-6 text-[#BDEAFF]">
                 These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Use one as the current design point, then plot a sweep around that point. Lower raw values are better for minimized objectives.
               </div>
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
-                  <article key={candidate.rank} className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-3">
+                  <article key={candidate.rank} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="font-semibold text-slate-950">{candidate.label}</h3>
@@ -1226,7 +1226,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         type: 'scatter',
                         mode: 'markers+text',
                         textposition: 'top center',
-                        marker: { size: 11, color: '#526949', opacity: 0.85 },
+                        marker: { size: 11, color: '#2F6BFF', opacity: 0.85 },
                       },
                     ])}
                     layout={asPlotLayout({
