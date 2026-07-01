@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import io
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,20 @@ def _write_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     return payload
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is pd.NA:
+        return None
+    return value
 
 
 MODEL_QUALITY_REQUIRED_ARTIFACTS = ["metrics_summary.json", "candidate_comparison.csv"]
@@ -390,7 +405,8 @@ def get_candidate_comparison(project_id: str, workspace_id: str | None = None) -
     path = _artifact_dir(project_id, workspace_id) / "candidate_comparison.csv"
     if not path.exists():
         return []
-    return pd.read_csv(path).to_dict(orient="records")
+    frame = pd.read_csv(path)
+    return _json_safe(json.loads(frame.where(pd.notnull(frame), None).to_json(orient="records")))
 
 
 def _default_review(project_id: str) -> dict[str, Any]:
@@ -435,22 +451,24 @@ def get_model_quality_summary(project_id: str, workspace_id: str | None = None) 
         preprocessing_report = {}
         artifact_summary = {"project_id": project_id, "prediction_diagnostics_available": False, "warning": warning}
         candidate_comparison = []
-    return {
-        "project_id": project_id,
-        "quality_label": "all-cells MVP",
-        "warning": warning,
-        "metrics": metrics,
-        "preprocessing_report": preprocessing_report,
-        "artifact_summary": artifact_summary,
-        "active_model": get_active_model_metadata(project_id, workspace_id),
-        "scientist_review": get_scientist_review(project_id),
-        "latest_runs": get_latest_runs(project_id),
-        "candidate_comparison": candidate_comparison,
-        "ai_preprocessing_assistant": {
-            "status": "placeholder_not_active",
-            "message": "AI preprocessing assistant is a future placeholder. No autonomous preprocessing is active yet.",
-            "proposed_transformations": [],
-            "rationale": "Future agent will propose transformations for scientist review before activation.",
-            "review_affordance": "accept/reject placeholders only",
-        },
-    }
+    return _json_safe(
+        {
+            "project_id": project_id,
+            "quality_label": "all-cells MVP",
+            "warning": warning,
+            "metrics": metrics,
+            "preprocessing_report": preprocessing_report,
+            "artifact_summary": artifact_summary,
+            "active_model": get_active_model_metadata(project_id, workspace_id),
+            "scientist_review": get_scientist_review(project_id),
+            "latest_runs": get_latest_runs(project_id),
+            "candidate_comparison": candidate_comparison,
+            "ai_preprocessing_assistant": {
+                "status": "placeholder_not_active",
+                "message": "AI preprocessing assistant is a future placeholder. No autonomous preprocessing is active yet.",
+                "proposed_transformations": [],
+                "rationale": "Future agent will propose transformations for scientist review before activation.",
+                "review_affordance": "accept/reject placeholders only",
+            },
+        }
+    )

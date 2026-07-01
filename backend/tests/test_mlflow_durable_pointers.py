@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -133,7 +135,7 @@ def test_loaded_champion_quality_artifacts_resolve_by_run_id(monkeypatch, tmp_pa
     artifact_dir = tmp_path / "artifacts" / run_id
     artifact_dir.mkdir(parents=True)
     (artifact_dir / "metrics_summary.json").write_text('{"best_model_name":"mlp"}\n', encoding="utf-8")
-    (artifact_dir / "candidate_comparison.csv").write_text("model_name,score\nmlp,0.1\n", encoding="utf-8")
+    (artifact_dir / "candidate_comparison.csv").write_text("model_name,score,validation_mean_r2\nmlp,0.1,\n", encoding="utf-8")
     (artifact_dir / "schema.json").write_text('{"outputs":[{"name":"y1"}]}\n', encoding="utf-8")
     (artifact_dir / "preprocessing.json").write_text("{}\n", encoding="utf-8")
     (artifact_dir / "predictions.csv").write_text("model_name,split,y1_true,y1_pred\nmlp,test,1.0,0.9\n", encoding="utf-8")
@@ -148,7 +150,10 @@ def test_loaded_champion_quality_artifacts_resolve_by_run_id(monkeypatch, tmp_pa
     monkeypatch.setattr(model_quality, "download_run_artifacts", fake_download)
 
     assert model_quality.get_metrics(project_id, workspace_id)["best_model_name"] == "mlp"
-    assert model_quality.get_candidate_comparison(project_id, workspace_id)[0]["model_name"] == "mlp"
+    comparison = model_quality.get_candidate_comparison(project_id, workspace_id)
+    assert comparison[0]["model_name"] == "mlp"
+    assert comparison[0]["validation_mean_r2"] is None
+    json.dumps(model_quality.get_model_quality_summary(project_id, workspace_id), allow_nan=False)
     predictions = model_quality.get_predictions(project_id, workspace_id=workspace_id)
     assert predictions["rows"][0]["y1_pred"] == 0.9
     assert {call["run_id"] for call in calls} == {run_id}
