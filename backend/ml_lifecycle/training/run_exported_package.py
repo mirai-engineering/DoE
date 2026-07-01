@@ -296,7 +296,15 @@ def registered_model_name(project_id: str) -> str:
     return f"doe_surrogate_{project_id}"
 
 
-def build_training_config(package: ExportedPackage, *, max_epochs: int | None = None) -> dict[str, Any]:
+def build_training_config(
+    package: ExportedPackage,
+    *,
+    max_epochs: int | None = None,
+    mlp_hpo: bool | None = None,
+    mlp_hpo_trials: int | None = None,
+    mlp_hpo_timeout_seconds: int | None = None,
+    mlp_hpo_seed: int = 7,
+) -> dict[str, Any]:
     source_checksums = package.manifest.get("source_checksums") if isinstance(package.manifest.get("source_checksums"), dict) else {}
     source_checksum = source_checksums.get("model_table.csv") or source_checksums.get("schema.json") or ""
     config: dict[str, Any] = {
@@ -315,8 +323,22 @@ def build_training_config(package: ExportedPackage, *, max_epochs: int | None = 
             "extra_artifacts": ["training_manifest.json"],
         }
     }
+    hpo_enabled = bool(mlp_hpo) if mlp_hpo is not None else max_epochs is None
+    hpo_trials = int(mlp_hpo_trials) if mlp_hpo_trials is not None else (50 if hpo_enabled else 0)
+    mlp_config: dict[str, Any] = {
+        "include": True,
+        "seed": int(mlp_hpo_seed),
+        "hpo": {
+            "enabled": hpo_enabled and hpo_trials > 0,
+            "n_trials": hpo_trials,
+            "seed": int(mlp_hpo_seed),
+        },
+    }
+    if mlp_hpo_timeout_seconds is not None:
+        mlp_config["hpo"]["timeout_seconds"] = int(mlp_hpo_timeout_seconds)
     if max_epochs is not None:
-        config["mlp"] = {"include": True, "max_epochs": max_epochs, "patience": min(max_epochs, 20), "seed": 7}
+        mlp_config.update({"max_epochs": max_epochs, "patience": min(max_epochs, 20)})
+    config["mlp"] = mlp_config
     return config
 
 
@@ -330,6 +352,10 @@ def run_training(
     dataset_id: str | None = None,
     session_id: str | None = None,
     training_request_id: str | None = None,
+    mlp_hpo: bool | None = None,
+    mlp_hpo_trials: int | None = None,
+    mlp_hpo_timeout_seconds: int | None = None,
+    mlp_hpo_seed: int = 7,
 ) -> dict[str, Any]:
     _load_local_env()
     package = load_exported_package(package_dir)
@@ -343,7 +369,14 @@ def run_training(
     )
     tracking_uri = preflight_remote_mlflow()
     layout = create_working_layout(package, output_root=output_root)
-    config = build_training_config(package, max_epochs=max_epochs)
+    config = build_training_config(
+        package,
+        max_epochs=max_epochs,
+        mlp_hpo=mlp_hpo,
+        mlp_hpo_trials=mlp_hpo_trials,
+        mlp_hpo_timeout_seconds=mlp_hpo_timeout_seconds,
+        mlp_hpo_seed=mlp_hpo_seed,
+    )
     metrics = train_generic_project(
         project_id=package.project_id,
         data_dir=layout["canonical"],
@@ -380,6 +413,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--package-dir", required=True, type=Path, help="Directory containing model_table.csv, schema.json, and training_manifest.json")
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT, type=Path, help="Gitignored local output root; defaults to backend/.local-training-runs")
     parser.add_argument("--max-epochs", type=int, default=None, help="Optional modest MLP epoch override for smoke runs")
+    parser.add_argument("--mlp-hpo-trials", type=int, default=None, help="Number of Optuna MLP HPO trials; enables HPO when supplied")
+    parser.add_argument("--mlp-hpo-timeout-seconds", type=int, default=None, help="Optional wall-clock timeout for MLP HPO")
+    parser.add_argument("--mlp-hpo-seed", type=int, default=7, help="Seed for Optuna TPE sampling and MLP training")
+    parser.add_argument("--no-mlp-hpo", action="store_true", help="Disable MLP hyperparameter optimization")
     parser.add_argument("--workspace-id", required=True, help="Workspace id; must match training_manifest.json")
     parser.add_argument("--project-id", required=True, help="Project id; must match training_manifest.json and becomes the MLflow experiment name")
     parser.add_argument("--dataset-id", default=None, help="Optional dataset id; if supplied, must match training_manifest.json")
@@ -400,6 +437,10 @@ def main(argv: list[str] | None = None) -> int:
             dataset_id=args.dataset_id,
             session_id=args.session_id,
             training_request_id=args.training_request_id,
+            mlp_hpo=False if args.no_mlp_hpo else (True if args.mlp_hpo_trials is not None else None),
+            mlp_hpo_trials=args.mlp_hpo_trials,
+            mlp_hpo_timeout_seconds=args.mlp_hpo_timeout_seconds,
+            mlp_hpo_seed=args.mlp_hpo_seed,
         )
     except ExportedPackageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -196,6 +196,11 @@ def test_run_training_uses_remote_preflight_and_keeps_outputs_outside_package(tm
     assert config["mlflow"]["extra_tags"]["training_source"] == "approved_export_package"
     assert config["mlflow"]["extra_tags"]["training_request_id"] == "train_req_123"
     assert config["mlflow"]["extra_artifacts"] == ["training_manifest.json"]
+    assert config["mlp"]["max_epochs"] == 3
+    assert config["mlp"]["hpo"]["enabled"] is False
+    assert config["mlp"]["hpo"]["n_trials"] == 0
+    assert config["mlp"]["hpo"]["seed"] == 7
+    assert runner.build_training_config(runner.load_exported_package(package_dir))["mlp"]["hpo"]["n_trials"] == 50
     assert not any(path.name in {"metrics_summary.json", "preprocessing.json"} for path in package_dir.iterdir())
 
 

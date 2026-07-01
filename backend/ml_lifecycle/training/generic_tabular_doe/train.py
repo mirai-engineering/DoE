@@ -291,7 +291,7 @@ def _log_generic_mlflow(
         mlflow_cfg = training_config.get("mlflow", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlflow"), dict) else {}
         extra_tags = mlflow_cfg.get("extra_tags", {}) if isinstance(mlflow_cfg.get("extra_tags"), dict) else {}
         extra_artifacts = mlflow_cfg.get("extra_artifacts", []) if isinstance(mlflow_cfg.get("extra_artifacts"), list) else []
-        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json"]
+        common_artifacts = ["metrics_summary.json", "metrics.json", "schema.json", "preprocessing.json", "preprocessing_fitted.json", "feature_map.json", "target_map.json", "ml_preprocessing_report.json", "ml_preprocessing_report.md", "model_table_preprocessed_manifest.json", "metadata.json", "split_report.json", "predictions.csv", "candidate_comparison.csv", "model.onnx", "training_manifest.json", "mlp_hpo_trials.csv", "mlp_hpo_summary.json"]
         for artifact_name in extra_artifacts:
             if isinstance(artifact_name, str) and artifact_name not in common_artifacts:
                 common_artifacts.append(artifact_name)
@@ -331,6 +331,19 @@ def _log_generic_mlflow(
                 if model_name == "mlp":
                     mlp_cfg = training_config.get("mlp", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlp"), dict) else {}
                     params.update({f"mlp_{key}": json.dumps(value) if isinstance(value, (list, dict)) else value for key, value in mlp_cfg.items() if isinstance(value, (str, int, float, bool, list, dict))})
+                    hpo_summary = candidate.get("mlp_hpo") if isinstance(candidate.get("mlp_hpo"), dict) else {}
+                    params.update(
+                        {
+                            "mlp_hpo_enabled": bool(hpo_summary.get("enabled", False)),
+                            "mlp_hpo_best_trial": hpo_summary.get("best_trial"),
+                            "mlp_hpo_n_trials_completed": hpo_summary.get("n_trials_completed"),
+                            "mlp_hpo_best_value": hpo_summary.get("best_value"),
+                        }
+                    )
+                    best_model_params = hpo_summary.get("best_model_params") if isinstance(hpo_summary.get("best_model_params"), dict) else {}
+                    params.update({f"mlp_best_{key}": json.dumps(value) if isinstance(value, (list, dict)) else value for key, value in best_model_params.items()})
+                    if hpo_summary:
+                        mlflow.set_tags({"mlp_hpo_enabled": "true", "mlp_hpo_best_trial": str(hpo_summary.get("best_trial")), "mlp_hpo_selected_metric": str(hpo_summary.get("selection_metric"))})
                 mlflow.log_params({key: value for key, value in params.items() if value is not None})
                 for split_name, split in candidate.get("split_metrics", {}).items():
                     if split.get("weighted_normalized_rmse") is not None:
@@ -343,6 +356,44 @@ def _log_generic_mlflow(
                     path = artifact_dir / name
                     if path.exists():
                         mlflow.log_artifact(str(path))
+                if model_name == "mlp" and candidate.get("mlp_hpo_trials"):
+                    hpo_summary = candidate.get("mlp_hpo") if isinstance(candidate.get("mlp_hpo"), dict) else {}
+                    best_trial_number = hpo_summary.get("best_trial")
+                    for trial_row in candidate.get("mlp_hpo_trials", []):
+                        if not isinstance(trial_row, dict):
+                            continue
+                        trial_number = trial_row.get("trial_number")
+                        selected_trial = trial_number == best_trial_number
+                        with mlflow.start_run(run_name=f"generic_tabular_doe__mlp__hpo_trial_{trial_number}", nested=True):
+                            mlflow.set_tags(
+                                {
+                                    **lifecycle_tags,
+                                    "candidate_role": "hpo_trial",
+                                    "lifecycle_role": "hpo_trial",
+                                    "selected_candidate": "false",
+                                    "selected_trial": str(bool(selected_trial)).lower(),
+                                    "parent_model_name": "mlp",
+                                }
+                            )
+                            trial_params = {
+                                key: value
+                                for key, value in trial_row.items()
+                                if key
+                                in {
+                                    "hidden_layers",
+                                    "activation",
+                                    "dropout",
+                                    "learning_rate",
+                                    "weight_decay",
+                                    "loss",
+                                    "max_epochs",
+                                    "patience",
+                                }
+                            }
+                            mlflow.log_params({key: value for key, value in trial_params.items() if value is not None})
+                            for metric_key, metric_value in trial_row.items():
+                                if isinstance(metric_value, (int, float)) and np.isfinite(metric_value) and (metric_key in {"value", "validation_weighted_normalized_rmse", "epochs_trained"} or metric_key.startswith("validation_")):
+                                    mlflow.log_metric(str(metric_key), float(metric_value))
                 onnx_path = candidate.get("onnx_path")
                 if onnx_path and Path(str(onnx_path)).exists():
                     mlflow.log_artifact(str(onnx_path), artifact_path="onnx")
@@ -726,6 +777,125 @@ def _export_generic_sklearn_onnx(model: Any, onnx_path: Path, *, sample_x: pd.Da
     return report
 
 
+def _mlp_hpo_enabled(mlp_cfg: dict[str, Any]) -> bool:
+    hpo_cfg = mlp_cfg.get("hpo", {}) if isinstance(mlp_cfg.get("hpo"), dict) else {}
+    return bool(hpo_cfg.get("enabled", False)) and int(hpo_cfg.get("n_trials", 0) or 0) > 0
+
+
+def _suggest_mlp_params(trial: Any, mlp_cfg: dict[str, Any]) -> dict[str, Any]:
+    max_epochs_cap = min(int(mlp_cfg.get("max_epochs", 1000)), 1500)
+    max_epochs_cap = max(1, max_epochs_cap)
+    template = trial.suggest_categorical("layer_template", ["compact", "single", "funnel", "wide", "deep"])
+    width = int(trial.suggest_categorical("width", [64, 96, 128, 192, 256, 384]))
+    if template == "compact":
+        hidden_layers = (width, max(16, width // 2))
+    elif template == "single":
+        hidden_layers = (width,)
+    elif template == "wide":
+        hidden_layers = (width, width)
+    elif template == "deep":
+        hidden_layers = (width, max(32, width // 2), max(16, width // 4))
+    else:
+        hidden_layers = (width, max(32, width // 2), max(16, width // 4))
+    min_epochs = min(max_epochs_cap, max(1, int(mlp_cfg.get("hpo_min_epochs", 50))))
+    trial_max_epochs = trial.suggest_int("max_epochs", min_epochs, max_epochs_cap) if max_epochs_cap > min_epochs else max_epochs_cap
+    max_patience = max(1, min(int(trial_max_epochs), int(mlp_cfg.get("hpo_max_patience", 250))))
+    min_patience = min(max_patience, max(1, int(mlp_cfg.get("hpo_min_patience", 20))))
+    return {
+        "hidden_layers": hidden_layers,
+        "activation": trial.suggest_categorical("activation", ["silu", "gelu", "relu"]),
+        "dropout": float(trial.suggest_float("dropout", 0.0, 0.25)),
+        "learning_rate": float(trial.suggest_float("learning_rate", 1e-4, 2e-2, log=True)),
+        "weight_decay": float(trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)),
+        "loss": trial.suggest_categorical("loss", ["smooth_l1", "mse"]),
+        "max_epochs": int(trial_max_epochs),
+        "patience": int(trial.suggest_int("patience", min_patience, max_patience) if max_patience > min_patience else max_patience),
+    }
+
+
+def _optimize_mlp_hyperparameters(
+    *,
+    x_train: pd.DataFrame,
+    y_train: pd.DataFrame,
+    x_val: pd.DataFrame,
+    y_val: np.ndarray,
+    outputs: list[str],
+    mlp_cfg: dict[str, Any],
+    artifact_dir: Path,
+) -> tuple[GenericTorchMLPRegressor, dict[str, Any]]:
+    import optuna
+
+    hpo_cfg = mlp_cfg.get("hpo", {}) if isinstance(mlp_cfg.get("hpo"), dict) else {}
+    n_trials = max(1, int(hpo_cfg.get("n_trials", 50)))
+    seed = int(hpo_cfg.get("seed", mlp_cfg.get("seed", 7)))
+    timeout = hpo_cfg.get("timeout_seconds")
+    timeout_seconds = int(timeout) if timeout is not None else None
+    sampler = optuna.samplers.TPESampler(seed=seed)
+    study = optuna.create_study(direction="minimize", sampler=sampler, study_name="mlp_hpo")
+    trial_rows: list[dict[str, Any]] = []
+    best_model: GenericTorchMLPRegressor | None = None
+    best_score = float("inf")
+
+    def objective(trial: Any) -> float:
+        nonlocal best_model, best_score
+        params = _suggest_mlp_params(trial, mlp_cfg)
+        model = GenericTorchMLPRegressor(**params, seed=seed)
+        model.fit(x_train, y_train, X_validation=x_val, y_validation=y_val)
+        pred = np.asarray(model.predict(x_val), dtype=float)
+        metrics = _metrics(y_val, pred, outputs)
+        score = float(metrics.get("weighted_normalized_rmse") or float("inf"))
+        epochs_trained = int(getattr(model, "training_report_", {}).get("epochs_trained", 0) or 0)
+        trial.set_user_attr("epochs_trained", epochs_trained)
+        trial.set_user_attr("validation_metrics", metrics)
+        row: dict[str, Any] = {
+            "trial_number": int(trial.number),
+            "value": score,
+            "validation_weighted_normalized_rmse": score,
+            "epochs_trained": epochs_trained,
+            **{key: json.dumps(value) if isinstance(value, tuple) else value for key, value in params.items()},
+        }
+        for output_name, output_metrics in metrics.get("by_output", {}).items():
+            for metric_name, metric_value in output_metrics.items():
+                if isinstance(metric_value, (int, float)) and np.isfinite(metric_value):
+                    row[f"validation_{output_name}_{metric_name}"] = float(metric_value)
+        trial_rows.append(row)
+        if score < best_score:
+            best_score = score
+            best_model = model
+        return score
+
+    study.optimize(objective, n_trials=n_trials, timeout=timeout_seconds, n_jobs=1, show_progress_bar=False)
+    if best_model is None:
+        raise RuntimeError("MLP HPO did not complete any successful trials")
+    best_trial = study.best_trial
+    trials_df = pd.DataFrame(trial_rows).sort_values("trial_number") if trial_rows else pd.DataFrame()
+    trials_path = artifact_dir / "mlp_hpo_trials.csv"
+    trials_df.to_csv(trials_path, index=False)
+    best_params = dict(best_trial.params)
+    best_model_params = {
+        key: (list(value) if isinstance(value, tuple) else value)
+        for key, value in best_model.get_params(deep=False).items()
+        if key in {"hidden_layers", "activation", "dropout", "learning_rate", "weight_decay", "max_epochs", "patience", "seed", "loss"}
+    }
+    summary = {
+        "enabled": True,
+        "n_trials_requested": n_trials,
+        "n_trials_completed": len(study.trials),
+        "seed": seed,
+        "timeout_seconds": timeout_seconds,
+        "study_direction": "minimize",
+        "selection_metric": "validation_weighted_normalized_rmse",
+        "best_trial": int(best_trial.number),
+        "best_value": float(best_trial.value),
+        "best_optuna_params": best_params,
+        "best_model_params": best_model_params,
+        "generated_at": _now(),
+        "trials_artifact": "mlp_hpo_trials.csv",
+    }
+    _write_json(artifact_dir / "mlp_hpo_summary.json", summary)
+    return best_model, {"mlp_hpo": summary, "mlp_hpo_trials": trial_rows, "mlp_hpo_trials_path": str(trials_path), "mlp_hpo_summary_path": str(artifact_dir / "mlp_hpo_summary.json")}
+
+
 def _candidate_models(config: dict[str, Any] | None = None) -> list[tuple[str, Any]]:
     config = config or {}
     models: list[tuple[str, Any]] = [("mean_baseline", DummyRegressor(strategy="mean")), ("mvlr", LinearRegression())]
@@ -789,10 +959,23 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
     split_frames = {"train": train, "validation": validation, "test": test}
     output_units = {item.get("name", ""): item.get("unit", "") for item in schema.get("outputs", []) if isinstance(item, dict)}
     reference = _target_reference(train, outputs, output_units)
+    mlp_cfg = training_config.get("mlp", {}) if isinstance(training_config, dict) and isinstance(training_config.get("mlp"), dict) else {}
     for name, estimator in _candidate_models(training_config):
+        hpo_payload: dict[str, Any] = {}
         if isinstance(estimator, GenericTorchMLPRegressor):
-            model = estimator
-            model.fit(x_train, y_train, X_validation=x_val, y_validation=y_val)
+            if name == "mlp" and _mlp_hpo_enabled(mlp_cfg):
+                model, hpo_payload = _optimize_mlp_hyperparameters(
+                    x_train=x_train,
+                    y_train=y_train,
+                    x_val=x_val,
+                    y_val=y_val,
+                    outputs=outputs,
+                    mlp_cfg=mlp_cfg,
+                    artifact_dir=artifact_dir,
+                )
+            else:
+                model = estimator
+                model.fit(x_train, y_train, X_validation=x_val, y_validation=y_val)
         else:
             if uses_ml_preprocessing_v1:
                 model = estimator
@@ -802,7 +985,7 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
         val_pred = np.asarray(model.predict(x_val), dtype=float)
         metric = _metrics(y_val, val_pred, outputs)
         path = models_dir / f"{name}.joblib"
-        candidate_payload: dict[str, Any] = {"model_name": name, "model_family": name.split("_")[0], "validation": metric, "model_path": str(path)}
+        candidate_payload: dict[str, Any] = {"model_name": name, "model_family": name.split("_")[0], "validation": metric, "model_path": str(path), **hpo_payload}
         onnx_path = models_dir / f"{name}.onnx"
         if isinstance(model, GenericTorchMLPRegressor):
             onnx_report = _export_generic_mlp_onnx(model, onnx_path, sample_x=x_val, input_name=onnx_input_name)
@@ -842,6 +1025,7 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
             "onnx_max_abs_diff": candidate.get("onnx_max_abs_diff"),
             "selection_metric": candidate["validation"].get("weighted_normalized_rmse"),
             "splits": candidate_splits,
+            "mlp_hpo": candidate.get("mlp_hpo") if candidate["model_name"] == "mlp" else None,
         }
         validation_r2_values = [np.nan if m.get("r2") is None else m.get("r2", np.nan) for m in candidate_splits.get("validation", {}).values()]
         test_r2_values = [np.nan if m.get("r2") is None else m.get("r2", np.nan) for m in candidate_splits.get("test", {}).values()]
@@ -857,6 +1041,8 @@ def train_generic_project(*, project_id: str, data_dir: Path, artifact_dir: Path
                 "validation_mean_r2": None if np.isnan(validation_mean_r2) else float(validation_mean_r2),
                 "test_mean_r2": None if np.isnan(test_mean_r2) else float(test_mean_r2),
                 "selected_challenger": candidate["model_name"] == best["model_name"],
+                "mlp_hpo_enabled": bool(candidate.get("mlp_hpo", {}).get("enabled")) if candidate["model_name"] == "mlp" else False,
+                "mlp_hpo_best_trial": candidate.get("mlp_hpo", {}).get("best_trial") if candidate["model_name"] == "mlp" and isinstance(candidate.get("mlp_hpo"), dict) else None,
             }
         )
         if candidate["model_name"] == best["model_name"]:

@@ -65,6 +65,63 @@ def test_generic_contract_preprocess_and_train(tmp_path: Path) -> None:
     assert onnx_report["max_abs_diff"] < 1e-4
 
 
+def test_generic_training_with_tiny_mlp_hpo_writes_artifacts_and_nested_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = tmp_path / "raw"
+    canonical = tmp_path / "canonical"
+    artifacts = tmp_path / "artifacts"
+    tracking = tmp_path / "mlruns"
+    raw.mkdir()
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking.resolve().as_uri())
+    monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW", raising=False)
+    monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS", raising=False)
+    _write_contract(raw)
+    rows = []
+    for i in range(36):
+        rows.append({"experiment_id": f"exp_{i}", "batch_id": f"batch_{i % 6}", "temperature_c": 20 + i, "pressure_bar": 1 + (i % 5), "yield_pct": 40 + i * 0.8})
+    pd.DataFrame(rows).to_csv(raw / "model_table.csv", index=False)
+
+    build_generic_preprocessing_artifacts(raw_root=raw, canonical_dir=canonical, artifact_dir=artifacts, project_id="generic_widget_hpo")
+    metrics = train_generic_project(
+        project_id="generic_widget_hpo",
+        data_dir=canonical,
+        artifact_dir=artifacts,
+        training_config={
+            "mlp": {
+                "include": True,
+                "max_epochs": 2,
+                "patience": 1,
+                "seed": 7,
+                "hpo_min_epochs": 1,
+                "hpo_min_patience": 1,
+                "hpo": {"enabled": True, "n_trials": 2, "seed": 7},
+            },
+        },
+    )
+
+    assert (artifacts / "mlp_hpo_trials.csv").exists()
+    summary = json.loads((artifacts / "mlp_hpo_summary.json").read_text())
+    assert summary["enabled"] is True
+    assert summary["n_trials_completed"] == 2
+    assert summary["selection_metric"] == "validation_weighted_normalized_rmse"
+    assert metrics["models"]["mlp"]["mlp_hpo"]["best_trial"] in {0, 1}
+    comparison = pd.read_csv(artifacts / "candidate_comparison.csv")
+    mlp_row = comparison[comparison["model_name"] == "mlp"].iloc[0]
+    assert bool(mlp_row["mlp_hpo_enabled"]) is True
+    assert (artifacts / "models" / "mlp.onnx").exists()
+
+    client = MlflowClient(tracking_uri=tracking.resolve().as_uri(), registry_uri=tracking.resolve().as_uri())
+    experiment = client.get_experiment_by_name("generic_widget_hpo")
+    assert experiment is not None
+    runs = client.search_runs([experiment.experiment_id])
+    hpo_runs = [run for run in runs if run.data.tags.get("candidate_role") == "hpo_trial"]
+    assert len(hpo_runs) == 2
+    assert {run.data.tags.get("selected_trial") for run in hpo_runs} == {"true", "false"}
+    assert all(run.data.tags.get("model_name") == "mlp" for run in hpo_runs)
+    mlp_candidate = next(run for run in runs if run.data.tags.get("model_name") == "mlp" and run.data.tags.get("candidate_role") != "hpo_trial")
+    assert mlp_candidate.data.params["mlp_hpo_enabled"] == "True"
+    assert mlp_candidate.data.tags["mlp_hpo_enabled"] == "true"
+
+
 def test_generic_training_logs_each_candidate_and_registers_only_best(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     raw = tmp_path / "raw"
     canonical = tmp_path / "canonical"
@@ -72,6 +129,8 @@ def test_generic_training_logs_each_candidate_and_registers_only_best(tmp_path: 
     tracking = tmp_path / "mlruns"
     raw.mkdir()
     monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking.resolve().as_uri())
+    monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_MLFLOW", raising=False)
+    monkeypatch.delenv("MIRAI_TRAINING_REQUIRE_REMOTE_ARTIFACTS", raising=False)
     _write_contract(raw)
     rows = []
     for i in range(48):
