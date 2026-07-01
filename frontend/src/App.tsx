@@ -247,10 +247,10 @@ function App() {
         <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#050914] to-transparent" />
       </div>
 
-      <div className={`relative mx-auto grid max-w-[98rem] gap-5 px-4 py-5 transition-[grid-template-columns] duration-200 sm:px-6 lg:px-8 ${sidebarCollapsed ? 'lg:grid-cols-[5rem_minmax(0,1fr)]' : 'lg:grid-cols-[16.5rem_minmax(0,1fr)]'}`}>
+      <div className={`relative mx-auto grid max-w-[98rem] gap-4 px-4 py-4 transition-[grid-template-columns] duration-200 sm:px-6 lg:px-7 ${sidebarCollapsed ? 'lg:grid-cols-[4.75rem_minmax(0,1fr)]' : 'lg:grid-cols-[15.75rem_minmax(0,1fr)]'}`}>
         <Tabs activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 space-y-5">
           <ProjectHeader
             projects={projects}
             selectedProjectId={selectedProjectId}
@@ -272,14 +272,14 @@ function App() {
           )}
 
           {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
-          <div className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 text-slate-300 shadow-xl shadow-black/25">
+          <div className="rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] p-5 text-slate-300 shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl">
             Loading project schema...
           </div>
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
               <div className="space-y-8">
-                <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 shadow-xl shadow-black/25">
+                <section className="rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] p-5 shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
                     Batch Search
                   </p>

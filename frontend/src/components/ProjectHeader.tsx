@@ -56,26 +56,26 @@ export function ProjectHeader({
   }
 
   return (
-    <section className="relative z-[80] overflow-hidden rounded-lg border border-slate-700/80 bg-[#0B1220] shadow-xl shadow-black/25">
-      <div className="border-b border-slate-700/70 px-5 py-5 md:px-6">
-        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(32rem,0.95fr)] xl:items-end">
+    <section className="relative z-[80] overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(140deg,rgba(16,27,50,0.9),rgba(8,13,24,0.84))] shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl">
+      <div className="border-b border-white/10 px-5 py-4 md:px-5">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(30rem,0.9fr)] xl:items-end">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">Mirai</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-50 sm:text-4xl">AI-guided process and product acceleration</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Design better experiments before you run them with a controlled scientific workflow.</p>
+            <h1 className="mt-1.5 text-2xl font-semibold tracking-[-0.04em] text-slate-50 sm:text-3xl">AI-guided process and product acceleration</h1>
+            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[#C7D2E4]">Design better experiments before you run them with a controlled scientific workflow.</p>
           </div>
 
           <div className="grid min-w-0 gap-3 md:grid-cols-2">
             <label htmlFor="workspace" className="min-w-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
               Workspace
-              <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full min-w-0 rounded-md border border-slate-700 bg-[#050914] px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#2F6BFF] focus:ring-2 focus:ring-[#2F6BFF]/25">
+              <select id="workspace" value={selectedWorkspace} onChange={(event) => handleWorkspaceChange(event.target.value)} disabled={projectsLoading || workspaceOptions.length === 0} className="mt-2 w-full min-w-0 rounded-xl border border-white/10 bg-[#050914]/80 px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#74C7F5] focus:ring-2 focus:ring-[#74C7F5]/25">
                 {workspaceOptions.length ? workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspace}</option>) : <option value={selectedWorkspace}>{selectedWorkspace}</option>}
               </select>
             </label>
 
             <label htmlFor="project" className="min-w-0 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
               Project
-              <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full min-w-0 rounded-md border border-slate-700 bg-[#050914] px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#2F6BFF] focus:ring-2 focus:ring-[#2F6BFF]/25">
+              <select id="project" value={selectedProjectId} onChange={(event) => onProjectChange(event.target.value)} disabled={projectsLoading || projects.length === 0} className="mt-2 w-full min-w-0 rounded-xl border border-white/10 bg-[#050914]/80 px-3 py-2.5 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition focus:border-[#74C7F5] focus:ring-2 focus:ring-[#74C7F5]/25">
                 {visibleProjects.length ? visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.display_name}</option>) : <option value="">No projects yet</option>}
               </select>
             </label>
@@ -83,13 +83,13 @@ export function ProjectHeader({
         </div>
       </div>
 
-      <div className="grid gap-3 px-5 py-4 md:grid-cols-[8rem_8rem_minmax(0,1fr)] md:px-6">
+      <div className="grid gap-3 px-5 py-3.5 md:grid-cols-[7.5rem_7.5rem_minmax(0,1fr)] md:px-5">
         <Metadata label="Inputs" value={schema ? String(schema.inputs.length) : '-'} />
         <Metadata label="Outputs" value={schema ? String(schema.outputs.length) : '-'} />
-        <div className="flex min-w-0 items-center justify-between gap-4 rounded-md border border-slate-700 bg-[#070C16] px-3 py-2.5 text-sm">
+        <div className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5 text-sm">
           <div className="min-w-0">
             <div className="font-semibold text-slate-100">Model quality</div>
-            <div className="mt-0.5 truncate text-xs text-slate-400">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
+            <div className="mt-0.5 truncate text-xs text-[#9FB0C8]">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
           </div>
           <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'border border-[#74C7F5]/30 bg-[#0D1B2D] text-[#BDEAFF]' : 'border border-amber-300/30 bg-amber-950/40 text-amber-100'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
         </div>

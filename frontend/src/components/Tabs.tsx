@@ -53,8 +53,8 @@ export function Tabs({
   onCollapsedChange: (collapsed: boolean) => void
 }) {
   return (
-    <aside className="sticky top-5 z-[90] flex max-h-[calc(100vh-2.5rem)] flex-col overflow-hidden rounded-lg border border-slate-700/80 bg-[#080D18] shadow-xl shadow-black/25" aria-label="Primary product navigation">
-      <div className={`border-b border-slate-700/70 ${collapsed ? 'p-3' : 'p-4'}`}>
+    <aside className="sticky top-4 z-[90] flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#080D18]/88 shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl" aria-label="Primary product navigation">
+      <div className={`border-b border-white/10 ${collapsed ? 'p-3' : 'p-3.5'}`}>
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <img src="/assets/mirai-mark.png" alt="Mirai" className="h-10 w-10 rounded-md border border-slate-600 bg-[#050914] object-cover" />
           {!collapsed && (
@@ -64,11 +64,11 @@ export function Tabs({
             </div>
           )}
         </div>
-        {!collapsed && <p className="mt-4 text-xs leading-5 text-slate-400">Process and product acceleration for industrial R&amp;D.</p>}
+        {!collapsed && <p className="mt-3 text-xs leading-5 text-[#9FB0C8]">Process and product acceleration for industrial R&amp;D.</p>}
         <button
           type="button"
           onClick={() => onCollapsedChange(!collapsed)}
-          className={`mt-4 inline-flex h-9 items-center justify-center rounded-md border border-slate-700 bg-[#050914] text-xs font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-slate-500 hover:text-white ${collapsed ? 'w-full px-0' : 'w-full px-3'}`}
+          className={`mt-3 inline-flex h-9 items-center justify-center rounded-xl border border-white/10 bg-[#050914]/80 text-xs font-semibold uppercase tracking-[0.12em] text-[#C7D2E4] transition hover:border-[#74C7F5]/50 hover:text-white ${collapsed ? 'w-full px-0' : 'w-full px-3'}`}
           aria-label={collapsed ? 'Show dashboard navigation' : 'Hide dashboard navigation'}
           title={collapsed ? 'Show dashboard' : 'Hide dashboard'}
         >
@@ -76,7 +76,7 @@ export function Tabs({
         </button>
       </div>
 
-      <nav className={`min-h-0 flex-1 space-y-5 overflow-y-auto ${collapsed ? 'p-2' : 'p-2.5'}`} aria-label="Workflow sections">
+      <nav className={`min-h-0 flex-1 space-y-4 overflow-y-auto ${collapsed ? 'p-2' : 'p-2.5'}`} aria-label="Workflow sections">
         {tabGroups.map((group) => (
           <div key={group.title}>
             {!collapsed && (
@@ -97,11 +97,11 @@ export function Tabs({
                     aria-label={collapsed ? item.label : undefined}
                     title={collapsed ? item.label : undefined}
                     className={`group relative w-full rounded-md border text-left transition ${
-                      collapsed ? 'px-2 py-3 text-center' : 'px-3 py-3'
+                      collapsed ? 'px-2 py-2.5 text-center' : 'px-3 py-2.5'
                     } ${
                       itemActive
-                        ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-sm shadow-black/20 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-[#74C7F5]'
-                        : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-[#0D1524] hover:text-white'
+                        ? 'border-[#74C7F5]/45 bg-[linear-gradient(135deg,rgba(47,107,255,0.22),rgba(116,199,245,0.08))] text-white shadow-[0_10px_28px_rgba(47,107,255,0.12)] before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-[#74C7F5]'
+                        : 'border-transparent text-[#C7D2E4] hover:border-white/10 hover:bg-white/[0.045] hover:text-white'
                     }`}
                   >
                     {collapsed ? (
@@ -116,7 +116,7 @@ export function Tabs({
                             </span>
                           )}
                         </span>
-                        <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/[.72]' : 'text-[#7F8EA8]'}`}>{item.description}</span>
+                        <span className={`mt-1 block text-xs leading-5 ${itemActive ? 'text-white/[.78]' : 'text-[#9FB0C8]'}`}>{item.description}</span>
                       </>
                     )}
                   </button>

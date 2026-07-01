@@ -31,8 +31,24 @@ export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
   )
 }
 
-export function SectionCard({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-lg border border-slate-700/80 bg-[#0B1220] p-6 shadow-xl shadow-black/25 ${className}`}>{children}</section>
+export function SectionCard({
+  children,
+  className = '',
+  variant = 'glass',
+  density = 'normal',
+}: {
+  children: ReactNode
+  className?: string
+  variant?: 'glass' | 'solid' | 'subtle'
+  density?: 'compact' | 'normal'
+}) {
+  const variants = {
+    glass: 'border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl',
+    solid: 'border-slate-700/70 bg-[#0B1220] shadow-[0_16px_42px_rgba(2,6,23,0.18)]',
+    subtle: 'border-slate-700/55 bg-[#08111F]/82',
+  }
+  const padding = density === 'compact' ? 'p-4 sm:p-5' : 'p-5 sm:p-6'
+  return <section className={`rounded-2xl border ${variants[variant]} ${padding} ${className}`}>{children}</section>
 }
 
 export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -50,11 +66,11 @@ export function DisclosurePanel({ title, children, defaultOpen = false }: { titl
 
 export function Metadata({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-slate-700 bg-[#070C16] p-3">
-      <div className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+    <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
+      <div className="text-[0.66rem] font-semibold uppercase tracking-[0.16em] text-[#9FB0C8]">
         {label}
       </div>
-      <div className="mt-1 truncate text-sm font-semibold text-slate-100">{value}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-50">{value}</div>
     </div>
   )
 }
@@ -80,13 +96,13 @@ export function PanelHeader({
         {eyebrow}
       </p>
       <h2
-        className={`mt-2 text-2xl font-semibold tracking-[-0.04em] ${
+        className={`mt-1.5 text-[1.35rem] font-semibold tracking-[-0.035em] sm:text-2xl ${
           dark ? 'text-white' : 'text-[#F6F4EA]'
         }`}
       >
         {title}
       </h2>
-      <p className={`mt-2 text-sm leading-6 ${dark ? 'text-white/70' : 'text-[#9BA8C0]'}`}>
+      <p className={`mt-2 text-sm leading-6 ${dark ? 'text-white/76' : 'text-[#C7D2E4]'}`}>
         {description}
       </p>
     </div>
