@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { SignInButton, SignUpButton } from '@clerk/clerk-react'
 
+const CONTACT_EMAIL = 'contact@mirai-engineeirng.com'
+
 const NAV_ITEMS = [
   { label: 'Workflow', href: '#workflow' },
   { label: 'Data Scientist', href: '#data-scientist' },
@@ -104,6 +106,11 @@ function scrollToHash(hash: string) {
   document.querySelector(hash)?.scrollIntoView({ behavior: 'smooth' })
 }
 
+function showDemoContactMessage(event: MouseEvent<HTMLElement>) {
+  event.preventDefault()
+  window.alert(`To request a demo, please write us at ${CONTACT_EMAIL}.`)
+}
+
 function Eyebrow({ children }: { children: string }) {
   return <p className="mb-4 font-mono text-[0.75rem] uppercase tracking-[0.15em] text-[#7C5CFF]">{children}</p>
 }
@@ -158,7 +165,7 @@ function Navbar() {
           {NAV_ITEMS.map((item) => (
             <a key={item.href} href={item.href} onClick={handleNav} className="text-sm text-[#C5D0E6] transition-colors duration-200 hover:text-[#F6F4EA]">{item.label}</a>
           ))}
-          <a href="#cta" onClick={handleNav} className="inline-flex h-9 items-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a pilot</a>
+          <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-9 items-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a>
         </div>
 
         <button onClick={() => setMobileOpen((open) => !open)} className="flex flex-col gap-1.5 p-2 md:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}>
@@ -174,7 +181,7 @@ function Navbar() {
             {NAV_ITEMS.map((item) => (
               <a key={item.href} href={item.href} onClick={handleNav} className="text-sm text-[#C5D0E6] transition-colors hover:text-[#F6F4EA]">{item.label}</a>
             ))}
-            <a href="#cta" onClick={handleNav} className="mt-2 inline-flex h-9 items-center justify-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white">Request a pilot</a>
+            <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="mt-2 inline-flex h-9 items-center justify-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white">Request a demo</a>
           </div>
         </div>
       )}
@@ -530,7 +537,7 @@ function Cta() {
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-[2.5rem]">Make every physical test count.</h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-[#D6DEF0]">Walk through ingestion, traceability, surrogate diagnostics, and next-experiment recommendations for a representative slice of your bench data.</p>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-[#AEBBDD]">Use Mirai to turn historical experiments and process tables into a defensible ranked plan before the next expensive lab or production run.</p>
-            <div className="mt-8 flex flex-wrap gap-3"><a href="mailto:hello@mirai.example?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request" className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a pilot</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
+            <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
           </div>
           <div className="overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-3 shadow-[0_0_36px_rgba(109,93,251,0.12)]">
             <div className="aspect-[2560/1429] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
@@ -547,10 +554,10 @@ function Footer() {
   const linkGroups = [
     { title: 'Product', color: 'text-[#3B82F6]', links: [{ label: 'How it works', href: '#workflow' }, { label: 'Mirai Data Scientist', href: '#data-scientist' }, { label: 'Validation & uncertainty', href: '#proof' }, { label: 'Test plans', href: '#test-plans' }] },
     { title: 'Industries', color: 'text-[#7C5CFF]', links: INDUSTRIES.map((industry) => ({ label: industry.title, href: '#industries' })) },
-    { title: 'Company', color: 'text-[#3B82F6]', links: [{ label: 'Security & governance', href: '#cta' }, { label: 'Contact', href: 'mailto:hello@mirai.example' }] },
+    { title: 'Company', color: 'text-[#3B82F6]', links: [{ label: 'Security & governance', href: '#cta' }, { label: 'Contact', href: `mailto:${CONTACT_EMAIL}` }] },
   ]
   return (
-    <footer className="border-t border-violet-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#7C5CFF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href="#cta" onClick={(event) => { event.preventDefault(); scrollToHash('#cta') }} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a pilot</a><a href="mailto:hello@mirai.example" className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">hello@mirai.example</a></div><div className="mt-6 flex items-center gap-2"><MiraiLogo className="opacity-50" /><span className="text-[10px] text-[#8899BB]">Mirai DoE Engine</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai DoE Engine. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
+    <footer className="border-t border-violet-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#7C5CFF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a demo</a><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{CONTACT_EMAIL}</a></div><div className="mt-6 flex items-center gap-2"><MiraiLogo className="opacity-50" /><span className="text-[10px] text-[#8899BB]">Mirai DoE Engine</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai DoE Engine. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
   )
 }
 
