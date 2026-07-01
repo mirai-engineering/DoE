@@ -22,6 +22,7 @@ import {
 } from '../../lib/api'
 import { formatNumber, toNumberMap } from '../../lib/doeUtils'
 import { Plot } from '../../lib/plotly'
+import { transparentDarkPlotLayout } from '../../lib/plotlyTheme'
 import { Alert, Metadata, PanelHeader, WeightField } from '../ui'
 
 type ConstraintDraft = Record<
@@ -1137,15 +1138,12 @@ function PredictedObservedChart({
     ? schema.outputs.map((output) => observedExperiment.observed_outputs?.[output.name] ?? 0)
     : []
 
-  const layout: Partial<Layout> = {
+  const layout: Partial<Layout> = transparentDarkPlotLayout({
     autosize: true,
     barmode: 'group',
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
     margin: { l: 54, r: 24, t: 24, b: 58 },
     legend: { orientation: 'h', y: 1.16 },
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a' },
-  }
+  })
 
   const traces: Data[] = observedExperiment
     ? [
@@ -1217,17 +1215,14 @@ function ChartPanel({
     const yValues = (trace as { y?: unknown }).y
     return Array.isArray(yValues) && yValues.length > 0
   })
-  const layout: Partial<Layout> = {
+  const layout: Partial<Layout> = transparentDarkPlotLayout({
     autosize: true,
     barmode,
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
     margin: { l: 54, r: 24, t: 24, b: 58 },
     legend: { orientation: 'h', y: 1.16 },
     xaxis: xAxisTitle ? { title: { text: xAxisTitle } } : undefined,
     yaxis: yAxisTitle ? { title: { text: yAxisTitle } } : undefined,
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a' },
-  }
+  })
 
   return (
     <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">

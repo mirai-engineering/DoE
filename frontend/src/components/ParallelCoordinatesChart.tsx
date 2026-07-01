@@ -2,6 +2,7 @@ import type { Data, Layout } from 'plotly.js'
 import type { ProjectSchema, Recommendation } from '../lib/api'
 import { formatNumber, safeRange } from '../lib/doeUtils'
 import { Plot } from '../lib/plotly'
+import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
 import { PanelHeader } from './ui'
 
 type ParallelDimension = {
@@ -126,13 +127,11 @@ export function ParallelCoordinatesChart({
     dimensions,
   }
 
-  const layout: Partial<Layout> = {
+  const layout: Partial<Layout> = transparentDarkPlotLayout({
     autosize: true,
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
     margin: { l: 60, r: 110, t: 36, b: 50 },
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a', size: 12 },
-  }
+    font: { size: 12 },
+  })
 
   const topCandidates = recommendations.slice(0, highlightLimit)
 

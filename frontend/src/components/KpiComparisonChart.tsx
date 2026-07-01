@@ -2,6 +2,7 @@ import type { Data, Layout } from 'plotly.js'
 import type { ProjectSchema, Recommendation } from '../lib/api'
 import { formatNumber, normalizeForComparison } from '../lib/doeUtils'
 import { Plot } from '../lib/plotly'
+import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
 import { PanelHeader } from './ui'
 
 export function KpiComparisonChart({
@@ -39,17 +40,14 @@ export function KpiComparisonChart({
     }
   })
 
-  const layout: Partial<Layout> = {
+  const layout: Partial<Layout> = transparentDarkPlotLayout({
     autosize: true,
     barmode: 'group',
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
     margin: { l: 48, r: 24, t: 24, b: 82 },
     yaxis: { title: { text: 'Normalized KPI value, higher is better' }, range: [0, 1.05] },
     xaxis: { tickfont: { size: 11 } },
     legend: { orientation: 'h', y: 1.15 },
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a' },
-  }
+  })
 
   return (
     <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">

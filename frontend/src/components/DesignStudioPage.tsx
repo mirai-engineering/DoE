@@ -3,6 +3,7 @@ import Plot from 'react-plotly.js'
 import * as Plotly from 'plotly.js-dist-min'
 import type { DesignStudioOverlayColumn, DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, ExperimentVisualisationConfig, ProjectSchema } from '../lib/api'
 import { exportDesignStudioZip, findDesignStudioPareto, getDesignStudioState, predictDesignStudio, seedDesignStudioBatch } from '../lib/api'
+import { lightPlotOnDarkCardLayout, miraiChartColors, plotConfig } from '../lib/plotlyTheme'
 import { formatNumber } from '../lib/doeUtils'
 import { ModelMap } from './ModelMap'
 import { Alert, PanelHeader } from './ui'
@@ -27,14 +28,9 @@ function asPlotLayout(value: unknown) {
   return value as any
 }
 
-const plotConfig = { responsive: true, displaylogo: false }
-const plotLayoutBase = {
-  paper_bgcolor: 'rgba(255,255,255,0)',
-  plot_bgcolor: '#ffffff',
+const plotLayoutBase = lightPlotOnDarkCardLayout({
   margin: { l: 60, r: 24, t: 34, b: 56 },
-  font: { family: 'Inter, ui-sans-serif, system-ui', color: '#334155' },
-  legend: { orientation: 'h' as const, y: -0.25 },
-}
+})
 
 type ObjectivePreset = {
   id: string
@@ -498,20 +494,20 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     .filter(Boolean)
   const plotAnnotations = plotAnnotationLabels.length
     ? [{
-      xref: 'paper',
-      yref: 'paper',
+      xref: 'paper' as const,
+      yref: 'paper' as const,
       x: 0.02,
       y: 0.98,
-      xanchor: 'left',
-      yanchor: 'top',
-      align: 'left',
+      xanchor: 'left' as const,
+      yanchor: 'top' as const,
+      align: 'left' as const,
       showarrow: false,
       text: `<b>Fixed conditions</b><br>${plotAnnotationLabels.join('<br>')}`,
       bgcolor: 'rgba(255,255,255,0.88)',
       bordercolor: '#cbd5e1',
       borderwidth: 1,
       borderpad: 8,
-      font: { size: 12, color: '#334155' },
+      font: { size: 12, color: miraiChartColors.axis },
     }]
     : []
   const responseCurveData = asPlotData([
@@ -547,7 +543,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             })
           }),
       ])
-  const responseCurveLayout = asPlotLayout({
+  const responseCurveLayout = asPlotLayout(lightPlotOnDarkCardLayout({
         ...plotLayoutBase,
         paper_bgcolor: '#ffffff',
         plot_bgcolor: '#ffffff',
@@ -556,7 +552,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         xaxis: { title: { text: responseAxesSwapped ? genericSwappedXAxisTitle : `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false },
         yaxis: { title: { text: responseAxesSwapped ? genericSwappedYAxisTitle : `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false },
         annotations: plotAnnotations,
-      })
+      }))
   const sweepMeta = schema.inputs.find((input) => input.name === sweepInputName)
   const visualisationFixedConditionLabels = schema.inputs
     .filter((input) => input.name !== sweepInputName)
@@ -1229,12 +1225,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         marker: { size: 11, color: '#2F6BFF', opacity: 0.85 },
                       },
                     ])}
-                    layout={asPlotLayout({
+                    layout={asPlotLayout(lightPlotOnDarkCardLayout({
                       ...plotLayoutBase,
                       height: 360,
                       xaxis: { title: { text: `${asString(asRecord(paretoResults.objectives[0]).label)} / ${asString(asRecord(paretoResults.objectives[0]).unit)}` }, zeroline: false },
                       yaxis: { title: { text: `${asString(asRecord(paretoResults.objectives[1]).label)} / ${asString(asRecord(paretoResults.objectives[1]).unit)}` }, zeroline: false },
-                    })}
+                    }))}
                     config={plotConfig}
                     useResizeHandler
                     style={{ width: '100%', height: '360px' }}

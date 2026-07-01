@@ -12,6 +12,7 @@ import {
   toNumberMap,
 } from '../lib/doeUtils'
 import { Plot } from '../lib/plotly'
+import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
 import type { HeatmapData, RecommendationRun } from '../types/doe'
 import { Alert, NumberField, PanelHeader, SelectField } from './ui'
 
@@ -272,10 +273,8 @@ function HeatmapPlot({
     hovertemplate: 'Current console input<br>%{x:.4g}, %{y:.4g}<extra></extra>',
   })
 
-  const layout: Partial<Layout> = {
+  const layout: Partial<Layout> = transparentDarkPlotLayout({
     autosize: true,
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(0,0,0,0)',
     margin: { l: 72, r: 72, t: 24, b: 64 },
     xaxis: {
       title: { text: `${xInput?.label ?? heatmapData.xAxis} ${xInput?.unit ? `(${xInput.unit})` : ''}` },
@@ -284,8 +283,7 @@ function HeatmapPlot({
       title: { text: `${yInput?.label ?? heatmapData.yAxis} ${yInput?.unit ? `(${yInput.unit})` : ''}` },
     },
     legend: { orientation: 'h', y: 1.12 },
-    font: { family: 'Aptos, Avenir Next, sans-serif', color: '#0f172a' },
-  }
+  })
 
   return (
     <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">

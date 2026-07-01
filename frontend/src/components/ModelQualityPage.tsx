@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Plot from 'react-plotly.js'
+import { lightPlotOnDarkCardLayout, miraiChartColors, plotConfig } from '../lib/plotlyTheme'
 import type { ModelQualityPredictionsResponse, ModelQualitySummary, ProjectSchema } from '../lib/api'
 import { getModelQualityPredictions, getModelQualityPredictionsExportUrl, getModelQualitySummary } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
@@ -123,15 +124,9 @@ function uniqueValuesAsStrings(rows: Array<Record<string, unknown>>, column: str
   }).filter(Boolean))].sort()
 }
 
-const plotLayoutBase = {
-  paper_bgcolor: 'rgba(255,255,255,0)',
-  plot_bgcolor: '#ffffff',
+const plotLayoutBase = lightPlotOnDarkCardLayout({
   margin: { l: 58, r: 24, t: 30, b: 54 },
-  font: { family: 'Inter, ui-sans-serif, system-ui', color: '#334155' },
-  legend: { orientation: 'h' as const, y: -0.25 },
-}
-
-const plotConfig = { responsive: true, displaylogo: false }
+})
 
 function asPlotData(value: unknown) {
   return value as any
@@ -817,13 +812,13 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                           line: { color: '#dc2626', width: 3, dash: 'dash' },
                         },
                       ])}
-                      layout={asPlotLayout({
+                      layout={asPlotLayout(lightPlotOnDarkCardLayout({
                         ...plotLayoutBase,
                         height: 390,
-                        title: { text: polarizationContext, font: { size: 13, color: '#64748b' } },
+                        title: { text: polarizationContext, font: { size: 13, color: miraiChartColors.axis } },
                         xaxis: { title: { text: 'Current density / A cm⁻²' }, zeroline: false },
                         yaxis: { title: { text: 'Cell voltage / V' }, zeroline: false },
-                      })}
+                      }))}
                       config={plotConfig}
                       useResizeHandler
                       style={{ width: '100%', height: '390px' }}
@@ -853,7 +848,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                         },
                         { name: 'Ideal prediction', x: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_true`])), y: parityRows.map((row) => asNumber(row[`${activeDiagnosticOutput}_true`])), type: 'scatter', mode: 'lines', line: { color: '#0f172a', dash: 'dot', width: 2 } },
                       ])}
-                      layout={asPlotLayout({ ...plotLayoutBase, height: 390, xaxis: { title: { text: `Measured ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false }, yaxis: { title: { text: `Predicted ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false } })}
+                      layout={asPlotLayout(lightPlotOnDarkCardLayout({ ...plotLayoutBase, height: 390, xaxis: { title: { text: `Measured ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false }, yaxis: { title: { text: `Predicted ${outputLabel}${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false } }))}
                       config={plotConfig}
                       useResizeHandler
                       style={{ width: '100%', height: '390px' }}
@@ -893,7 +888,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                         }),
                         { name: 'No error', x: parityRows.map((row) => asNumber(row[residualXAxisColumn])), y: parityRows.map(() => 0), type: 'scatter' as const, mode: 'lines' as const, line: { color: '#0f172a', dash: 'dot', width: 2 } },
                       ])}
-                      layout={asPlotLayout({ ...plotLayoutBase, height: 360, xaxis: { title: { text: residualXAxisLabel }, zeroline: false }, yaxis: { title: { text: `Residual: measured − predicted${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false } })}
+                      layout={asPlotLayout(lightPlotOnDarkCardLayout({ ...plotLayoutBase, height: 360, xaxis: { title: { text: residualXAxisLabel }, zeroline: false }, yaxis: { title: { text: `Residual: measured − predicted${outputUnit ? ` (${outputUnit})` : ''}` }, zeroline: false } }))}
                       config={plotConfig}
                       useResizeHandler
                       style={{ width: '100%', height: '360px' }}

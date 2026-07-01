@@ -6,6 +6,17 @@
   color-scheme: light;
   font-family: "Aptos", "Avenir Next", "Neue Haas Grotesk Text", sans-serif;
   background: #eef0ea;
+  --mirai-bg: #050914;
+  --mirai-surface: #0b1220;
+  --mirai-surface-elevated: rgba(16, 27, 50, 0.86);
+  --mirai-border: rgba(126, 147, 180, 0.28);
+  --mirai-text: #f8fafc;
+  --mirai-text-muted: #c7d2e4;
+  --mirai-text-subtle: #9fb0c8;
+  --mirai-accent: #74c7f5;
+  --mirai-chart-axis: #1e293b;
+  --mirai-chart-grid: #d9e2ec;
+  --mirai-chart-reference: #475569;
 }
 
 body {
@@ -25,6 +36,27 @@ html {
 
 .mirai-auth-shell {
   color-scheme: dark;
+  --mirai-bg: #050914;
+  --mirai-surface: #0b1220;
+  --mirai-surface-elevated: rgba(16, 27, 50, 0.86);
+  --mirai-border: rgba(126, 147, 180, 0.28);
+  --mirai-text: #f8fafc;
+  --mirai-text-muted: #c7d2e4;
+  --mirai-text-subtle: #9fb0c8;
+  --mirai-accent: #74c7f5;
+  --mirai-chart-axis: #1e293b;
+  --mirai-chart-grid: #d9e2ec;
+  --mirai-chart-reference: #475569;
+}
+
+.mirai-focus-ring:focus-visible,
+.mirai-auth-shell button:focus-visible,
+.mirai-auth-shell a:focus-visible,
+.mirai-auth-shell input:focus-visible,
+.mirai-auth-shell select:focus-visible,
+.mirai-auth-shell textarea:focus-visible {
+  outline: 2px solid var(--mirai-accent);
+  outline-offset: 2px;
 }
 
 .mirai-auth-shell [class*="bg-white"],
