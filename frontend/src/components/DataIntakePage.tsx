@@ -78,36 +78,36 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
       <SectionCard>
         <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#60745c]">Data Intake</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Create a project from data</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#74C7F5]">Data Intake</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-white">Create a project from data</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Upload a Mirai package. We’ll validate it, prepare metadata review, and move you to preprocessing. Storage stays scoped to your signed-in workspace.</p>
             {account && account.status !== 'active_single_workspace' ? (
-              <div className="mt-5 rounded-2xl border border-[#d4c3a3] bg-[#fffaf0] px-4 py-3 text-sm text-slate-700">
-                <div className="font-semibold text-slate-900">Workspace setup required</div>
+              <div className="mt-5 rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] px-4 py-3 text-sm text-slate-300">
+                <div className="font-semibold text-white">Workspace setup required</div>
                 <div className="mt-1">{account.message || 'Your account is active, but no client workspace has been assigned yet.'}</div>
               </div>
             ) : projects.length === 0 && (
-              <div className="mt-5 rounded-2xl border border-[#d4c3a3] bg-[#fffaf0] px-4 py-3 text-sm text-slate-700">
-                <div className="font-semibold text-slate-900">Create your first workspace/project</div>
+              <div className="mt-5 rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] px-4 py-3 text-sm text-slate-300">
+                <div className="font-semibold text-white">Create your first workspace/project</div>
                 <div className="mt-1">Name your client workspace and first project, then upload a Mirai package. Your login remains the security boundary; the workspace name is a display label.</div>
               </div>
             )}
 
-            <div className="mt-6 rounded-[1.5rem] border-2 border-dashed border-slate-200 bg-[#fbfaf5] p-6">
+            <div className="mt-6 rounded-lg border-2 border-dashed border-slate-200 bg-[#0B1220] p-6">
               <div className="text-center text-4xl">⇪</div>
-              <h2 className="mt-3 text-center text-xl font-semibold tracking-[-0.04em] text-slate-950">Upload package</h2>
+              <h2 className="mt-3 text-center text-xl font-semibold tracking-[-0.04em] text-white">Upload package</h2>
               <p className="mt-2 text-center text-sm text-slate-500">ZIP or package files</p>
 
-              <div className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3 text-sm md:grid-cols-2">
-                <label className={`rounded-2xl border px-3 py-3 ${intakeMode === 'new_project' ? 'border-[#60745c] bg-[#eef0ea]' : 'border-slate-200 bg-white'}`}>
-                  <span className="flex items-center gap-2 font-semibold text-slate-900">
-                    <input type="radio" checked={intakeMode === 'new_project'} onChange={() => setIntakeMode('new_project')} className="accent-[#526949]" />
+              <div className="mt-5 grid gap-3 rounded-md border border-slate-200 bg-white/80 p-3 text-sm md:grid-cols-2">
+                <label className={`rounded-md border px-3 py-3 ${intakeMode === 'new_project' ? 'border-[#2F6BFF]/70 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
+                  <span className="flex items-center gap-2 font-semibold text-white">
+                    <input type="radio" checked={intakeMode === 'new_project'} onChange={() => setIntakeMode('new_project')} className="accent-[#74C7F5]" />
                     New project
                   </span>
                 </label>
-                <label className={`rounded-2xl border px-3 py-3 ${projects.length === 0 ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60' : intakeMode === 'existing_project' ? 'border-[#60745c] bg-[#eef0ea]' : 'border-slate-200 bg-white'}`}>
-                  <span className="flex items-center gap-2 font-semibold text-slate-900">
-                    <input type="radio" checked={intakeMode === 'existing_project'} disabled={projects.length === 0} onChange={() => setIntakeMode('existing_project')} className="accent-[#526949]" />
+                <label className={`rounded-md border px-3 py-3 ${projects.length === 0 ? 'cursor-not-allowed border-slate-700 bg-[#070C16] opacity-60' : intakeMode === 'existing_project' ? 'border-[#2F6BFF]/70 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
+                  <span className="flex items-center gap-2 font-semibold text-white">
+                    <input type="radio" checked={intakeMode === 'existing_project'} disabled={projects.length === 0} onChange={() => setIntakeMode('existing_project')} className="accent-[#74C7F5]" />
                     Existing project
                   </span>
                 </label>
@@ -116,19 +116,19 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
               <div className="mt-4 space-y-3">
                 {intakeMode === 'new_project' ? (
                   <>
-                    <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+                    <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#74C7F5]">
                       Workspace
-                      <input list="workspace-options" value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#60745c]" placeholder="Client or workspace" />
+                      <input list="workspace-options" value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="mt-2 w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#74C7F5]" placeholder="Client or workspace" />
                       <datalist id="workspace-options">
                         {workspaceOptions.map((workspace) => <option key={workspace} value={workspace} />)}
                       </datalist>
                     </label>
-                    <input value={projectName} onChange={(event) => setProjectName(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#60745c]" placeholder="Project name" />
+                    <input value={projectName} onChange={(event) => setProjectName(event.target.value)} className="w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#74C7F5]" placeholder="Project name" />
                   </>
                 ) : (
-                  <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#526949]">
+                  <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#74C7F5]">
                     Project
-                    <select value={existingProjectId} onChange={(event) => setExistingProjectId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#60745c]">
+                    <select value={existingProjectId} onChange={(event) => setExistingProjectId(event.target.value)} className="mt-2 w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#74C7F5]">
                       {projects.map((project) => (
                         <option key={project.id} value={project.id}>{workspaceFor(project)} · {project.display_name}</option>
                       ))}
@@ -136,16 +136,16 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
                     <span className="mt-2 block text-xs normal-case tracking-normal text-slate-500">Adds a dataset to {selectedExistingProject?.display_name || 'the selected project'}.</span>
                   </label>
                 )}
-                <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-16 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#60745c]" placeholder="Notes (optional)" />
-                <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" />
+                <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-16 w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#74C7F5]" placeholder="Notes (optional)" />
+                <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-300" />
                 {storageBlocked && (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     <div className="font-semibold">Storage setup required</div>
                     <div className="mt-1">{account?.message || 'Your private project bucket has not been assigned yet. Request setup from a Mirai admin before uploading client data.'}</div>
                   </div>
                 )}
-                {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-                <button type="button" onClick={handleUpload} disabled={uploading || storageBlocked} className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+                {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+                <button type="button" onClick={handleUpload} disabled={uploading || storageBlocked} className="w-full rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
                   {uploading ? 'Creating...' : intakeMode === 'existing_project' ? 'Create dataset session' : 'Create project'}
                 </button>
               </div>
@@ -153,34 +153,34 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-[#fbfaf5] p-5">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Package requirements</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">Expected package files</h2>
-              <p className="mt-3 text-sm text-slate-600">Upload one ZIP, or select these five files together:</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-700">
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Package requirements</p>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-white">Expected package files</h2>
+              <p className="mt-3 text-sm text-slate-300">Upload one ZIP, or select these five files together:</p>
+              <ul className="mt-4 space-y-2 text-sm text-slate-200">
                 <li>• mirai_manifest.json</li>
                 <li>• data_dictionary.csv</li>
                 <li>• experiments.csv</li>
                 <li>• conditions.csv</li>
                 <li>• results.csv</li>
               </ul>
-              <p className="mt-4 text-sm leading-6 text-slate-500">Column names can be client-native. The contract maps them to stable internal variables.</p>
+              <p className="mt-4 text-sm leading-6 text-slate-400">Column names can be client-native. The contract maps them to stable internal variables.</p>
             </div>
 
             <DisclosurePanel title="Download templates">
               <div className="flex flex-wrap gap-2">
-                <a href="/templates/mirai_manifest_multitable_template.json" download className="rounded-full bg-[#526949] px-4 py-2 text-sm font-semibold text-white">Manifest</a>
-                <a href="/templates/data_dictionary_template.csv" download className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Dictionary</a>
-                <a href="/templates/data_dictionary_multitable_example.csv" download className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Example CSV</a>
+                <a href="/templates/mirai_manifest_multitable_template.json" download className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white">Manifest</a>
+                <a href="/templates/data_dictionary_template.csv" download className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Dictionary</a>
+                <a href="/templates/data_dictionary_multitable_example.csv" download className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Example CSV</a>
               </div>
             </DisclosurePanel>
 
             {session && (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <div className="rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
                 <div className="font-semibold">Project created</div>
                 <div className="mt-1">{session.project_name}</div>
-                <div className="mt-1 text-xs text-emerald-700">{session.files.length} file{session.files.length === 1 ? '' : 's'} uploaded</div>
-                <button type="button" onClick={onReviewPreprocessing} className="mt-3 rounded-full bg-emerald-700 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-emerald-900/15">
+                <div className="mt-1 text-xs text-[#74C7F5]">{session.files.length} file{session.files.length === 1 ? '' : 's'} uploaded</div>
+                <button type="button" onClick={onReviewPreprocessing} className="mt-3 rounded-md bg-[#2F6BFF] px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-[#2F6BFF]/20">
                   Review metadata
                 </button>
               </div>

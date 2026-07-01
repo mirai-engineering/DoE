@@ -42,7 +42,7 @@ export function RecommendationsTable({
             {visibleRecommendations.map((candidate, index) => (
               <tr key={`${candidate.score}-${index}`} className="hover:bg-[#f7f5ed]">
                 <td className="px-4 py-3 font-semibold text-slate-950">{index + 1}</td>
-                <td className="px-4 py-3 font-semibold text-[#526949]">
+                <td className="px-4 py-3 font-semibold text-[#2F6BFF]">
                   {formatNumber(candidate.score)}
                 </td>
                 {schema.inputs.map((input) => (

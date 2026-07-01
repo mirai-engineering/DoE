@@ -91,7 +91,7 @@ export function ProjectHeader({
             <div className="font-semibold text-slate-100">Model quality</div>
             <div className="mt-0.5 truncate text-xs text-slate-400">{selectedProjectId ? artifactStatusError || artifactStatus?.model_quality.message || 'Checking status' : 'Create a project to start model training'}</div>
           </div>
-          <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'border border-emerald-400/30 bg-emerald-950/40 text-emerald-200' : 'border border-amber-300/30 bg-amber-950/40 text-amber-100'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
+          <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold ${artifactStatus?.model_quality.available ? 'border border-[#74C7F5]/30 bg-[#0D1B2D] text-[#BDEAFF]' : 'border border-amber-300/30 bg-amber-950/40 text-amber-100'}`}>{artifactStatus?.model_quality.available ? 'Ready' : 'Pending'}</span>
         </div>
       </div>
     </section>

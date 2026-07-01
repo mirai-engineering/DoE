@@ -263,10 +263,10 @@ export function KpiCard({
   direction: 'maximize' | 'minimize'
 }) {
   return (
-    <div className="rounded-lg border border-slate-300 bg-[#fbfaf5] p-4">
+    <div className="rounded-lg border border-slate-300 bg-[#0B1220] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <span className="rounded bg-[#e8eadf] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#526949]">
+        <span className="rounded bg-[#e8eadf] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#2F6BFF]">
           {direction}
         </span>
       </div>
@@ -309,7 +309,7 @@ export function Alert({
 export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }) {
   return (
     <section className="rounded-lg border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-xl shadow-slate-900/10">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#60745c]">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
         Awaiting candidate search
       </p>
       <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950">

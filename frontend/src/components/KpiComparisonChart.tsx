@@ -34,7 +34,7 @@ export function KpiComparisonChart({
       hovertemplate:
         '<b>%{x}</b><br>Optimization-normalized value: %{y:.3f}<br>Raw: %{customdata}<extra>%{fullData.name}</extra>',
       marker: {
-        color: ['#17211d', '#526949', '#8b9b72', '#d8c49a', '#b77f4f'][index % 5],
+        color: ['#050914', '#2F6BFF', '#74C7F5', '#BDEAFF', '#5DA8FF'][index % 5],
       },
     }
   })
@@ -58,7 +58,7 @@ export function KpiComparisonChart({
         title="Top candidate comparison"
         description="Bars are normalized per KPI. For minimize metrics, the normalization is reversed so taller remains better."
       />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#fbfaf5] p-3">
+      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
         <Plot
           data={traces}
           layout={layout}

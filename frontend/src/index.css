@@ -66,6 +66,47 @@ html {
   color: rgba(155, 168, 192, 0.62);
 }
 
+
+.mirai-auth-shell [class*="bg-slate-50"],
+.mirai-auth-shell [class*="bg-slate-100"],
+.mirai-auth-shell [class*="bg-blue-50"],
+.mirai-auth-shell [class*="bg-emerald-50"],
+.mirai-auth-shell [class*="bg-[#eef0ea]"],
+.mirai-auth-shell [class*="bg-[#eef5e6]"],
+.mirai-auth-shell [class*="bg-[#f3faed]"],
+.mirai-auth-shell [class*="bg-[#fff7df]"],
+.mirai-auth-shell [class*="bg-[#fffaf0]"],
+.mirai-auth-shell [class*="bg-[#fff8e8]"] {
+  background-color: #0d1b2d !important;
+}
+
+.mirai-auth-shell [class*="border-emerald"],
+.mirai-auth-shell [class*="border-blue-100"],
+.mirai-auth-shell [class*="border-blue-200"],
+.mirai-auth-shell [class*="border-[#60745c]"],
+.mirai-auth-shell [class*="border-[#526949]"],
+.mirai-auth-shell [class*="border-[#d8c99b]"],
+.mirai-auth-shell [class*="border-[#d8c49a]"],
+.mirai-auth-shell [class*="border-[#bfd8aa]"] {
+  border-color: rgba(116, 199, 245, 0.38) !important;
+}
+
+.mirai-auth-shell [class*="text-emerald"],
+.mirai-auth-shell [class*="text-green"],
+.mirai-auth-shell [class*="text-blue-900"],
+.mirai-auth-shell [class*="text-blue-950"],
+.mirai-auth-shell [class*="text-[#526949]"],
+.mirai-auth-shell [class*="text-[#60745c]"],
+.mirai-auth-shell [class*="text-[#40513d]"],
+.mirai-auth-shell [class*="text-[#2f5730]"] {
+  color: #bdeaff !important;
+}
+
+.mirai-auth-shell input[type="radio"],
+.mirai-auth-shell input[type="checkbox"] {
+  accent-color: #74c7f5;
+}
+
 .mirai-auth-shell table thead {
   color: #BAE6FD;
 }

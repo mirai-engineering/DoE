@@ -111,7 +111,7 @@ function HiddenRepresentation({ architecture, firstHiddenRefs, latentRefs }: {
   )
 
   return (
-    <div ref={stageRef} className="h-full min-h-[420px] w-full lg:min-h-[460px]">
+    <div ref={stageRef} className="h-full min-h-[320px] w-full lg:min-h-[360px]">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label="Hidden representation inside the neural surrogate model">
         <defs>
           <filter id="hidden-node-glow" x="-45%" y="-45%" width="190%" height="190%">
@@ -142,7 +142,7 @@ function HiddenRepresentation({ architecture, firstHiddenRefs, latentRefs }: {
                 cx={node.x}
                 cy={node.y}
                 r={isLatent ? nodeRadius * 1.12 : nodeRadius}
-                fill={isLatent ? '#d8c99b' : '#fbfaf5'}
+                fill={isLatent ? '#74C7F5' : '#0B1220'}
                 opacity="0.96"
               />
               <circle cx={node.x} cy={node.y} r={isLatent ? haloRadius * 1.18 : haloRadius} fill="none" stroke="rgba(216, 201, 155, 0.28)" vectorEffect="non-scaling-stroke" />
@@ -167,28 +167,28 @@ function HiddenRepresentation({ architecture, firstHiddenRefs, latentRefs }: {
 
 function VariableCard({ input, index, compact, portRef }: { input: SchemaInput; index: number; compact: boolean; portRef: (element: HTMLSpanElement | null) => void }) {
   return (
-    <div className={`group relative flex items-center gap-3 rounded-2xl border border-slate-200 bg-white pr-5 transition hover:border-[#d8c99b] hover:bg-[#fffdf7] ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[#d8c99b]/60 bg-[#fff8e8] text-xs font-bold text-[#526949]">{index + 1}</span>
+    <div className={`group relative flex items-center gap-3 rounded-2xl border border-slate-200 bg-[#0D1B2D] pr-5 transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[#74C7F5]/60 bg-[#0D1B2D] text-xs font-bold text-[#2F6BFF]">{index + 1}</span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-slate-900" title={displayName(input)}>{displayName(input)}</div>
-        <div className="truncate text-xs text-slate-500">{boundsLabel(input) || unitLabel(input)}</div>
+        <div className="truncate text-sm font-semibold text-white" title={displayName(input)}>{displayName(input)}</div>
+        <div className="truncate text-xs text-slate-400">{boundsLabel(input) || unitLabel(input)}</div>
       </div>
-      <span ref={portRef} className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white bg-[#526949] shadow-md shadow-[#526949]/20" aria-hidden="true" />
+      <span ref={portRef} className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white bg-[#2F6BFF] shadow-md shadow-[#2F6BFF]/20" aria-hidden="true" />
     </div>
   )
 }
 
 function OutputCard({ output, compact, portRef }: { output: SchemaOutput; compact: boolean; portRef: (element: HTMLSpanElement | null) => void }) {
   return (
-    <div className={`relative rounded-2xl border border-slate-200 bg-white transition hover:border-[#d8c99b] hover:bg-[#fffdf7] ${compact ? 'p-3 pl-5' : 'p-4 pl-5'}`}>
-      <span ref={portRef} className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-[3px] border-white bg-[#d8c99b] shadow-lg shadow-[#d8c99b]/40 ring-2 ring-[#d8c99b]/20" aria-hidden="true" />
+    <div className={`relative rounded-2xl border border-slate-200 bg-[#0D1B2D] transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'p-3 pl-5' : 'p-4 pl-5'}`}>
+      <span ref={portRef} className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-[3px] border-white bg-[#74C7F5] shadow-lg shadow-[#74C7F5]/40 ring-2 ring-[#74C7F5]/20" aria-hidden="true" />
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 text-sm font-semibold leading-5 text-slate-900" title={displayName(output)}>{displayName(output)}</div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[0.62rem] font-bold uppercase tracking-[0.12em] ${output.direction === 'minimize' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+        <div className="min-w-0 text-sm font-semibold leading-5 text-white" title={displayName(output)}>{displayName(output)}</div>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[0.62rem] font-bold uppercase tracking-[0.12em] ${output.direction === 'minimize' ? 'bg-rose-950/40 text-rose-200 ring-1 ring-rose-400/30' : 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30'}`}>
           {directionLabel(output)}
         </span>
       </div>
-      <div className="mt-1 text-xs text-slate-500">{unitLabel(output)}</div>
+      <div className="mt-1 text-xs text-slate-400">{unitLabel(output)}</div>
     </div>
   )
 }
@@ -251,9 +251,9 @@ function ConnectionOverlay({ wrapperRef, inputPorts, outputPorts, firstHiddenNod
     <svg className="pointer-events-none absolute inset-0 z-30 hidden xl:block" width={size.width} height={size.height} aria-hidden="true">
       <defs>
         <linearGradient id="model-map-flow" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#526949" stopOpacity="0.62" />
-          <stop offset="50%" stopColor="#d8c99b" stopOpacity="0.72" />
-          <stop offset="100%" stopColor="#526949" stopOpacity="0.5" />
+          <stop offset="0%" stopColor="#2F6BFF" stopOpacity="0.62" />
+          <stop offset="50%" stopColor="#74C7F5" stopOpacity="0.72" />
+          <stop offset="100%" stopColor="#2F6BFF" stopOpacity="0.5" />
         </linearGradient>
       </defs>
       {connections.map((connection, index) => {
@@ -294,9 +294,9 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
     <section id="design-model-flow" className="scroll-mt-8 overflow-hidden rounded-[2.2rem] border border-slate-200/80 bg-white/95 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#60745c]">ML Model Map</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">ML Model Map</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">From experiment settings to predicted response</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
             The surrogate model maps the active project&apos;s controlled variables into predicted KPIs used by the recommendation engine.
           </p>
         </div>
@@ -305,33 +305,33 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
       <div ref={wrapperRef} className="relative mt-6">
         <ConnectionOverlay wrapperRef={wrapperRef} inputPorts={inputPorts} outputPorts={outputPorts} firstHiddenNodes={firstHiddenNodes} latentNodes={latentNodes} />
         <div className="relative z-20 grid gap-5 xl:grid-cols-[0.9fr_1.45fr_0.95fr] xl:items-stretch">
-          <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-5">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#60745c]">Controlled variables</div>
-            <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{inputs.length} variables</div>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Project-specific settings defined by the active schema.</p>
-            <div className={`mt-5 space-y-2 pr-1 ${inputScroll ? 'max-h-[34rem] overflow-y-auto' : ''}`}>
+          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
+            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Controlled variables</div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{inputs.length} variables</div>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Project-specific settings defined by the active schema.</p>
+            <div className={`mt-5 space-y-2 pr-1 ${inputScroll ? 'max-h-[24rem] overflow-y-auto' : ''}`}>
               {inputs.map((input, index) => (
                 <VariableCard key={input.name} input={input} index={index} compact={compactInputs} portRef={(element) => { inputPorts.current[index] = element }} />
               ))}
             </div>
           </div>
 
-          <div className="relative flex h-full min-h-[620px] flex-col overflow-hidden rounded-3xl border border-slate-800 bg-[#050918] p-4 text-white shadow-2xl shadow-slate-950/20">
-            <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-[#d8c99b]/10 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-24 left-16 h-52 w-52 rounded-full bg-[#526949]/20 blur-3xl" />
+          <div className="relative flex h-full min-h-[520px] flex-col overflow-hidden rounded-3xl border border-slate-800 bg-[#050918] p-4 text-white shadow-2xl shadow-slate-950/20">
+            <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-[#74C7F5]/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 left-16 h-52 w-52 rounded-full bg-[#2F6BFF]/20 blur-3xl" />
             <div className="relative flex min-h-0 flex-1 flex-col">
               <header className="shrink-0">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-                  <span className="rounded-full border border-[#d8c99b]/40 bg-[#d8c99b]/12 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-[#f1dfad]">
+                  <span className="rounded-full border border-[#74C7F5]/40 bg-[#74C7F5]/12 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-[#BDEAFF]">
                     {modelRuntime} &middot; {modelStatus}
                   </span>
                 </div>
-                <div className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#d8c99b]">Neural surrogate</div>
+                <div className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Neural surrogate</div>
                 <div className="truncate text-base font-semibold tracking-[-0.03em] text-white/95" title={modelName}>{modelName}</div>
               </header>
 
-              <div className="flex min-h-[420px] flex-1 items-stretch justify-center py-3 lg:min-h-[460px]">
-                <div className="flex h-full min-h-[420px] w-full items-stretch justify-center rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-3 py-2 lg:min-h-[460px]">
+              <div className="flex min-h-[320px] flex-1 items-stretch justify-center py-3 lg:min-h-[460px]">
+                <div className="flex h-full min-h-[320px] w-full items-stretch justify-center rounded-[1.6rem] border border-white/10 bg-white/[0.035] px-3 py-2 lg:min-h-[460px]">
                   <HiddenRepresentation architecture={architecture} firstHiddenRefs={firstHiddenNodes} latentRefs={latentNodes} />
                 </div>
               </div>
@@ -342,11 +342,11 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-5">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#60745c]">Predicted response</div>
-            <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-slate-950">{outputs.length} KPIs</div>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Schema-defined model outputs used for scoring, search, and tradeoff review.</p>
-            <div className={`mt-5 flex flex-col gap-2 pl-1 ${outputScroll ? 'max-h-[34rem] overflow-y-auto' : 'xl:min-h-[26rem] xl:justify-center'}`}>
+          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
+            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Predicted response</div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{outputs.length} KPIs</div>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Schema-defined model outputs used for scoring, search, and tradeoff review.</p>
+            <div className={`mt-5 flex flex-col gap-2 pl-1 ${outputScroll ? 'max-h-[24rem] overflow-y-auto' : 'xl:min-h-[26rem] xl:justify-center'}`}>
               {outputs.map((output, index) => (
                 <OutputCard key={output.name} output={output} compact={compactOutputs} portRef={(element) => { outputPorts.current[index] = element }} />
               ))}
@@ -354,7 +354,7 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
           </div>
         </div>
       </div>
-      <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
+      <p className="mt-4 rounded-md border border-slate-700 bg-[#0D1B2D] px-4 py-3 text-xs leading-5 text-slate-300">
         Inputs and outputs are generated from the active project schema. {visibleConnectionNote}
       </p>
     </section>

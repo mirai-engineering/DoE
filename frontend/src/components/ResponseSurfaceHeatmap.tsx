@@ -162,7 +162,7 @@ export function ResponseSurfaceHeatmap({
       </form>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
-        <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+        <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Varied variables
           </p>
@@ -170,7 +170,7 @@ export function ResponseSurfaceHeatmap({
             {variedX?.label ?? xAxis} vs {variedY?.label ?? yAxis}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-[#fbfaf5] p-4">
+        <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Fixed variables
           </p>
@@ -230,10 +230,10 @@ function HeatmapPlot({
       y: heatmapData.yValues,
       z: heatmapData.zValues,
       colorscale: [
-        [0, '#17211d'],
-        [0.45, '#718779'],
-        [0.75, '#d8c49a'],
-        [1, '#f8f6ef'],
+        [0, '#050914'],
+        [0.45, '#2F6BFF'],
+        [0.75, '#BDEAFF'],
+        [1, '#F6F4EA'],
       ],
       colorbar: { title: { text: metricLabel } },
       hovertemplate: `${xInput?.label ?? 'X'}: %{x:.4g}<br>${yInput?.label ?? 'Y'}: %{y:.4g}<br>${metricLabel}: %{z:.4g}<extra></extra>`,
@@ -250,8 +250,8 @@ function HeatmapPlot({
       marker: {
         symbol: 'star',
         size: 16,
-        color: '#f8f6ef',
-        line: { color: '#17211d', width: 2 },
+        color: '#F6F4EA',
+        line: { color: '#050914', width: 2 },
       },
       hovertemplate: 'Best recommendation<br>%{x:.4g}, %{y:.4g}<extra></extra>',
     })
@@ -267,7 +267,7 @@ function HeatmapPlot({
       symbol: 'circle-open',
       size: 14,
       color: '#ffffff',
-      line: { color: '#b77f4f', width: 3 },
+      line: { color: '#5DA8FF', width: 3 },
     },
     hovertemplate: 'Current console input<br>%{x:.4g}, %{y:.4g}<extra></extra>',
   })
@@ -288,7 +288,7 @@ function HeatmapPlot({
   }
 
   return (
-    <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#fbfaf5] p-3">
+    <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
       <Plot
         data={traces}
         layout={layout}

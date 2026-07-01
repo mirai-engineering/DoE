@@ -32,7 +32,7 @@ function hoursLabel(hours: number) {
 function ImpactMetric({ label, value, subtext }: { label: string; value: string; subtext: string }) {
   return (
     <div className="rounded-[1.8rem] border border-white/10 bg-white/10 p-5 text-white shadow-lg shadow-slate-950/20">
-      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#d8c49a]">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#74C7F5]">{label}</div>
       <div className="mt-3 text-4xl font-semibold tracking-[-0.06em]">{value}</div>
       <div className="mt-2 text-sm leading-6 text-white/65">{subtext}</div>
     </div>
@@ -41,7 +41,7 @@ function ImpactMetric({ label, value, subtext }: { label: string; value: string;
 
 function HorizontalBar({ label, value, max, tone }: { label: string; value: number; max: number; tone: string }) {
   const width = max > 0 ? Math.max(6, Math.min(100, (value / max) * 100)) : 0
-  const color = tone === 'saved' ? 'bg-[#d8c49a]' : tone === 'software' ? 'bg-[#7fa08a]' : 'bg-slate-900'
+  const color = tone === 'saved' ? 'bg-[#74C7F5]' : tone === 'software' ? 'bg-[#74C7F5]' : 'bg-slate-900'
   return (
     <div>
       <div className="mb-2 flex items-end justify-between gap-4">
@@ -84,7 +84,7 @@ function TimeCapacityChart({ rows }: { rows: Array<Record<string, unknown>> }) {
           </div>
           <div className="mt-3 h-5 overflow-hidden rounded-full bg-slate-100">
             <div
-              className={`h-full rounded-full ${asString(row.label).includes('Reclaimed') ? 'bg-[#d8c49a]' : 'bg-[#60745c]'}`}
+              className={`h-full rounded-full ${asString(row.label).includes('Reclaimed') ? 'bg-[#74C7F5]' : 'bg-[#74C7F5]'}`}
               style={{ width: `${Math.max(8, (asNumber(row.hours) / max) * 100)}%` }}
             />
           </div>
@@ -159,7 +159,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
     return (
       <div className="space-y-6">
         <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60745c]">Business Impact</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Business Impact</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Business-impact metadata not configured</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
             This project uses the approved schema-driven workflow, but no Mirai-approved business-impact assumptions are attached yet. Add template-specific cost, capacity, and experimental-throughput metadata before showing ROI claims.
@@ -182,7 +182,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
       <section id="impact-story" className="scroll-mt-8 overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl shadow-slate-900/20 sm:p-8">
         <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d8c49a]">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#74C7F5]">
               What ML-guided DoE has achieved
             </p>
             <h2 className="mt-4 max-w-4xl text-4xl font-semibold tracking-[-0.07em] sm:text-5xl">
@@ -206,19 +206,19 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
 
         <div className="mt-8 grid gap-4 text-sm text-white/70 md:grid-cols-3">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#d8c49a]">
+            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">
               X — Bottleneck
             </div>
             <p className="leading-6">{summary.headline.problem}</p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#d8c49a]">
+            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">
               Y — Method
             </div>
             <p className="leading-6">{summary.headline.method}</p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#d8c49a]">
+            <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">
               Z — Proof
             </div>
             <p className="leading-6">{summary.headline.measured_by}</p>
@@ -235,7 +235,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
             ['Evidence', '#impact-evidence'],
             ['References', '#impact-references'],
           ].map(([label, href]) => (
-            <a key={href} href={href} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 transition hover:border-[#526949]/40 hover:text-[#526949]">
+            <a key={href} href={href} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 transition hover:border-[#2F6BFF]/40 hover:text-[#2F6BFF]">
               {label}
             </a>
           ))}
@@ -266,7 +266,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </section>
 
-      <section id="impact-roi-assumptions" className="scroll-mt-8 rounded-[2rem] border border-[#d8c49a]/50 bg-[#fff8e8]/85 p-6 shadow-sm">
+      <section id="impact-roi-assumptions" className="scroll-mt-8 rounded-[2rem] border border-[#74C7F5]/50 bg-[#0D1B2D]/85 p-6 shadow-sm">
         <PanelHeader
           eyebrow="Customize your savings story"
           title="Preview customer-specific ROI assumptions"
@@ -337,7 +337,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
           description="Investor-friendly numbers should be simple, but the assumptions must remain inspectable. These are the references and caveats behind the pitch view."
         />
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-5">
+          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
             <h3 className="text-base font-semibold text-slate-950">Reference case</h3>
             <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
               <li>{formatNumber(asNumber(caseStudy.physical_cells_in_paper))} physical test articles in the reference dataset; {formatNumber(asNumber(caseStudy.physical_cells_in_repo))} extracted in this repo.</li>
@@ -346,7 +346,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
               <li>~{formatNumber(asNumber(caseStudy.virtual_candidates_per_screen))} virtual candidates can be screened before committing lab work.</li>
             </ul>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-[#fbfaf5] p-5">
+          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
             <h3 className="text-base font-semibold text-slate-950">Caveats for a credible pitch</h3>
             <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600">
               {summary.caveats.map((caveat) => (
@@ -368,7 +368,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
             <div key={source.label} className="rounded-2xl border border-slate-200 bg-white p-4">
               <div className="text-sm font-semibold text-slate-950">{source.label}</div>
               <div className="mt-1 text-sm leading-6 text-slate-600">{source.claim}</div>
-              <div className="mt-1 break-all text-xs text-[#60745c]">{source.url}</div>
+              <div className="mt-1 break-all text-xs text-[#74C7F5]">{source.url}</div>
             </div>
           ))}
         </div>

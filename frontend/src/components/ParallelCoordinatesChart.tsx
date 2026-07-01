@@ -116,9 +116,9 @@ export function ParallelCoordinatesChart({
       cmax: scoreMax,
       colorscale: [
         [0, '#d7ded1'],
-        [0.35, '#8b9b72'],
-        [0.7, '#d8c49a'],
-        [1, '#17211d'],
+        [0.35, '#74C7F5'],
+        [0.7, '#BDEAFF'],
+        [1, '#050914'],
       ],
       showscale: true,
       colorbar: { title: { text: 'Score' } },
@@ -150,7 +150,7 @@ export function ParallelCoordinatesChart({
         {topCandidates.map((candidate, index) => (
           <span
             key={`${candidate.score}-${index}`}
-            className="rounded-full border border-[#d8c49a]/60 bg-[#fff7df] px-3 py-1 font-semibold text-slate-800"
+            className="rounded-full border border-[#BDEAFF]/60 bg-[#0D1B2D] px-3 py-1 font-semibold text-slate-100"
           >
             Top {index + 1}: {formatNumber(candidate.score)}
           </span>
@@ -161,7 +161,7 @@ export function ParallelCoordinatesChart({
         the plot readable while the key maps each code to its variable and unit.
       </p>
       <AxisKey entries={axisKey} />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#fbfaf5] p-3">
+      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
         <Plot
           data={[trace]}
           layout={layout}
@@ -182,7 +182,7 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
   ]
 
   return (
-    <div className="mt-6 rounded-3xl border border-slate-200 bg-[#fbfaf5] p-4">
+    <div className="mt-6 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
           Axis key
@@ -199,7 +199,7 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
 
           return (
             <div key={group.id}>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#60745c]">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74C7F5]">
                 {group.label}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -223,9 +223,9 @@ function AxisKeyPill({ entry }: { entry: AxisKeyEntry }) {
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white">
         {entry.code}
       </span>
-      <span className="min-w-0 truncate font-semibold text-slate-800">
+      <span className="min-w-0 truncate font-semibold text-slate-100">
         {entry.name}
-        {direction && <span className="ml-1 text-[#526949]">{direction}</span>}
+        {direction && <span className="ml-1 text-[#2F6BFF]">{direction}</span>}
       </span>
       {entry.unit && entry.unit !== '-' && (
         <span className="shrink-0 text-xs font-medium text-slate-400">· {entry.unit}</span>

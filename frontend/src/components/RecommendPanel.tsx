@@ -138,7 +138,7 @@ export function RecommendPanel({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-2xl bg-[#d8c49a] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#ead7ad] disabled:cursor-not-allowed disabled:brightness-75"
+          className="w-full rounded-2xl bg-[#74C7F5] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#BDEAFF] disabled:cursor-not-allowed disabled:brightness-75"
         >
           {loading ? 'Searching...' : 'Recommend candidates'}
         </button>
@@ -157,8 +157,8 @@ export function RecommendPanel({
       )}
 
       {recommendationRun && (
-        <div className="mt-5 rounded-2xl border border-[#d8c49a]/30 bg-[#d8c49a]/10 p-4">
-          <p className="text-sm font-semibold text-[#ead7ad]">
+        <div className="mt-5 rounded-2xl border border-[#74C7F5]/30 bg-[#74C7F5]/10 p-4">
+          <p className="text-sm font-semibold text-[#BDEAFF]">
             {recommendationRun.recommendations.length} ranked candidates available for charts.
           </p>
           <button
