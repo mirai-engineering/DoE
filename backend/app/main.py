@@ -321,16 +321,16 @@ def api_info():
 
 @app.get("/health")
 def health_check():
+    return {"status": "healthy"}
+
+
+@app.get("/api/health")
+def api_health_check():
     return {
         "status": "healthy",
         "available_projects": [] if auth_required() else [project["id"] for project in list_projects()],
         "models_loaded": are_models_loaded(),
     }
-
-
-@app.get("/api/health")
-def api_health_check():
-    return health_check()
 
 
 @app.get("/projects")
