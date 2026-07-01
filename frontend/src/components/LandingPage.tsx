@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { SignInButton, SignUpButton } from '@clerk/clerk-react'
+import coverageMapImage from '../../assets/coverage-map.png'
+import residualPlotImage from '../../assets/residual-plot.png'
 
 const CONTACT_EMAIL = 'contact@mirai-engineeirng.com'
 
@@ -100,8 +102,6 @@ const scatterPoints = Array.from({ length: 40 }, (_, i) => ({
   x: 5 + (i / 39) * 110,
   y: 95 - (i / 39) * 90 + (((i * 17) % 9) - 4) * 1.6,
 }))
-const residualPoints = Array.from({ length: 35 }, (_, i) => ({ x: 5 + (i / 34) * 110, y: 50 + (((i * 23) % 21) - 10) * 0.9 }))
-
 function scrollToHash(hash: string) {
   document.querySelector(hash)?.scrollIntoView({ behavior: 'smooth' })
 }
@@ -460,11 +460,11 @@ function Proof() {
             <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Parity plot</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Predicted vs. observed battery-test outcomes stay close to the validation diagonal before recommendations are trusted.</p></div>
           </div>
           <div className="group overflow-hidden rounded-xl border border-violet-300/15 bg-[#0D1D3D] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            <div className="relative aspect-[16/9] overflow-hidden bg-[radial-gradient(circle_at_35%_40%,rgba(99,215,255,0.18),transparent_35%),linear-gradient(135deg,#071126,#0D1D3D)]"><svg viewBox="0 0 220 120" className="absolute inset-0 h-full w-full"><path d="M20 62 C58 38 88 86 120 62 S174 39 204 64" fill="none" stroke="rgba(99,215,255,0.72)" strokeWidth="2" /><line x1="18" y1="62" x2="206" y2="62" stroke="rgba(216,201,155,0.38)" strokeDasharray="5 5" />{residualPoints.map((pt, i) => <circle key={i} cx={18 + pt.x * 1.55} cy={62 + (pt.y - 50) * 1.7} r="2.8" fill={Math.abs(pt.y - 50) > 8 ? 'rgba(124,92,255,0.9)' : 'rgba(99,215,255,0.72)'} />)}<rect x="150" y="18" width="42" height="70" rx="8" fill="rgba(3,7,22,0.45)" stroke="rgba(99,215,255,0.35)" /><path d="M160 34 h22 M160 48 h18 M160 62 h24 M160 76 h16" stroke="rgba(216,201,155,0.65)" strokeWidth="2" /></svg></div>
+            <div className="relative aspect-[16/9] overflow-hidden bg-[#071126]"><img src={residualPlotImage} alt="Battery residual plot diagnostics" className="h-full w-full object-contain object-center opacity-95 transition duration-500 group-hover:scale-[1.02]" /></div>
             <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Residual plot</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Residual bands expose systematic drift in charge-cycle measurements before model error turns into wasted lab time.</p></div>
           </div>
           <div className="group overflow-hidden rounded-xl border border-violet-300/15 bg-[#0D1D3D] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            <div className="relative aspect-[16/9] overflow-hidden bg-[radial-gradient(circle_at_60%_45%,rgba(124,92,255,0.2),transparent_38%),linear-gradient(135deg,#071126,#101D3A)]"><svg viewBox="0 0 220 120" className="absolute inset-0 h-full w-full"><rect x="55" y="18" width="110" height="84" rx="8" fill="rgba(3,7,22,0.38)" stroke="rgba(99,215,255,0.36)" />{[[98,58,28],[118,40,22],[114,72,25],[142,62,18],[156,82,12]].map(([cx, cy, r], i) => <circle key={i} cx={cx} cy={cy} r={r} fill="rgba(109,93,251,0.28)" stroke="rgba(124,92,255,0.82)" strokeWidth="1.4" />)}{[[44,92],[76,28],[176,42],[188,88],[62,52]].map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="3" fill="rgba(99,215,255,0.82)" />)}<path d="M38 100 L88 70 L134 86 L184 36" stroke="rgba(216,201,155,0.55)" strokeWidth="1.4" fill="none" /></svg></div>
+            <div className="relative aspect-[16/9] overflow-hidden bg-[#071126]"><img src={coverageMapImage} alt="Battery design-space coverage map" className="h-full w-full object-contain object-center opacity-95 transition duration-500 group-hover:scale-[1.02]" /></div>
             <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Coverage map</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Coverage maps show where battery recipes are interpolation-safe and where a candidate is extrapolating beyond evidence.</p></div>
           </div>
         </div></div>
