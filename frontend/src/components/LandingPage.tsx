@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { SignInButton, SignUpButton } from '@clerk/clerk-react'
+import batteriesImage from '../../assets/batteries.png'
 import coverageMapImage from '../../assets/coverage-map.png'
+import electrolyzersImage from '../../assets/electrolyzers.png'
+import manufacturingImage from '../../assets/manufacturing.png'
+import materialsImage from '../../assets/materials.png'
+import processImage from '../../assets/process.png'
 import residualPlotImage from '../../assets/residual-plot.png'
 
 const CONTACT_EMAIL = 'contact@mirai-engineeirng.com'
@@ -31,31 +36,31 @@ const STAGES = [
 
 const STORY_STAGES = [
   {
-    num: '01', label: 'Fragmented Experiments',
-    headline: 'Battery R&D is expensive, slow, and fractured across chemistries, protocols, and test benches.',
-    body: 'Different battery types, scattered data, manual spreadsheets, and high campaign costs make it nearly impossible to learn efficiently from past experiments.',
-    metrics: ['5 battery chemistries', '$150K per campaign', '47 runs completed'],
+    num: '01', label: 'Tabular Experiment Data',
+    headline: 'Product and process R&D already produces the data Mirai needs: rows of experiments, columns of settings, and measured outcomes.',
+    body: 'Recipes, operating conditions, material choices, batch records, and test results are brought together into a clean tabular view engineers can trust.',
+    metrics: ['Inputs mapped', 'Outcomes linked', 'Context preserved'],
     bg: '/assets/lab-scene.png',
   },
   {
-    num: '02', label: 'AI-Structured Design',
-    headline: 'Mirai organizes experimental data, trains validated surrogate models, and surfaces the ML-driven insights engineers need.',
-    body: 'Batteries are classified by chemistry. Data is unified. A surrogate model learns the response surface from historical tests.',
-    metrics: ['7 inputs mapped', '4 outputs predicted', 'R² 0.89'],
+    num: '02', label: 'Validated Surrogate Model',
+    headline: 'Mirai learns the relationship between controllable variables and product or process performance.',
+    body: 'The platform trains validated surrogate models on your table, checks data quality, and shows where predictions are reliable versus uncertain.',
+    metrics: ['Design space learned', 'Diagnostics included', 'Uncertainty visible'],
     bg: '/assets/batteries-all.png',
   },
   {
-    num: '03', label: 'Validated Prediction',
-    headline: 'A validated surrogate model predicts the optimal test configuration with quantified confidence.',
-    body: 'Before spending lab budget, Mirai evaluates the candidate virtually and ranks it against competing objectives.',
-    metrics: ['Performance +12.6%', 'Durability 92.1%', 'High confidence'],
+    num: '03', label: 'Virtual What-Ifs',
+    headline: 'Teams can compare thousands of possible settings before spending budget on the next physical run.',
+    body: 'Mirai ranks candidates across competing objectives like yield, cost, durability, quality, and performance — using the same tabular contract across domains.',
+    metrics: ['Many candidates', 'Trade-offs ranked', 'Risk flagged'],
     bg: '/assets/perfect-battery.png',
   },
   {
     num: '04', label: 'Decision-Ready Plan',
-    headline: 'The result is not a dashboard. It is an executable next-test plan with ranked candidates and explicit trade-offs.',
-    body: 'Engineers review the recommendation, inspect the evidence, and export a run plan back to the lab.',
-    metrics: ['C-017 selected', '3 objectives', 'Exportable plan'],
+    headline: 'The result is not a dashboard. It is a ranked next-experiment plan with evidence and trade-offs attached.',
+    body: 'Engineers inspect the recommendation, understand why it is suggested, and take a defensible run plan back to the lab or production floor.',
+    metrics: ['Next run selected', 'Objectives balanced', 'Exportable plan'],
     bg: '/assets/optimization-dash.png',
   },
 ]
@@ -91,11 +96,11 @@ const CANDIDATES = [
 ]
 
 const INDUSTRIES = [
-  { title: 'Processes', objectives: 'Yield, throughput, recipe settings, energy use', detail: 'Learn from tabulated process data to recommend operating windows, recipes, and robust parameter settings.' },
-  { title: 'Batteries', objectives: 'Capacity retention, fast-charge, safety margins, cost', detail: 'Balance formation protocols, material recipes, and cycle-life targets under sparse experimental budgets.' },
-  { title: 'Materials', objectives: 'Strength, fatigue, corrosion, manufacturability', detail: 'Connect composition and processing variables to measured properties with traceable surrogate models.' },
-  { title: 'Electrolyzers', objectives: 'Efficiency, lifetime, operating window, stack cost', detail: 'Optimize operating conditions while keeping durability and degradation risks visible.' },
-  { title: 'Advanced manufacturing', objectives: 'Yield, cycle time, defects, energy use', detail: 'Rank parameter sets for production experiments where downtime and scrap are expensive.' },
+  { title: 'Processes', objectives: 'Yield, throughput, recipe settings, energy use', detail: 'Learn from tabulated process data to recommend operating windows, recipes, and robust parameter settings.', image: processImage },
+  { title: 'Batteries', objectives: 'Capacity retention, fast-charge, safety margins, cost', detail: 'Balance formation protocols, material recipes, and cycle-life targets under sparse experimental budgets.', image: batteriesImage },
+  { title: 'Materials', objectives: 'Strength, fatigue, corrosion, manufacturability', detail: 'Connect composition and processing variables to measured properties with traceable surrogate models.', image: materialsImage },
+  { title: 'Electrolyzers', objectives: 'Efficiency, lifetime, operating window, stack cost', detail: 'Optimize operating conditions while keeping durability and degradation risks visible.', image: electrolyzersImage },
+  { title: 'Advanced manufacturing', objectives: 'Yield, cycle time, defects, energy use', detail: 'Rank parameter sets for production experiments where downtime and scrap are expensive.', image: manufacturingImage },
 ]
 
 const scatterPoints = Array.from({ length: 40 }, (_, i) => ({
@@ -120,19 +125,7 @@ function Meta({ children, className = '' }: { children: string; className?: stri
 }
 
 function MiraiLogo({ className = '' }: { className?: string }) {
-  return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className={className} aria-hidden="true">
-      <rect width="28" height="28" rx="6" fill="#0A1630" />
-      <g stroke="currentColor" strokeWidth="1.2" opacity="0.9">
-        <line x1="14" y1="6" x2="14" y2="10" stroke="#6D5DFB" />
-        <line x1="14" y1="18" x2="14" y2="22" stroke="#6D5DFB" />
-        <line x1="6" y1="14" x2="10" y2="14" stroke="#3B82F6" />
-        <line x1="18" y1="14" x2="22" y2="14" stroke="#3B82F6" />
-        <circle cx="14" cy="14" r="5" stroke="#7C5CFF" fill="none" />
-        <circle cx="14" cy="14" r="1.5" fill="#7C5CFF" />
-      </g>
-    </svg>
-  )
+  return <img src="/assets/mirai-mark.png" alt="Mirai" className={`h-7 w-7 rounded-md border border-slate-600 bg-[#050914] object-cover ${className}`} />
 }
 
 function Navbar() {
@@ -156,16 +149,16 @@ function Navbar() {
   return (
     <header className={`fixed left-0 right-0 top-0 z-50 transition-all duration-300 ${scrolled ? 'border-b border-violet-300/15 bg-[#030716]/85 backdrop-blur-lg' : 'bg-transparent'}`}>
       <nav className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6">
-        <a href="#" onClick={handleNav} className="flex items-center gap-2.5" aria-label="Mirai DoE home">
+        <a href="#" onClick={handleNav} className="flex items-center gap-2.5" aria-label="Mirai home">
           <MiraiLogo />
-          <span className="text-sm font-medium tracking-tight text-[#F6F4EA]">Mirai <span className="ml-1 font-mono text-[10px] tracking-widest text-[#6D5DFB]">DOE</span></span>
+          <span className="text-sm font-medium tracking-tight text-[#F6F4EA]">Mirai</span>
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
           {NAV_ITEMS.map((item) => (
             <a key={item.href} href={item.href} onClick={handleNav} className="text-sm text-[#C5D0E6] transition-colors duration-200 hover:text-[#F6F4EA]">{item.label}</a>
           ))}
-          <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-9 items-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a>
+          <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-9 items-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a>
         </div>
 
         <button onClick={() => setMobileOpen((open) => !open)} className="flex flex-col gap-1.5 p-2 md:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}>
@@ -181,7 +174,7 @@ function Navbar() {
             {NAV_ITEMS.map((item) => (
               <a key={item.href} href={item.href} onClick={handleNav} className="text-sm text-[#C5D0E6] transition-colors hover:text-[#F6F4EA]">{item.label}</a>
             ))}
-            <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="mt-2 inline-flex h-9 items-center justify-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white">Request a demo</a>
+            <a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="mt-2 inline-flex h-9 items-center justify-center rounded-full bg-[#6D5DFB]/90 px-5 text-xs font-medium tracking-wide text-white">Request a demo</a>
           </div>
         </div>
       )}
@@ -202,12 +195,12 @@ function Hero() {
 
       <div className="relative mx-auto flex min-h-[100dvh] max-w-[1400px] flex-col items-start justify-center px-6 pb-20 pt-24 lg:flex-row lg:items-center lg:gap-12">
         <div className="relative z-10 w-full max-w-[540px] shrink-0 animate-fade-in-up">
-          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-[#7C5CFF]">ML-Guided Experiment Design</p>
+          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-[#7C5CFF]">ML-guided product and process design</p>
           <h1 className="text-4xl font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.25rem]">
-            <span className="text-[#F6F4EA]">Design better experiments</span><br />
+            <span className="text-[#F6F4EA]">Model better products and processes</span><br />
             <span className="text-[#7C5CFF]">before you run them.</span>
           </h1>
-          <p className="mt-5 max-w-[460px] text-base leading-relaxed text-[#C5D0E6]">Mirai turns fragmented test-bench data into validated surrogate models and ranked next-test plans for industrial R&amp;D teams.</p>
+          <p className="mt-5 max-w-[500px] text-base leading-relaxed text-[#C5D0E6]">Mirai turns tabular experiment data — inputs, settings, recipes, and measured outcomes — into validated surrogate models and ranked next-test plans.</p>
 
           <div className="mt-8 flex flex-wrap gap-3">
             <a href="#cta" onClick={(event) => { event.preventDefault(); scrollToHash('#cta') }} className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-7 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Explore the platform</a>
@@ -218,8 +211,8 @@ function Hero() {
 
           <div className="mt-12 grid gap-5 sm:grid-cols-3">
             {[
-              { icon: '01', label: 'Better Decisions', desc: 'Ranked plans with explicit trade-offs' },
-              { icon: '02', label: 'Higher Confidence', desc: 'Validated surrogates with diagnostics' },
+              { icon: '01', label: 'Any Table', desc: 'Products, processes, recipes, and outcomes' },
+              { icon: '02', label: 'Validated Models', desc: 'Surrogates with diagnostics and uncertainty' },
               { icon: '03', label: 'Fewer Tests', desc: 'Virtual candidates before lab budget' },
             ].map((feature) => (
               <div key={feature.label} className="rounded-2xl border border-violet-300/15 bg-[#071126]/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
@@ -468,7 +461,7 @@ function Proof() {
             <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Coverage map</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Coverage maps show where battery recipes are interpolation-safe and where a candidate is extrapolating beyond evidence.</p></div>
           </div>
         </div></div>
-        <div className="mx-auto mt-10 max-w-2xl text-center"><div className="const-divider mb-6" /><p className="text-sm italic leading-relaxed text-[#C5D0E6]">“Mirai gave us a single source of truth from bench logs to surrogate diagnostics — so our DOE discussions became quantitative instead of anecdotal.”</p><p className="mt-3 text-xs text-[#8899BB]">R&amp;D Modeling Lead, Energy Storage (pilot)</p></div>
+        <div className="mx-auto mt-10 max-w-2xl text-center"><div className="const-divider mb-6" /><p className="text-sm italic leading-relaxed text-[#C5D0E6]">“Mirai gave us a single source of truth from bench logs to surrogate diagnostics — so our experiment discussions became quantitative instead of anecdotal.”</p><p className="mt-3 text-xs text-[#8899BB]">R&amp;D Modeling Lead, Energy Storage (pilot)</p></div>
       </div>
     </section>
   )
@@ -515,11 +508,11 @@ function Industries() {
       <div className="mx-auto max-w-[1400px] px-6">
         <div className="mx-auto max-w-2xl text-center">
           <Eyebrow>Industries</Eyebrow>
-          <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Built for complex experiments where trade-offs are real.</h2>
-          <p className="mt-4 text-sm leading-relaxed text-[#D6DEF0]">Start with one costly experimental workflow. Expand across teams, projects, and sites.</p>
+          <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Built for tabular product and process experiments where trade-offs are real.</h2>
+          <p className="mt-4 text-sm leading-relaxed text-[#D6DEF0]">Start with one table of experiments. Expand across teams, projects, and sites.</p>
         </div>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {INDUSTRIES.map((industry) => <div key={industry.title} className="group relative overflow-hidden rounded-2xl border border-violet-300/20 bg-[#0A1630] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-300 hover:border-violet-300/35"><div className="pointer-events-none absolute inset-0 opacity-[0.06] transition-opacity duration-500 group-hover:opacity-[0.1]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(109,93,251,0.35) 4px, rgba(109,93,251,0.35) 5px)' }} /><div className="relative z-10 flex min-h-[250px] flex-col"><h3 className="text-lg font-semibold text-[#F6F4EA]">{industry.title}</h3><svg viewBox="0 0 120 40" className="my-5 h-12 w-full opacity-80"><path d="M8,30 Q34,22 60,20 Q88,18 112,8" stroke="rgba(99,215,255,0.35)" strokeWidth="1" fill="none" /><path d="M8,25 Q34,20 60,15 Q88,10 112,5" stroke="rgba(124,92,255,0.28)" strokeWidth="1" fill="none" /><circle cx="60" cy="20" r="2.2" fill="rgba(124,92,255,0.75)" /></svg><Meta className="mb-2 text-[#AEBBDD]">Typical objectives</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">{industry.objectives}</p><p className="mt-3 text-xs leading-relaxed text-[#AEBBDD]">{industry.detail}</p></div></div>)}
+        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {INDUSTRIES.map((industry) => <div key={industry.title} className="group overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-300 hover:border-violet-300/35"><div className="aspect-[3/2] overflow-hidden rounded-xl bg-[#030716]"><img src={industry.image} alt={`${industry.title} tabular experiment optimization`} className="h-full w-full object-contain object-center opacity-95 transition duration-500 group-hover:scale-[1.01]" /></div></div>)}
         </div>
       </div>
     </section>
@@ -533,11 +526,11 @@ function Cta() {
       <div className="relative mx-auto max-w-[1400px] px-6 py-20">
         <div className="grid items-center gap-10 lg:grid-cols-[0.95fr_1.05fr]">
           <div>
-            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-[#7C5CFF]">Mirai DoE Engine</p>
+            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-[#7C5CFF]">Mirai</p>
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-[2.5rem]">Make every physical test count.</h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-[#D6DEF0]">Walk through ingestion, traceability, surrogate diagnostics, and next-experiment recommendations for a representative slice of your bench data.</p>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-[#AEBBDD]">Use Mirai to turn historical experiments and process tables into a defensible ranked plan before the next expensive lab or production run.</p>
-            <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
+            <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
           </div>
           <div className="overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-3 shadow-[0_0_36px_rgba(109,93,251,0.12)]">
             <div className="aspect-[2560/1429] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
@@ -557,7 +550,7 @@ function Footer() {
     { title: 'Company', color: 'text-[#3B82F6]', links: [{ label: 'Security & governance', href: '#cta' }, { label: 'Contact', href: `mailto:${CONTACT_EMAIL}` }] },
   ]
   return (
-    <footer className="border-t border-violet-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#7C5CFF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a demo</a><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{CONTACT_EMAIL}</a></div><div className="mt-6 flex items-center gap-2"><MiraiLogo className="opacity-50" /><span className="text-[10px] text-[#8899BB]">Mirai DoE Engine</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai DoE Engine. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
+    <footer className="border-t border-violet-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#7C5CFF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a demo</a><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{CONTACT_EMAIL}</a></div><div className="mt-6 flex items-center gap-2"><MiraiLogo className="opacity-60" /><span className="text-[10px] text-[#8899BB]">Mirai</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
   )
 }
 
