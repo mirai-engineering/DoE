@@ -10,10 +10,10 @@ const NAV_ITEMS = [
 ]
 
 const PAIN_POINTS = [
-  { symptom: 'Fragmented sources', impact: "CSV dumps, lab notebooks, LIMS exports, sensor logs, and analysis scripts that don't agree. Engineers lose time reconciling identifiers instead of learning from the experiments already paid for." },
-  { symptom: 'Untraceable preprocessing', impact: 'Critical transforms live in personal code and ad-hoc spreadsheets — hard to reproduce, impossible to audit. Every downstream model inherits these hidden assumptions.' },
-  { symptom: 'Hidden model risk', impact: 'Surrogates without diagnostics lead to overconfidence, hidden extrapolation, and wasted test time. Teams need to see where predictions are reliable before acting on them.' },
-  { symptom: 'Implicit trade-offs', impact: 'Performance vs. durability vs. cost decisions happen in meetings, not quantified frontiers. The best next test should come with explicit evidence and constraints.' },
+  { icon: '⌁', symptom: 'Fragmented sources', impact: "CSV dumps, lab notebooks, LIMS exports, sensor logs, and analysis scripts that don't agree.", detail: 'Engineers spend review cycles reconciling identifiers instead of learning from experiments already paid for.', signal: 'Traceability gap' },
+  { icon: '◇', symptom: 'Untraceable preprocessing', impact: 'Critical transforms live in personal code and ad-hoc spreadsheets.', detail: 'Hard to reproduce, impossible to audit, and every downstream model inherits hidden assumptions.', signal: 'Audit risk' },
+  { icon: '◎', symptom: 'Hidden model risk', impact: 'Surrogates without diagnostics create overconfidence and hidden extrapolation.', detail: 'Teams need residuals, coverage, and validation context before acting on predictions.', signal: 'Trust bottleneck' },
+  { icon: '△', symptom: 'Implicit trade-offs', impact: 'Performance, durability, and cost choices happen in meetings, not quantified frontiers.', detail: 'The best next test should arrive with explicit evidence, constraints, and alternatives.', signal: 'Decision drag' },
 ]
 
 const STAGES = [
@@ -186,7 +186,7 @@ function Hero() {
   return (
     <section className="relative min-h-[100dvh] overflow-hidden bg-[#030716]">
       <div className="absolute inset-0 lg:left-[32%]">
-        <img src="/assets/hero.png" alt="" className="h-full w-full object-cover object-[38%_center] opacity-90 lg:opacity-100" />
+        <img src="/assets/hero.png" alt="" className="h-full w-full object-cover object-[82%_center] opacity-90 lg:opacity-100" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#030716] via-[#030716]/68 to-transparent lg:via-[#030716]/28" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#030716]/35 via-transparent to-[#030716]/10" />
       </div>
@@ -211,14 +211,14 @@ function Hero() {
 
           <div className="mt-12 grid gap-5 sm:grid-cols-3">
             {[
-              { icon: '03', label: 'Fewer Tests', desc: 'Virtual candidates before lab budget' },
+              { icon: '01', label: 'Better Decisions', desc: 'Ranked plans with explicit trade-offs' },
               { icon: '02', label: 'Higher Confidence', desc: 'Validated surrogates with diagnostics' },
-              { icon: '01', label: 'Better Decisions', desc: 'Ranked next-test plans with trade-offs' },
+              { icon: '03', label: 'Fewer Tests', desc: 'Virtual candidates before lab budget' },
             ].map((feature) => (
-              <div key={feature.label} className="space-y-1.5">
-                <span className="font-mono text-[10px] tracking-wider text-[#3B82F6]">{feature.icon}</span>
-                <p className="text-sm font-medium text-[#F6F4EA]">{feature.label}</p>
-                <p className="text-xs leading-relaxed text-[#8899BB]">{feature.desc}</p>
+              <div key={feature.label} className="rounded-2xl border border-violet-300/15 bg-[#071126]/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
+                <span className="font-mono text-xs tracking-[0.18em] text-[#63D7FF]">{feature.icon}</span>
+                <p className="mt-2 text-sm font-semibold text-[#F6F4EA]">{feature.label}</p>
+                <p className="mt-1 text-xs leading-relaxed text-[#AEBBDD]">{feature.desc}</p>
               </div>
             ))}
           </div>
@@ -233,25 +233,32 @@ function Problem() {
   return (
     <section className="relative border-t border-violet-300/15 bg-[#010412] py-16">
       <div className="mx-auto max-w-[1400px] px-6">
-        <div className="grid gap-12 lg:grid-cols-5">
+        <div className="grid items-start gap-12 lg:grid-cols-5">
           <div className="lg:col-span-2">
             <Eyebrow>The problem</Eyebrow>
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Physical experiments are too valuable for trial-and-error.</h2>
             <p className="mt-4 text-[15px] leading-relaxed text-[#D6DEF0]">In industrial R&amp;D, the hardest part isn't running tests — it's turning fragmented results into consistent, reusable evidence for the next decision.</p>
             <p className="mt-3 text-sm leading-relaxed text-[#AEBBDD]">Mirai keeps raw files, preprocessing decisions, model versions, and recommendations connected so teams can audit how each conclusion was produced.</p>
             <div className="mt-8 overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-4 shadow-[0_0_32px_rgba(109,93,251,0.08)]">
-              <div className="aspect-square overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
-                <img src="/assets/problem-diagram.png" alt="Fragmented experimental sources unified into a traceable dataset" className="h-full w-full object-contain object-center opacity-95" />
+              <div className="aspect-[1929/1440] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
+                <img src="/assets/problem-diagram.png" alt="Fragmented experimental sources unified into a traceable dataset" className="h-full w-full object-cover object-center opacity-95" />
               </div>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-3">
+          <div className="grid self-start gap-4 sm:grid-cols-2 lg:col-span-3">
             {PAIN_POINTS.map((point, index) => (
               <div key={point.symptom} className="rounded-2xl border border-violet-300/20 bg-[#0A1630] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] animate-fade-in-up" style={{ animationDelay: `${index * 80}ms` }}>
-                <Meta className="mb-2 text-[#AEBBDD]">Symptom</Meta>
-                <h3 className="text-base font-semibold text-[#F6F4EA]">{point.symptom}</h3>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/25 bg-[#6D5DFB]/12 text-lg text-[#8E7CFF]">{point.icon}</span>
+                    <Meta className="text-[#AEBBDD]">Symptom</Meta>
+                  </div>
+                  <span className="rounded-full border border-blue-300/15 bg-[#3B82F6]/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-[#63D7FF]">{point.signal}</span>
+                </div>
+                <h3 className="text-lg font-semibold text-[#F6F4EA]">{point.symptom}</h3>
                 <div className="my-4 h-px bg-gradient-to-r from-[#7C5CFF]/45 via-[#3B82F6]/30 to-transparent" />
-                <p className="text-sm leading-relaxed text-[#C5D0E6]">{point.impact}</p>
+                <p className="text-sm leading-relaxed text-[#D6DEF0]">{point.impact}</p>
+                <p className="mt-3 text-xs leading-relaxed text-[#AEBBDD]">{point.detail}</p>
               </div>
             ))}
           </div>
@@ -441,9 +448,18 @@ function Proof() {
         <div className="mx-auto max-w-2xl text-center"><Eyebrow>Product proof</Eyebrow><h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Recommendations are only as good as the model behind them.</h2><p className="mt-4 text-sm leading-relaxed text-[#C5D0E6]">Mirai prioritizes model quality, traceability, and uncertainty — so decisions are auditable and repeatable.</p></div>
         <div className="mt-12 grid gap-4 sm:grid-cols-3">{PILLARS.map((pillar) => <div key={pillar.mark} className="rounded-xl border border-violet-300/20 bg-[#0A1630] p-6"><div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-violet-300/35 bg-[#6D5DFB]/15"><span className="text-sm font-semibold text-[#8E7CFF]">{pillar.mark}</span></div><h3 className="text-base font-semibold text-[#F6F4EA]">{pillar.label}</h3><p className="mt-2 text-sm leading-relaxed text-[#D6DEF0]">{pillar.desc}</p></div>)}</div>
         <div className="mt-8 overflow-hidden rounded-xl border border-violet-300/20 bg-[#0A1630]"><div className="border-b border-violet-300/20 px-5 py-3"><Meta className="text-[#AEBBDD]">Model trust & diagnostics</Meta></div><div className="grid gap-4 p-5 sm:grid-cols-3">
-          <div className="rounded-lg bg-[#0D1D3D] p-4"><Meta className="mb-3 text-[#63D7FF]">Parity plot</Meta><svg viewBox="0 0 120 100" className="h-32 w-full"><line x1="12" y1="88" x2="108" y2="12" stroke="rgba(124,92,255,0.65)" strokeWidth="1" strokeDasharray="4,4" />{scatterPoints.map((pt, i) => <circle key={i} cx={pt.x} cy={pt.y} r="2.2" fill="rgba(124,92,255,0.78)" />)}</svg></div>
-          <div className="rounded-lg bg-[#0D1D3D] p-4"><Meta className="mb-3 text-[#63D7FF]">Residual plot</Meta><svg viewBox="0 0 120 100" className="h-32 w-full"><line x1="8" y1="50" x2="112" y2="50" stroke="rgba(99,215,255,0.65)" strokeWidth="1" />{residualPoints.map((pt, i) => <circle key={i} cx={pt.x} cy={pt.y} r="2.1" fill={Math.abs(pt.y - 50) > 8 ? 'rgba(124,92,255,0.82)' : 'rgba(99,215,255,0.62)'} />)}</svg></div>
-          <div className="rounded-lg bg-[#0D1D3D] p-4"><Meta className="mb-3 text-[#63D7FF]">Coverage map</Meta><svg viewBox="0 0 120 100" className="h-32 w-full"><rect x="20" y="10" width="80" height="80" rx="3" fill="rgba(3,7,22,0.35)" stroke="rgba(99,215,255,0.35)" strokeWidth="0.8" />{[[45,48,18],[62,30,15],[62,58,20],[80,52,12],[88,72,8]].map(([cx, cy, r], i) => <circle key={i} cx={cx} cy={cy} r={r} fill="rgba(109,93,251,0.28)" stroke="rgba(124,92,255,0.75)" strokeWidth="0.9" />)}</svg></div>
+          <div className="group overflow-hidden rounded-xl border border-violet-300/15 bg-[#0D1D3D] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="relative aspect-[16/9] overflow-hidden bg-[#020817]"><img src="/assets/generated/battery-parity-diagnostics.png" alt="Battery testing parity diagnostics" className="h-full w-full object-cover opacity-90 transition duration-500 group-hover:scale-[1.03]" /><div className="absolute inset-0 bg-gradient-to-t from-[#071126] via-[#071126]/10 to-transparent" /><svg viewBox="0 0 120 100" className="absolute inset-x-6 bottom-5 h-24 opacity-90"><line x1="12" y1="88" x2="108" y2="12" stroke="rgba(124,92,255,0.9)" strokeWidth="1.2" strokeDasharray="4,4" />{scatterPoints.slice(0, 28).map((pt, i) => <circle key={i} cx={pt.x} cy={pt.y} r="2.2" fill="rgba(99,215,255,0.78)" />)}</svg></div>
+            <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Parity plot</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Predicted vs. observed battery-test outcomes stay close to the validation diagonal before recommendations are trusted.</p></div>
+          </div>
+          <div className="group overflow-hidden rounded-xl border border-violet-300/15 bg-[#0D1D3D] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="relative aspect-[16/9] overflow-hidden bg-[radial-gradient(circle_at_35%_40%,rgba(99,215,255,0.18),transparent_35%),linear-gradient(135deg,#071126,#0D1D3D)]"><svg viewBox="0 0 220 120" className="absolute inset-0 h-full w-full"><path d="M20 62 C58 38 88 86 120 62 S174 39 204 64" fill="none" stroke="rgba(99,215,255,0.72)" strokeWidth="2" /><line x1="18" y1="62" x2="206" y2="62" stroke="rgba(216,201,155,0.38)" strokeDasharray="5 5" />{residualPoints.map((pt, i) => <circle key={i} cx={18 + pt.x * 1.55} cy={62 + (pt.y - 50) * 1.7} r="2.8" fill={Math.abs(pt.y - 50) > 8 ? 'rgba(124,92,255,0.9)' : 'rgba(99,215,255,0.72)'} />)}<rect x="150" y="18" width="42" height="70" rx="8" fill="rgba(3,7,22,0.45)" stroke="rgba(99,215,255,0.35)" /><path d="M160 34 h22 M160 48 h18 M160 62 h24 M160 76 h16" stroke="rgba(216,201,155,0.65)" strokeWidth="2" /></svg></div>
+            <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Residual plot</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Residual bands expose systematic drift in charge-cycle measurements before model error turns into wasted lab time.</p></div>
+          </div>
+          <div className="group overflow-hidden rounded-xl border border-violet-300/15 bg-[#0D1D3D] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="relative aspect-[16/9] overflow-hidden bg-[radial-gradient(circle_at_60%_45%,rgba(124,92,255,0.2),transparent_38%),linear-gradient(135deg,#071126,#101D3A)]"><svg viewBox="0 0 220 120" className="absolute inset-0 h-full w-full"><rect x="55" y="18" width="110" height="84" rx="8" fill="rgba(3,7,22,0.38)" stroke="rgba(99,215,255,0.36)" />{[[98,58,28],[118,40,22],[114,72,25],[142,62,18],[156,82,12]].map(([cx, cy, r], i) => <circle key={i} cx={cx} cy={cy} r={r} fill="rgba(109,93,251,0.28)" stroke="rgba(124,92,255,0.82)" strokeWidth="1.4" />)}{[[44,92],[76,28],[176,42],[188,88],[62,52]].map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="3" fill="rgba(99,215,255,0.82)" />)}<path d="M38 100 L88 70 L134 86 L184 36" stroke="rgba(216,201,155,0.55)" strokeWidth="1.4" fill="none" /></svg></div>
+            <div className="p-4"><Meta className="mb-2 text-[#63D7FF]">Coverage map</Meta><p className="text-sm leading-relaxed text-[#D6DEF0]">Coverage maps show where battery recipes are interpolation-safe and where a candidate is extrapolating beyond evidence.</p></div>
+          </div>
         </div></div>
         <div className="mx-auto mt-10 max-w-2xl text-center"><div className="const-divider mb-6" /><p className="text-sm italic leading-relaxed text-[#C5D0E6]">“Mirai gave us a single source of truth from bench logs to surrogate diagnostics — so our DOE discussions became quantitative instead of anecdotal.”</p><p className="mt-3 text-xs text-[#8899BB]">R&amp;D Modeling Lead, Energy Storage (pilot)</p></div>
       </div>
@@ -517,8 +533,8 @@ function Cta() {
             <div className="mt-8 flex flex-wrap gap-3"><a href="mailto:hello@mirai.example?subject=Mirai%20DoE%20Engine%20%E2%80%94%20Demo%20Request" className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a pilot</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
           </div>
           <div className="overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-3 shadow-[0_0_36px_rgba(109,93,251,0.12)]">
-            <div className="aspect-[16/10] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
-              <img src="/assets/cta-bg.png" alt="Decision-ready Mirai run plan export" className="h-full w-full object-cover object-[72%_44%] opacity-100" />
+            <div className="aspect-[2560/1429] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
+              <img src="/assets/cta-bg.png" alt="Decision-ready Mirai run plan export" className="h-full w-full object-cover object-center opacity-100" />
             </div>
           </div>
         </div>

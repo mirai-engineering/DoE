@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from io import BytesIO
@@ -112,10 +113,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _warm_model_cache() -> None:
+    try:
+        loaded = await asyncio.to_thread(load_all_models)
+        logger.info("Model cache warmup completed loaded=%s", loaded)
+    except Exception as exc:  # noqa: BLE001 - startup health must not depend on remote registry availability.
+        logger.warning("Model cache warmup skipped after startup: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Mirai DoE Engine API")
-    load_all_models()
+    if os.getenv("MIRAI_EAGER_LOAD_MODELS", "0").strip().lower() in {"1", "true", "yes"}:
+        load_all_models()
+    else:
+        asyncio.create_task(_warm_model_cache())
     yield
 
 
