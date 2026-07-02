@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import pandas as pd
 PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
 FRAUNHOFER_FUEL_CELL_DEMO_PROJECT_ID = "fuel_cell_demo_65248559"
 SUPPORTED_PROJECT_IDS = {PROJECT_ID, FRAUNHOFER_FUEL_CELL_DEMO_PROJECT_ID}
+
+logger = logging.getLogger(__name__)
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -25,10 +28,28 @@ TARGET_EXPERIMENT_REDUCTION_FRACTION = 0.35
 HANDS_ON_HOURS_PER_PHYSICAL_SAMPLE = 6.0
 INTERNAL_DIRECT_COST_PER_SAMPLE_USD = (1500, 3000)
 EXTERNAL_TESTBED_DAY_RATE_USD = (3000, 5000)
+DEFAULT_PHYSICAL_CELLS_IN_REPO = 42
+DEFAULT_MODEL_ROWS_IN_REPO = 2544
+DEFAULT_RAW_AST_TRACE_HOURS_IN_REPO = 430.6
 
 
 def _money(value: float) -> int:
     return int(round(value / 1000.0) * 1000)
+
+
+def _fuel_cell_case_study_counts() -> tuple[int, int, float]:
+    """Return audited PEM demo counts, falling back to constants in deploy images without reference CSVs."""
+    try:
+        model_table = pd.read_csv(REAL_DATA_DIR / "model_table.csv")
+        metadata = pd.read_csv(REAL_DATA_DIR / "cell_metadata.csv")
+        ast_manifest = pd.read_csv(REAL_DATA_DIR / "ast_trace_manifest.csv")
+        physical_cells = int(metadata["cell_id"].nunique())
+        model_rows = int(len(model_table))
+        ast_hours = float(ast_manifest.groupby("cell_id")["time_max_s"].max().sum() / 3600.0)
+        return physical_cells, model_rows, ast_hours
+    except FileNotFoundError as exc:
+        logger.info("Fuel-cell business-impact reference CSVs unavailable; using audited constants: %s", exc)
+        return DEFAULT_PHYSICAL_CELLS_IN_REPO, DEFAULT_MODEL_ROWS_IN_REPO, DEFAULT_RAW_AST_TRACE_HOURS_IN_REPO
 
 
 def get_business_impact_summary(project_id: str) -> dict[str, Any]:
@@ -36,13 +57,7 @@ def get_business_impact_summary(project_id: str) -> dict[str, Any]:
         supported = ", ".join(sorted(SUPPORTED_PROJECT_IDS))
         raise ValueError(f"Business-impact case study is only available for: {supported}")
 
-    model_table = pd.read_csv(REAL_DATA_DIR / "model_table.csv")
-    metadata = pd.read_csv(REAL_DATA_DIR / "cell_metadata.csv")
-    ast_manifest = pd.read_csv(REAL_DATA_DIR / "ast_trace_manifest.csv")
-
-    physical_cells = int(metadata["cell_id"].nunique())
-    model_rows = int(len(model_table))
-    ast_hours_observed_in_raw_files = float(ast_manifest.groupby("cell_id")["time_max_s"].max().sum() / 3600.0)
+    physical_cells, model_rows, ast_hours_observed_in_raw_files = _fuel_cell_case_study_counts()
     paper_bench_hours = float(physical_cells * PAPER_FULL_CHARACTERIZATION_HOURS_PER_SAMPLE)
     guided_cells = int(math.ceil(physical_cells * (1.0 - TARGET_EXPERIMENT_REDUCTION_FRACTION)))
     avoided_cells = physical_cells - guided_cells
