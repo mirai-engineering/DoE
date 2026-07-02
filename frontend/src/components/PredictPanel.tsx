@@ -22,7 +22,7 @@ export function PredictPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/[0.08] bg-[#0B1220]/55 p-5">
       <PanelHeader
         eyebrow="Single experiment"
         title="Predict outcomes"
@@ -50,7 +50,7 @@ export function PredictPanel({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-2xl bg-slate-950 px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329] disabled:cursor-not-allowed disabled:brightness-75"
+          className="w-full rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245CF0] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? 'Predicting...' : 'Predict experiment'}
         </button>
@@ -70,7 +70,7 @@ export function PredictPanel({
 
       {prediction && (
         <div className="mt-6">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <h3 className="text-sm font-semibold tracking-normal text-slate-500">
             Predicted KPIs
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">

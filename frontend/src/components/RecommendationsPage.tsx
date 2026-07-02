@@ -3,7 +3,7 @@ import { formatNumber } from '../lib/doeUtils'
 import type { RecommendationRun } from '../types/doe'
 import { KpiComparisonChart } from './KpiComparisonChart'
 import { RecommendationsTable } from './RecommendationsTable'
-import { EmptyRecommendationsState, Metadata, PanelHeader } from './ui'
+import { EmptyRecommendationsState, PanelHeader } from './ui'
 
 export function RecommendationsPage({
   schema,
@@ -22,19 +22,23 @@ export function RecommendationsPage({
 
   return (
     <div className="space-y-8">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <section className="border-b border-white/[0.07] pb-5">
         <PanelHeader
-          eyebrow="Ranked design points"
-          title="Recommended experiments"
-          description="Summary of the latest candidate search. The table is intentionally limited while charts use the larger returned candidate set."
+          eyebrow="Recommended experiments"
+          title="Ranked design points"
+          description="Latest candidate search with compact evidence for the top design points."
         />
 
-        <div className="mt-6 grid gap-3 md:grid-cols-5">
-          <Metadata label="Project" value={recommendationRun.projectDisplayName} />
-          <Metadata label="Sampled" value={formatNumber(recommendationRun.nCandidates)} />
-          <Metadata label="Returned" value={formatNumber(recommendationRun.requestedTopK)} />
-          <Metadata label="Table top k" value={formatNumber(recommendationRun.tableTopK)} />
-          <Metadata label="Best score" value={formatNumber(bestScore)} />
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#9FB0C8]">
+          <span className="text-slate-200">{recommendationRun.projectDisplayName}</span>
+          <span className="text-slate-600">·</span>
+          <span>{formatNumber(recommendationRun.nCandidates)} sampled</span>
+          <span className="text-slate-600">·</span>
+          <span>{formatNumber(recommendationRun.requestedTopK)} returned</span>
+          <span className="text-slate-600">·</span>
+          <span>Top {formatNumber(recommendationRun.tableTopK)} in table</span>
+          <span className="text-slate-600">·</span>
+          <span className="text-[#BDEAFF]">Best score {formatNumber(bestScore)}</span>
         </div>
       </section>
 

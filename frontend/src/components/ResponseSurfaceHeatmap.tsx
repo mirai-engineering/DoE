@@ -109,7 +109,7 @@ export function ResponseSurfaceHeatmap({
   const variedY = schema.inputs.find((input) => input.name === yAxis)
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
         eyebrow="Response surface"
         title="2D heatmap"
@@ -156,23 +156,23 @@ export function ResponseSurfaceHeatmap({
         <button
           type="submit"
           disabled={loading}
-          className="self-end rounded-2xl bg-slate-950 px-5 py-4 text-sm font-semibold uppercase tracking-[0.16em] text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329] disabled:cursor-not-allowed disabled:brightness-75"
+          className="self-end rounded-lg bg-slate-950 px-5 py-4 text-sm font-semibold tracking-normal text-white shadow-sm shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329] disabled:cursor-not-allowed disabled:brightness-75"
         >
           {loading ? 'Generating...' : 'Generate'}
         </button>
       </form>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
-        <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+          <p className="text-xs font-semibold tracking-normal text-slate-400">
             Varied variables
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-800">
             {variedX?.label ?? xAxis} vs {variedY?.label ?? yAxis}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+          <p className="text-xs font-semibold tracking-normal text-slate-400">
             Fixed variables
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-700">
@@ -197,7 +197,7 @@ export function ResponseSurfaceHeatmap({
           currentInputs={toNumberMap(inputValues)}
         />
       ) : (
-        <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white/70 p-8 text-center text-sm text-slate-500">
+        <div className="mt-6 rounded-xl border border-dashed border-white/10 bg-[#0B1220]/45 p-8 text-center text-sm text-slate-400">
           Generate a response surface to compare local tradeoffs around the current console inputs.
         </div>
       )}
@@ -286,7 +286,7 @@ function HeatmapPlot({
   })
 
   return (
-    <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
+    <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-[#0B1220] p-3">
       <Plot
         data={traces}
         layout={layout}

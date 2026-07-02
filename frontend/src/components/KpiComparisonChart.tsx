@@ -50,13 +50,13 @@ export function KpiComparisonChart({
   })
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
         eyebrow="KPI tradeoffs"
         title="Top candidate comparison"
         description="Bars are normalized per KPI. For minimize metrics, the normalization is reversed so taller remains better."
       />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
+      <div className="mt-5 overflow-hidden rounded-lg border border-white/[0.07] bg-[#0B1220]/70 p-2">
         <Plot
           data={traces}
           layout={layout}

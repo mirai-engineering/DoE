@@ -227,13 +227,15 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
       return { output, validation, test, ...trust, objectiveWeightWarning }
     })
   }, [bestSplits, objectiveWeights, schema.outputs])
-  const predictionRows = predictions?.rows ?? []
+  const predictionRows = useMemo(() => predictions?.rows ?? [], [predictions?.rows])
   const diagnosticModelOptions = useMemo(() => uniqueStrings(predictionRows, 'model_name'), [predictionRows])
   const selectedDiagnosticModel = diagnosticModel || bestModelName || diagnosticModelOptions[0] || ''
-  const predictionColumns = predictions?.columns ?? []
   const predictionOutputOptions = useMemo(
-    () => schema.outputs.filter((output) => predictionColumns.includes(`${output.name}_true`) && predictionColumns.includes(`${output.name}_pred`)),
-    [predictionColumns, schema.outputs],
+    () => {
+      const predictionColumns = predictions?.columns ?? []
+      return schema.outputs.filter((output) => predictionColumns.includes(`${output.name}_true`) && predictionColumns.includes(`${output.name}_pred`))
+    },
+    [predictions?.columns, schema.outputs],
   )
   useEffect(() => {
     if (!predictionOutputOptions.length) return
@@ -290,25 +292,25 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <section className="border-b border-white/[0.07] pb-5">
         <PanelHeader
-          eyebrow="Model Quality"
-          title="Training credibility and validation diagnostics"
-          description="Inspect split metrics, preprocessing artifacts, active champion version, and prediction diagnostics before trusting optimization recommendations."
+          eyebrow="Model validation"
+          title="Model Quality"
+          description="Evaluate surrogate performance before using predictions in Design Studio."
         />
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           All-cells MVP workflow. Splits are grouped by cell_id, three cells are reserved exclusively for BO replay, and acceptance thresholds are provisional/report-only.
         </div>
         {championNotLoadedWarning && (
-          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <div className="font-semibold">Champion model is not loaded yet</div>
             <p className="mt-1 leading-6">{championNotLoadedWarning}</p>
-            {mlflowChampionExists && <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">MLflow has a champion alias, but Mirai will not use it until Load champion model is run.</p>}
+            {mlflowChampionExists && <p className="mt-1 text-xs font-semibold tracking-normal text-amber-800">MLflow has a champion alias, but Mirai will not use it until Load champion model is run.</p>}
           </div>
         )}
       </section>
 
-      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-xl shadow-black/20" aria-label="Model Quality workbench sections">
+      <nav className="border-b border-white/[0.07] pb-3" aria-label="Model Quality workbench sections">
         <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Model Quality views">
           {[
             { id: 'overview', label: 'Overview', helper: 'Champion, splits, model comparison' },
@@ -324,7 +326,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setQualityView(view.id as typeof qualityView)}
-                className={`rounded-md border px-3 py-3 text-left transition ${active ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-slate-500 hover:bg-[#0D1524] hover:text-white'}`}
+                className={`rounded-md border px-3 py-2.5 text-left transition ${active ? 'border-[#2F6BFF]/40 bg-[#2F6BFF]/10 text-white' : 'border-transparent text-slate-300 hover:bg-white/[0.035] hover:text-white'}`}
               >
                 <span className="block text-sm font-semibold">{view.label}</span>
                 <span className={`mt-1 block text-xs leading-5 ${active ? 'text-white/[.72]' : 'text-slate-500'}`}>{view.helper}</span>
@@ -335,27 +337,27 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
       </nav>
 
       {error && <Alert tone="error" title="Model quality unavailable" messages={[error]} />}
-      {loading && <div className="rounded-[2rem] bg-white/80 p-6 text-slate-300">Loading model quality...</div>}
+      {loading && <div className="rounded-xl bg-white/80 p-6 text-slate-300">Loading model quality...</div>}
 
       {!loading && summary && (
         <>
           {qualityView === 'overview' && (
           <>
-          <section id="quality-trust-summary" className="scroll-mt-8 grid gap-4 md:grid-cols-4">
-            <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Active model</div>
+          <section id="quality-trust-summary" className="scroll-mt-8 grid gap-3 md:grid-cols-4">
+            <div className="border-l-2 border-[#74C7F5] bg-[#2F6BFF]/[0.06] p-4">
+              <div className="text-xs font-semibold tracking-normal text-slate-400">Active model</div>
               <div className="mt-2 text-xl font-semibold text-slate-950">
                 {asString(champion.name) || asString(productionModel.name) || 'No champion model'}
               </div>
               <div className="mt-1 text-sm text-slate-500">Champion version {asString(champion.version) || '-'}</div>
               <div className="mt-2 text-sm text-slate-500">Challenger version {asString(challenger.version) || '-'}</div>
-              <div className="mt-3 rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white w-fit">
+              <div className="mt-3 rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold tracking-normal text-white w-fit">
                 served: {asString(activeModel.served_source) || 'artifact'}
               </div>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Best smoke model</div>
+            <div className="border-l border-white/[0.08] p-4">
+              <div className="text-xs font-semibold tracking-normal text-slate-400">Best smoke model</div>
               <div className="mt-2 text-xl font-semibold text-slate-950">{bestModelName || '-'}</div>
               <div className="mt-1 text-sm text-slate-500">Selection: weighted validation normalized RMSE</div>
               <div className="mt-3 text-2xl font-semibold text-[#74C7F5]">
@@ -363,14 +365,14 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">MLflow approval</div>
+            <div className="border-l border-white/[0.08] p-4">
+              <div className="text-xs font-semibold tracking-normal text-slate-400">MLflow approval</div>
               <div className="mt-2 text-xl font-semibold text-slate-950">Champion alias is approval</div>
               <p className="mt-1 text-sm leading-6 text-slate-500">Promote a version to <code>champion</code> in MLflow, then use Load champion model in Mirai. Serving uses the loaded ONNX champion only.</p>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Mirai serving</div>
+            <div className="border-l border-white/[0.08] p-4">
+              <div className="text-xs font-semibold tracking-normal text-slate-400">Mirai serving</div>
               <div className="mt-2 text-xl font-semibold text-slate-950">
                 {asString(activeModel.served_source) === 'loaded_champion' ? 'Champion loaded' : 'Not active'}
               </div>
@@ -378,7 +380,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </div>
           </section>
 
-          <details className="rounded-2xl border border-slate-200 bg-white/85 p-4 text-sm text-slate-300 shadow-sm">
+          <details className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4 text-sm text-slate-300">
             <summary className="cursor-pointer select-none font-semibold text-white">MLflow traceability</summary>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               {[
@@ -395,15 +397,15 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 ['Loaded by', traceability.loaded_by],
                 ['Artifact/cache status', cacheStatus.status],
               ].map(([label, value]) => (
-                <div key={String(label)} className="rounded-2xl bg-[#0B1220] p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{String(label)}</div>
+                <div key={String(label)} className="rounded-lg bg-[#0B1220] p-3">
+                  <div className="text-xs font-semibold tracking-normal text-slate-400">{String(label)}</div>
                   <div className="mt-1 break-all font-medium text-slate-100">{asString(value) || (typeof value === 'number' ? String(value) : '—')}</div>
                 </div>
               ))}
             </div>
             {!!Object.keys(requiredArtifacts).length && (
-              <div className="mt-3 rounded-2xl bg-[#0B1220] p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Required artifact presence</div>
+              <div className="mt-3 rounded-lg bg-[#0B1220] p-3">
+                <div className="text-xs font-semibold tracking-normal text-slate-400">Required artifact presence</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {Object.entries(requiredArtifacts).map(([name, present]) => (
                     <span key={name} className={`rounded-full px-2 py-1 text-xs font-semibold ${present ? 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30' : 'bg-rose-950/40 text-rose-200 ring-1 ring-rose-400/30'}`}>{name}: {present ? 'present' : 'missing'}</span>
@@ -414,12 +416,12 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
           </details>
 
           {!!summary.candidate_comparison?.length && (
-            <section className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+            <section className="scroll-mt-8 border-t border-white/[0.07] pt-6">
               <PanelHeader eyebrow="Training candidates" title="Candidate comparison" description="Top models from the latest training request. Challenger is selected by validation weighted normalized RMSE; champion remains manual in MLflow." />
               <div className="mt-4 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase tracking-[0.14em] text-slate-500"><tr><th className="px-3 py-2">Model</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Val nRMSE</th><th className="px-3 py-2">Test nRMSE</th><th className="px-3 py-2">Val R²</th><th className="px-3 py-2">Test R²</th><th className="px-3 py-2">Role</th></tr></thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <thead className="text-xs tracking-normal text-slate-500"><tr><th className="px-3 py-2">Model</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Val nRMSE</th><th className="px-3 py-2">Test nRMSE</th><th className="px-3 py-2">Val R²</th><th className="px-3 py-2">Test R²</th><th className="px-3 py-2">Role</th></tr></thead>
+                  <tbody className="divide-y divide-white/[0.06]">
                     {summary.candidate_comparison.slice(0, 12).map((candidate, index) => (
                       <tr key={`${asString(candidate.model_name)}-${index}`}>
                         <td className="px-3 py-2 font-semibold text-white">{asString(candidate.model_name)}</td>
@@ -437,7 +439,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </section>
           )}
 
-          <section id="quality-splits" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+          <section id="quality-splits" className="scroll-mt-8 border-t border-white/[0.07] pt-6">
             <PanelHeader
               eyebrow="Grouped split summary"
               title="Cell-level partitions"
@@ -453,7 +455,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             <div className="mt-3 text-sm text-slate-500">Challenger version: {asString(challenger.version) || 'none'}</div>
           </section>
 
-          <section id="quality-error-scale" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+          <section id="quality-error-scale" className="scroll-mt-8 border-t border-white/[0.07] pt-6">
             <PanelHeader
               eyebrow="Scientific reference scale"
               title="How large are the errors relative to the targets?"
@@ -463,7 +465,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               {schema.outputs.map((output) => {
                 const ref = asRecord(targetReference[output.name])
                 return (
-                  <div key={output.name} className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+                  <div key={output.name} className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
                     <div className="text-sm font-semibold text-white">{output.label}</div>
                     <div className="mt-3 space-y-1 text-xs text-slate-300">
                       <div>Mean: <strong>{formatNumber(asNumber(ref.train_mean))} {output.unit}</strong></div>
@@ -476,7 +478,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+          <section className="border-t border-white/[0.07] pt-6">
             <PanelHeader
               eyebrow="Model comparison"
               title="Split metrics"
@@ -484,7 +486,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
             />
             <div className="mt-5 overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                <thead className="text-xs tracking-normal text-slate-400">
                   <tr>
                     <th className="px-3 py-2">Model</th>
                     <th className="px-3 py-2">Split</th>
@@ -499,7 +501,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                     ['train', 'validation', 'test'].map((split) => {
                       const model = asRecord(value)
                       return (
-                        <tr key={`${name}-${split}`} className="border-t border-slate-100">
+                        <tr key={`${name}-${split}`} className="border-t border-white/[0.06]">
                           <td className="px-3 py-2 font-semibold text-slate-100">{name}</td>
                           <td className="px-3 py-2 text-slate-300">{split}</td>
                           <td className="px-3 py-2">{formatNumber(splitMean(model, split, 'r2'))}</td>
@@ -519,20 +521,20 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
           )}
 
           {qualityView === 'outputs' && (
-          <section className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+          <section className="border-t border-white/[0.07] pt-6">
             <PanelHeader
               eyebrow="Per-output accuracy"
               title="Surrogate model accuracy"
               description="Validation and test metrics for each predicted output. Use this page to judge how much to trust optimization recommendations."
             />
 
-            <div className="mt-6 rounded-3xl border border-slate-200 bg-[#0B1220] p-5 shadow-sm">
+            <div className="mt-6 rounded-xl border border-slate-200 bg-[#0B1220] p-5 shadow-sm">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Surrogate trust summary</div>
+                  <div className="text-xs font-semibold tracking-normal text-slate-400">Surrogate trust summary</div>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <span className="text-3xl font-semibold tracking-[-0.04em] text-slate-950">{trustSummary.overall}</span>
-                    <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
+                    <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-xs font-semibold tracking-normal text-slate-300">
                       {bestModelName || 'best model'}
                     </span>
                   </div>
@@ -543,19 +545,19 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 </div>
                 <div className="grid min-w-[18rem] grid-cols-2 gap-3 text-sm">
                   <div className="rounded-md border border-slate-700/70 bg-[#070C16] p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Accurate outputs</div>
+                    <div className="text-xs font-semibold tracking-normal text-slate-400">Accurate outputs</div>
                     <div className="mt-1 text-2xl font-semibold text-[#74C7F5]">{trustSummary.usableCount}</div>
                   </div>
                   <div className="rounded-md border border-slate-700/70 bg-[#070C16] p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Weak outputs</div>
+                    <div className="text-xs font-semibold tracking-normal text-slate-400">Weak outputs</div>
                     <div className="mt-1 text-2xl font-semibold text-rose-700">{trustSummary.weakCount}</div>
                   </div>
                   <div className="rounded-md border border-slate-700/70 bg-[#070C16] p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Best predicted</div>
+                    <div className="text-xs font-semibold tracking-normal text-slate-400">Best predicted</div>
                     <div className="mt-1 text-sm font-semibold text-white">{trustSummary.best?.output.label || '-'}</div>
                   </div>
                   <div className="rounded-md border border-slate-700/70 bg-[#070C16] p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Weakest</div>
+                    <div className="text-xs font-semibold tracking-normal text-slate-400">Weakest</div>
                     <div className="mt-1 text-sm font-semibold text-white">{trustSummary.weakest?.output.label || '-'}</div>
                   </div>
                 </div>
@@ -576,21 +578,21 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   { label: 'Test', metrics: item.test, emphasize: true },
                 ]
                 return (
-                  <article key={item.output.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <article key={item.output.name} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">{item.output.label}</h3>
-                        <p className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">{unit}</p>
+                        <p className="mt-1 text-xs font-medium tracking-normal text-slate-400">{unit}</p>
                       </div>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${TRUST_STYLES[item.level]}`}>
+                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-normal ${TRUST_STYLES[item.level]}`}>
                         {item.label}
                       </span>
                     </div>
 
                     <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                       {primaryMetrics.map((metric) => (
-                        <div key={metric.label} className="rounded-2xl bg-[#0B1220] p-3">
-                          <div className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">{metric.label}</div>
+                        <div key={metric.label} className="rounded-lg bg-[#0B1220] p-3">
+                          <div className="text-[0.68rem] font-semibold tracking-normal text-slate-400">{metric.label}</div>
                           <div className="mt-1 text-lg font-semibold text-white">{metric.value}</div>
                         </div>
                       ))}
@@ -598,12 +600,12 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
 
                     <p className="mt-4 rounded-md border border-[#74C7F5]/20 bg-[#0D1B2D] p-3 text-sm leading-6 text-[#CBD5E1]">{item.interpretation}</p>
                     {item.objectiveWeightWarning && (
-                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{item.objectiveWeightWarning}</div>
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{item.objectiveWeightWarning}</div>
                     )}
 
                     <div className="mt-5 overflow-x-auto">
                       <table className="min-w-full text-left text-xs">
-                        <thead className="uppercase tracking-[0.14em] text-slate-400">
+                        <thead className="tracking-normal text-slate-400">
                           <tr>
                             <th className="px-3 py-2">Split</th>
                             <th className="px-3 py-2">R²</th>
@@ -615,7 +617,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                         </thead>
                         <tbody>
                           {comparisonRows.map((row) => (
-                            <tr key={row.label} className={row.emphasize ? 'border-t border-slate-700 bg-[#10203A] font-semibold text-white' : 'border-t border-slate-100 text-slate-300'}>
+                            <tr key={row.label} className={row.emphasize ? 'border-t border-slate-700 bg-[#10203A] font-semibold text-white' : 'border-t border-white/[0.06] text-slate-300'}>
                               <td className="whitespace-nowrap px-3 py-2">{row.label}</td>
                               <td className="whitespace-nowrap px-3 py-2">{formatR2(asNumber(row.metrics.r2))}</td>
                               <td className="whitespace-nowrap px-3 py-2">{formatMetric(asNumber(row.metrics.mae), unit)}</td>
@@ -628,7 +630,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       </table>
                     </div>
 
-                    <details className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-3 text-sm text-slate-300">
+                    <details className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-3 text-sm text-slate-300">
                       <summary className="cursor-pointer select-none font-semibold text-slate-100">Show detailed metrics</summary>
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         {comparisonRows.map((row) => (
@@ -659,7 +661,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
           )}
 
           {qualityView === 'diagnostics' && (
-          <section id="quality-diagnostics" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+          <section id="quality-diagnostics" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <PanelHeader
                 eyebrow="Prediction diagnostics"
@@ -667,7 +669,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 description="Visual checks of whether the surrogate reproduces physical trends. These plots use training-run predictions for train/validation/test/BO-holdout rows."
               />
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-[#74C7F5]/30 bg-[#0D1B2D] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#BDEAFF]">
+                <span className="rounded-full border border-[#74C7F5]/30 bg-[#0D1B2D] px-3 py-1 text-xs font-semibold tracking-normal text-[#BDEAFF]">
                   Training-run predictions
                 </span>
                 <a
@@ -679,21 +681,21 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </div>
 
-            {predictionLoading && <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-300">Loading prediction diagnostics...</div>}
-            {predictionError && <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{predictionError}</div>}
+            {predictionLoading && <div className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-slate-300">Loading prediction diagnostics...</div>}
+            {predictionError && <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{predictionError}</div>}
 
             {!predictionLoading && !predictionError && predictions && (
               <>
                 <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   <label className="text-sm font-semibold text-slate-700">
                     Model
-                    <select value={selectedDiagnosticModel} onChange={(event) => setDiagnosticModel(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <select value={selectedDiagnosticModel} onChange={(event) => setDiagnosticModel(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                       {diagnosticModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
                     </select>
                   </label>
                   <label className="text-sm font-semibold text-slate-700">
                     Splits
-                    <select value={diagnosticSplit} onChange={(event) => setDiagnosticSplit(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <select value={diagnosticSplit} onChange={(event) => setDiagnosticSplit(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                       <option value="validation,test">Validation + test</option>
                       <option value="validation">Validation</option>
                       <option value="test">Test</option>
@@ -703,14 +705,14 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   </label>
                   <label className="text-sm font-semibold text-slate-700">
                     Output
-                    <select value={activeDiagnosticOutput} onChange={(event) => setDiagnosticOutput(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <select value={activeDiagnosticOutput} onChange={(event) => setDiagnosticOutput(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                       {predictionOutputOptions.map((output) => <option key={output.name} value={output.name}>{output.label}</option>)}
                     </select>
                   </label>
                   {isFuelCellTemplate && (
                     <label className="text-sm font-semibold text-slate-700">
                       Fuel-cell cell
-                      <select value={selectedPolarizationCell} onChange={(event) => setSelectedCellId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <select value={selectedPolarizationCell} onChange={(event) => setSelectedCellId(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                         {availableCellIds.map((cell) => <option key={cell} value={cell}>{cell}</option>)}
                       </select>
                     </label>
@@ -718,7 +720,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   {isFuelCellTemplate && (
                     <label className="text-sm font-semibold text-slate-700">
                       Operating RH
-                      <select value={selectedPolarizationRh} onChange={(event) => setSelectedRh(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <select value={selectedPolarizationRh} onChange={(event) => setSelectedRh(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                         {availableRhs.map((rh) => <option key={rh} value={String(rh)}>{rh}%</option>)}
                       </select>
                     </label>
@@ -733,7 +735,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                   />
                 )}
 
-                {!!predictionOutputOptions.length && <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
+                {!!predictionOutputOptions.length && <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold tracking-normal">
                   <span className="rounded-full border border-[#74C7F5]/30 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Source: training-run predictions</span>
                   <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">Model: {selectedDiagnosticModel || '-'}</span>
                   <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">Splits: {diagnosticSplitLabel || '-'}</span>
@@ -741,16 +743,16 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                 </div>}
 
                 {!!predictionOutputOptions.length && (isFuelCellTemplate ? (
-                  <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+                  <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
                     <strong>Fuel-cell recipe:</strong> polarization curves are plotted as current density on the x-axis and voltage on the y-axis. BO replay uses train + validation rows; test remains reserved for model-quality metrics.
                   </div>
                 ) : (
-                  <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+                  <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
                     <strong>Generic diagnostics:</strong> default plots use parity, residuals vs predicted value, residuals grouped by approved metadata, and metrics by output/split.
                   </div>
                 ))}
 
-                {!!predictionOutputOptions.length && <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-300">
+                {!!predictionOutputOptions.length && <details className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-300">
                   <summary className="cursor-pointer select-none font-semibold text-white">How to read these diagnostics</summary>
                   <ul className="mt-3 list-disc space-y-2 pl-5 leading-6">
                     {isFuelCellTemplate && <li><strong>Polarization curve:</strong> checks whether the surrogate reproduces the physical BoL/EoL curve shape at a fixed RH and cell condition.</li>}
@@ -761,7 +763,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
 
                 {!!predictionOutputOptions.length && <div className="mt-6 grid gap-6 xl:grid-cols-2">
                   {isFuelCellTemplate && (
-                  <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+                  <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-white">Fuel-cell polarization curve</h3>
@@ -823,13 +825,13 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       useResizeHandler
                       style={{ width: '100%', height: '390px' }}
                     />
-                    <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-xs leading-5 text-slate-300">
+                    <p className="mt-3 rounded-lg bg-white px-4 py-3 text-xs leading-5 text-slate-300">
                       Dashed lines are model predictions; solid lines are measured data. BoL = beginning of life; EoL = end of life.
                     </p>
                   </div>
                   )}
 
-                  <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+                  <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
                     <div className="mb-2">
                       <h3 className="text-lg font-semibold text-white">Parity plot</h3>
                       <p className="text-sm text-slate-500">Predicted vs measured for {outputLabel}. Points close to the diagonal indicate better predictions.</p>
@@ -853,12 +855,12 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       useResizeHandler
                       style={{ width: '100%', height: '390px' }}
                     />
-                    <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-xs leading-5 text-slate-300">
+                    <p className="mt-3 rounded-lg bg-white px-4 py-3 text-xs leading-5 text-slate-300">
                       The dotted diagonal is the ideal prediction line. Points above it are overpredicted; points below it are underpredicted.
                     </p>
                   </div>
 
-                  <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4 xl:col-span-2">
+                  <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4 xl:col-span-2">
                     <div className="mb-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-white">Residual diagnostic</h3>
@@ -866,7 +868,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       </div>
                       <label className="text-sm font-semibold text-slate-700">
                         Group by
-                        <select value={diagnosticGroup} onChange={(event) => setDiagnosticGroup(event.target.value)} className="ml-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                        <select value={diagnosticGroup} onChange={(event) => setDiagnosticGroup(event.target.value)} className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                           {groupCandidates.map((candidate) => <option key={candidate} value={candidate}>{candidate.replace(/_/g, ' ')}</option>)}
                         </select>
                       </label>
@@ -893,7 +895,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
                       useResizeHandler
                       style={{ width: '100%', height: '360px' }}
                     />
-                    <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-xs leading-5 text-slate-300">
+                    <p className="mt-3 rounded-lg bg-white px-4 py-3 text-xs leading-5 text-slate-300">
                       Positive residuals mean the model underpredicted the measured value. Negative residuals mean the model overpredicted it. The dotted line marks no error.
                     </p>
                   </div>
@@ -910,7 +912,7 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
 
           {qualityView === 'artifacts' && (
           <section className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-[2rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
+            <div className="border-t border-white/[0.07] pt-6">
               <PanelHeader
                 eyebrow="Preprocessing"
                 title="Preprocessing aftermath"
@@ -932,14 +934,14 @@ export function ModelQualityPage({ schema }: { schema: ProjectSchema }) {
               </dl>
             </div>
 
-            <div className="rounded-[2rem] border border-dashed border-slate-300 bg-slate-950 p-6 text-white shadow-sm">
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-950 p-6 text-white shadow-sm">
               <PanelHeader
                 eyebrow="AI preprocessing assistant"
                 title="Placeholder only"
                 description="Future AI agent will propose transformations with rationale for app-dev approval. Not active yet."
                 dark
               />
-              <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">
+              <div className="mt-5 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/75">
                 Status: {asString(assistant.status) || 'placeholder_not_active'}
               </div>
               <div className="mt-4 flex gap-2">

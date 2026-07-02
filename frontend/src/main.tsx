@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { ClerkProvider, SignedIn, SignedOut, UserButton, useAuth } from '@clerk/clerk-react'

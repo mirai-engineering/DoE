@@ -250,7 +250,7 @@ function App() {
       <div className={`relative mx-auto grid max-w-[98rem] gap-4 px-4 py-4 transition-[grid-template-columns] duration-200 sm:px-6 lg:px-7 ${sidebarCollapsed ? 'lg:grid-cols-[4.75rem_minmax(0,1fr)]' : 'lg:grid-cols-[15.75rem_minmax(0,1fr)]'}`}>
         <Tabs activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        <div className="min-w-0 space-y-5">
+        <div className="min-w-0 space-y-6">
           <ProjectHeader
             projects={projects}
             selectedProjectId={selectedProjectId}
@@ -272,15 +272,15 @@ function App() {
           )}
 
           {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
-          <div className="rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] p-5 text-slate-300 shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl">
+          <div className="rounded-xl border border-white/[0.08] bg-[#0B1220]/72 p-5 text-slate-300 backdrop-blur-xl">
             Loading project schema...
           </div>
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
               <div className="space-y-8">
-                <section className="rounded-2xl border border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] p-5 shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
+                <section className="border-b border-white/[0.07] pb-5">
+                  <p className="text-sm font-medium text-[#74C7F5]">
                     Batch Search
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#F6F4EA]">

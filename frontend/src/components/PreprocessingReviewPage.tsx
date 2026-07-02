@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DomainMetadataStatus, MiraiContractValidation, IngestionSessionResponse, MLPreprocessingReport, MLPreprocessingStatus, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
 import {
   appendIngestionFiles,
@@ -38,7 +38,7 @@ function StatusPill({ children, tone = 'slate' }: { children: string; tone?: 'sl
       : tone === 'rose'
         ? 'border-rose-200 bg-rose-50 text-rose-700'
         : 'border-slate-200 bg-[#0D1B2D] text-slate-300'
-  return <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] ${classes}`}>{children}</span>
+  return <span className={`rounded-full border px-3 py-1 text-xs font-bold tracking-normal ${classes}`}>{children}</span>
 }
 
 function actionTone(status?: string): 'slate' | 'amber' | 'green' | 'rose' {
@@ -142,7 +142,7 @@ function DistributionTable({ title, rows }: { title: string; rows?: Record<strin
   const entries = Object.entries(rows ?? {})
   if (!entries.length) return null
   return (
-    <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+    <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
       <h3 className="font-semibold text-white">{title}</h3>
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-left text-xs">
@@ -185,7 +185,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     [sessions, selectedSessionId],
   )
 
-  async function loadSessions() {
+  const loadSessions = useCallback(async () => {
     setError(null)
     const next = await listIngestionSessions(schema?.project_id)
     setSessions(next)
@@ -195,9 +195,9 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       ? latest.ingestion_session_id
       : next[0]?.ingestion_session_id ?? ''
     setSelectedSessionId((current) => next.some((session) => session.ingestion_session_id === current) ? current : preferred)
-  }
+  }, [schema?.project_id])
 
-  async function refreshSessionState(session = selectedSession) {
+  const refreshSessionState = useCallback(async (session?: IngestionSessionResponse | null) => {
     if (!session) return
     setError(null)
     try {
@@ -246,19 +246,19 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh preprocessing state')
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (schema) setTrainingConfig(defaultTrainingConfiguration(schema))
-  }, [schema?.project_id])
+  }, [schema])
 
   useEffect(() => {
     loadSessions().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions'))
-  }, [schema?.project_id])
+  }, [loadSessions])
 
   useEffect(() => {
     if (selectedSession) refreshSessionState(selectedSession)
-  }, [selectedSessionId])
+  }, [refreshSessionState, selectedSession, selectedSessionId])
 
   useEffect(() => {
     if (!selectedSession || !['queued', 'running'].includes(preprocessingStatus.status)) return undefined
@@ -266,7 +266,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       refreshSessionState(selectedSession)
     }, 2500)
     return () => window.clearInterval(timer)
-  }, [selectedSessionId, selectedSession, preprocessingStatus.status])
+  }, [refreshSessionState, selectedSessionId, selectedSession, preprocessingStatus.status])
 
   async function runAction(label: string, action: () => Promise<void>) {
     setBusy(label)
@@ -533,7 +533,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       <SectionCard>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#74C7F5]">Lifecycle</p>
+            <p className="text-sm font-medium text-[#74C7F5]">Lifecycle</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-white">Prepare this project for training</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Confirm the metadata, run preprocessing, then start the recommended training path.</p>
           </div>
@@ -543,7 +543,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <label className="text-sm font-semibold text-slate-300">
             Session
-            <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-white outline-none focus:border-[#74C7F5]">
+            <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-white outline-none focus:border-[#74C7F5]">
               <option value="">No sessions found</option>
               {sessions.map((session) => (
                 <option key={session.ingestion_session_id} value={session.ingestion_session_id}>{session.project_name} · {session.ingestion_session_id}</option>
@@ -555,27 +555,27 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
         {selectedSession && (
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Project</div><div className="mt-1 truncate font-semibold text-white">{selectedSession.project_name}</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Files</div><div className="mt-1 font-semibold text-white">{selectedSession.files.length}</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Columns</div><div className="mt-1 font-semibold text-white">{validation?.column_count ?? '—'}</div></div>
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Rows</div><div className="mt-1 font-semibold text-white">{modelRows ?? 'Pending'}</div></div>
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Project</div><div className="mt-1 truncate font-semibold text-white">{selectedSession.project_name}</div></div>
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Files</div><div className="mt-1 font-semibold text-white">{selectedSession.files.length}</div></div>
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Columns</div><div className="mt-1 font-semibold text-white">{validation?.column_count ?? '—'}</div></div>
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Rows</div><div className="mt-1 font-semibold text-white">{modelRows ?? 'Pending'}</div></div>
           </div>
         )}
 
         {projectOnlyChampionControls && (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <div className="font-semibold text-amber-900">No intake session is available in this deployment.</div>
             <p className="mt-1 leading-6">The original preprocessing session is app-local runtime state, but this project can still use MLflow champion artifacts. Promote the intended version to <code>champion</code>, then load or reload the champion model here.</p>
           </div>
         )}
       </SectionCard>
 
-      {error && <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
+      {error && <section className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
 
       <SectionCard>
         <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Next step</p>
+            <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Next step</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{nextAction.label}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               {projectOnlyChampionControls
@@ -597,7 +597,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                             : 'Run the approved training request or import a completed local MLflow run.'}
             </p>
           </div>
-          <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+          <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
             {nextAction.label}
           </button>
         </div>
@@ -607,7 +607,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <SectionCard className="bg-[#0B1220] border-[#74C7F5]/50">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Metadata</p>
+              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Metadata</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Variable summary</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Confirm labels and roles before preprocessing. Internal IDs stay fixed for training.</p>
             </div>
@@ -616,21 +616,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {metadataSummary.map(([label, value]) => (
-              <div key={label as string} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
-                <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</div>
+              <div key={label as string} className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+                <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{value}</div>
               </div>
             ))}
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
               <div className="font-semibold text-white">Inputs</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {inputOrSweepVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-full bg-[#10203A] px-3 py-1 text-xs font-semibold text-slate-300">{variable.label || variable.name}</span>)}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
               <div className="font-semibold text-white">Outputs</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {outputVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-md border border-slate-700 bg-[#0D1B2D] px-3 py-1 text-xs font-semibold text-slate-200">{variable.label || variable.name}</span>)}
@@ -643,20 +643,20 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-sm font-semibold text-slate-300">
                   X variable
-                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full rounded-2xl border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
+                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
                     {inputOrSweepVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-300">
                   Y variable
-                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full rounded-2xl border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
+                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
                     {outputVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
               </div>
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-[#0B1220]">
+              <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-[#0B1220]">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="bg-[#0B1220] text-xs uppercase tracking-[0.14em] text-slate-500">
+                  <thead className="bg-[#0B1220] text-xs tracking-normal text-slate-500">
                     <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -680,9 +680,9 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               {!!provenanceVariableEntries.length && (
                 <DisclosurePanel title={`Internal/provenance fields (${provenanceVariableEntries.length})`} defaultOpen={false}>
                   <p className="text-sm leading-6 text-slate-300">These IDs, joins, split columns, and source metadata are kept read-only so they cannot accidentally become training inputs.</p>
-                  <div className="mt-3 max-h-80 overflow-auto rounded-2xl border border-slate-200 bg-[#0B1220]">
+                  <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-[#0B1220]">
                     <table className="min-w-full text-left text-xs">
-                      <thead className="bg-[#0D1B2D] uppercase tracking-[0.14em] text-slate-500">
+                      <thead className="bg-[#0D1B2D] tracking-normal text-slate-500">
                         <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Role</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -701,7 +701,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               )}
               <div className="mt-4 flex flex-wrap justify-end gap-3">
                 <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={saveMetadataDraft} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-sm font-semibold text-slate-300 disabled:opacity-45">{busy === 'metadata-save' ? 'Saving...' : 'Save draft'}</button>
-                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata'}</button>
+                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata'}</button>
               </div>
             </DisclosurePanel>
           </div>
@@ -712,7 +712,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <SectionCard>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Evidence</p>
+              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Evidence</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Preprocessing results</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Canonical data is ready for review.</p>
             </div>
@@ -726,8 +726,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               ['Inputs', validation?.input_count],
               ['Outputs', validation?.output_count],
             ].map(([label, value]) => (
-              <div key={label as string} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
-                <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</div>
+              <div key={label as string} className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+                <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{formatNumber(value, 0)}</div>
               </div>
             ))}
@@ -739,7 +739,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           </div>
 
           {!!edaSummary?.summary.leakage_warnings?.length && (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <h3 className="font-semibold text-amber-900">Review warnings</h3>
               <ul className="mt-2 list-disc pl-5 text-sm leading-6 text-amber-800">
                 {edaSummary.summary.leakage_warnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -750,22 +750,22 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-5 space-y-3">
             <DisclosurePanel title="Diagnostics and artifact links">
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
                   <h3 className="font-semibold text-white">Split plan</h3>
                   <p className="mt-1 text-sm text-slate-300">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                     {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="rounded-xl border border-slate-700 bg-[#0B1220] px-3 py-2"><span className="font-semibold text-white">{split}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
                   <h3 className="font-semibold text-white">Rejected-row reasons</h3>
                   <div className="mt-3 space-y-2 text-sm">
                     {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="rounded-xl border border-slate-700 bg-[#0B1220] px-3 py-2"><span className="font-semibold text-white">{reason}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
                   </div>
                 </div>
               </div>
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-xs text-slate-300">
-                {selectedSession && <button type="button" onClick={handleOpenYdataReport} disabled={busy === 'open-ydata-report'} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-50">{busy === 'open-ydata-report' ? 'Opening HTML EDA…' : 'Open HTML EDA ↗'}</button>}
+              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-xs text-slate-300">
+                {selectedSession && <button type="button" onClick={handleOpenYdataReport} disabled={busy === 'open-ydata-report'} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-50">{busy === 'open-ydata-report' ? 'Opening HTML EDA…' : 'Open HTML EDA ↗'}</button>}
                 <div className="mt-3 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
                 <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
                 <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>
@@ -779,27 +779,27 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <SectionCard>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">ML preprocessing</p>
+              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">ML preprocessing</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Training-ready model table</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Start the deterministic ML preprocessing lifecycle. Mirai uses EDA evidence to draft a typed tool plan, fits tool parameters on train rows only, and writes the actual model_table_preprocessed.csv used for training.</p>
             </div>
             <StatusPill tone={mlPreprocessingReady ? 'green' : mlPreprocessingStarted ? 'amber' : 'slate'}>{mlPreprocessingReady ? 'ready' : mlPreprocessingStarted ? 'in review' : 'not started'}</StatusPill>
           </div>
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+          <div className="mt-5 rounded-lg border border-slate-200 bg-[#0B1220] p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="max-w-2xl text-sm leading-6 text-slate-300">
                 <div className="font-semibold text-white">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : mlPreprocessingStarted ? 'Review ML preprocessing plan before applying' : 'Draft ML preprocessing plan'}</div>
                 <p className="mt-1">{mlPreprocessingReport?.summary ?? mlPreprocessingStatus.summary ?? 'Canonical data remains untouched; training will use the approved ML preprocessing version.'}</p>
               </div>
               <div className="flex flex-wrap gap-3">
-                {!mlPreprocessingStarted && <button type="button" onClick={draftMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft plan'}</button>}
-                {mlPreprocessingStarted && !mlPreprocessingReady && <button type="button" onClick={applyMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply'}</button>}
-                {mlPreprocessingStarted && <button type="button" onClick={handleDownloadMLPreprocessingReport} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-300 disabled:opacity-45">Human report</button>}
-                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-300 disabled:opacity-45">Download CSV for inspection</button>}
+                {!mlPreprocessingStarted && <button type="button" onClick={draftMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft plan'}</button>}
+                {mlPreprocessingStarted && !mlPreprocessingReady && <button type="button" onClick={applyMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply'}</button>}
+                {mlPreprocessingStarted && <button type="button" onClick={handleDownloadMLPreprocessingReport} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-slate-300 disabled:opacity-45">Human report</button>}
+                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-slate-300 disabled:opacity-45">Download CSV for inspection</button>}
               </div>
             </div>
             {(mlPreprocessingLog.length > 0 || mlPreprocessingNeedsApproval || mlPreprocessingReady) && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0f172a] p-4 font-mono text-xs leading-6 text-slate-100">
+              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0f172a] p-4 font-mono text-xs leading-6 text-slate-100">
                 {(mlPreprocessingLog.length ? mlPreprocessingLog : [String(mlPreprocessingStatus.status)]).map((line, index) => <div key={`${line}-${index}`}>› {line}</div>)}
               </div>
             )}
@@ -811,15 +811,15 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 </div>
               </div>
             )}
-            <div className="mt-5 overflow-hidden rounded-xl border border-[#263654] bg-[#0B1220] shadow-2xl shadow-black/20">
+            <div className="mt-5 overflow-hidden rounded-xl border border-[#263654] bg-[#0B1220] shadow-sm shadow-black/20">
               <div className="border-b border-[#263654] bg-[#0D1730] px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#251F63] shadow-lg shadow-[#7C5CFF]/20">
+                    <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#251F63] shadow-sm shadow-[#7C5CFF]/20">
                       <span className="h-2.5 w-2.5 rounded-full bg-[#7C5CFF]" />
                     </div>
                     <div>
-                      <p className="font-mono text-xs font-bold uppercase tracking-[0.22em] text-[#74C7F5]">ML preprocessing agent</p>
+                      <p className="font-mono text-xs font-bold tracking-normal text-[#74C7F5]">ML preprocessing agent</p>
                       <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-white">Ask about preprocessing choices</h3>
                       <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">Discuss the draft or completed preprocessing before/after applying it. The agent reads scoped ML preprocessing artifacts, not cross-workspace files or raw storage paths.</p>
                     </div>
@@ -841,8 +841,8 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                       </div>
                     ) : mlPreprocessingChat.map((message, index) => (
                       <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 shadow-xl ${message.role === 'user' ? 'border border-[#7C5CFF]/45 bg-[#26245F] text-white shadow-[#7C5CFF]/10' : 'border border-[#263654] bg-[#101D3A] text-[#D8E3F8] shadow-black/20'}`}>
-                          {message.role === 'assistant' && <div className="mb-2 inline-flex rounded-full border border-[#74C7F5]/35 bg-[#12304A] px-3 py-1 font-mono text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#74C7F5]">Cited from preprocessing</div>}
+                        <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 shadow-sm ${message.role === 'user' ? 'border border-[#7C5CFF]/45 bg-[#26245F] text-white shadow-[#7C5CFF]/10' : 'border border-[#263654] bg-[#101D3A] text-[#D8E3F8] shadow-black/20'}`}>
+                          {message.role === 'assistant' && <div className="mb-2 inline-flex rounded-full border border-[#74C7F5]/35 bg-[#12304A] px-3 py-1 font-mono text-[0.65rem] font-bold tracking-normal text-[#74C7F5]">Cited from preprocessing</div>}
                           <p className="whitespace-pre-wrap">{message.content}</p>
                         </div>
                       </div>
@@ -853,14 +853,14 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                   <form onSubmit={(event) => { event.preventDefault(); void askMLPreprocessingAgent() }} className="border-t border-[#263654] bg-[#0D1730] p-4">
                     <div className="flex flex-col gap-3 rounded-lg border border-[#2D3F63] bg-[#101D3A] p-3 sm:flex-row sm:items-center">
                       <input value={mlPreprocessingQuestion} onChange={(event) => setMLPreprocessingQuestion(event.target.value)} maxLength={1200} placeholder="Ask about tool choices, one-hot encoding, leakage, or exports…" className="min-h-11 flex-1 border-0 bg-transparent px-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-0" />
-                      <span className="hidden font-mono text-xs font-semibold uppercase tracking-[0.14em] text-[#7C5CFF] sm:inline">Agent ready</span>
-                      <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-45">Ask</button>
+                      <span className="hidden font-mono text-xs font-semibold tracking-normal text-[#7C5CFF] sm:inline">Agent ready</span>
+                      <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-45">Ask</button>
                     </div>
                   </form>
                 </div>
 
                 <aside className="border-t border-[#263654] bg-[#0D1730] p-5 lg:border-l lg:border-t-0">
-                  <p className="font-mono text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Agent scope</p>
+                  <p className="font-mono text-xs font-bold tracking-normal text-slate-400">Agent scope</p>
                   <div className="mt-4 space-y-3">
                     <div className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-[#7C5CFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#7C5CFF]" />Project-scoped</div>
                     <div className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-[#5DA8FF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#5DA8FF]" />Read-only tools</div>
@@ -876,7 +876,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       <SectionCard>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Training</p>
+            <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Training</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Recommended training</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Use the default Mirai training path unless this project needs a custom sweep.</p>
           </div>
@@ -884,7 +884,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">1. Create training request</span><StatusPill tone={trainingRequest ? 'green' : mlPreprocessingReady ? 'amber' : 'slate'}>{trainingRequest ? 'ready' : mlPreprocessingReady ? 'available' : 'waiting'}</StatusPill></div>
@@ -892,13 +892,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 {trainingRequest && <p className="mt-2 text-[#BDEAFF]">Request: <span className="font-mono">{trainingRequest.training_request_id}</span> · {trainingRequest.model_families.join(', ')}</p>}
                 {!mlPreprocessingReady && <p className="mt-2 text-slate-500">Complete ML preprocessing first so training uses <code>model_table_preprocessed.csv</code>.</p>}
               </div>
-              <button type="button" onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} disabled={!recommendedTrainingReady || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+              <button type="button" onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} disabled={!recommendedTrainingReady || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
                 {busy === 'training-request' ? 'Creating...' : trainingRequest ? 'Request created' : 'Create request'}
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Download approved training package</span><StatusPill tone={canExportApprovedPackage ? 'green' : 'slate'}>{canExportApprovedPackage ? 'ready' : 'locked'}</StatusPill></div>
@@ -906,25 +906,25 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 <p className="mt-2 font-semibold leading-6">Do not train from the standalone CSV alone. The manifest prevents logging into the wrong MLflow experiment.</p>
                 {exportMessage && <p className="mt-2 text-[#BDEAFF]">{exportMessage}</p>}
               </div>
-              <button type="button" onClick={handleExportApprovedPackage} disabled={!canExportApprovedPackage || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">
+              <button type="button" onClick={handleExportApprovedPackage} disabled={!canExportApprovedPackage || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
                 {busy === 'export-package' ? 'Exporting...' : 'Download package'}
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">3. Optional in-app training</span><StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : 'slate'}>{trainingCompleted ? 'done' : trainingRequest ? 'available' : 'waiting'}</StatusPill></div>
                 <p className="mt-1 leading-6">Run Mirai’s managed training path from the approved request. For local remote-MLflow training, download the package instead and run the local command.</p>
               </div>
-              <button type="button" onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} disabled={!trainingRequest || trainingCompleted || Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white disabled:opacity-45">
+              <button type="button" onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} disabled={!trainingRequest || trainingCompleted || Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-white disabled:opacity-45">
                 {busy === 'training' ? 'Training...' : trainingCompleted ? 'Training complete' : 'Start in-app training'}
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">4. Load promoted MLflow champion</span><StatusPill tone={championActive ? 'green' : canUseProjectChampionLoader ? 'amber' : 'slate'}>{championActive ? 'active' : canUseProjectChampionLoader ? 'available' : 'waiting'}</StatusPill></div>
@@ -935,21 +935,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         </div>
 
         {canUseProjectChampionLoader && (
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">App dev step</span></div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold tracking-normal text-amber-800">App dev step</span></div>
                 <p className="mt-1 leading-6">After local or on-prem training, promote the approved MLflow model version to <code>champion</code>, then load it here. Mirai verifies identity, required artifacts, ONNX serving, and activates the champion in one step. This project-level loader is available even when the current browser session does not have a Mirai training request cached.</p>
-                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Optional fields must match the current MLflow champion for this project.</p>
+                <p className="mt-1 text-xs font-semibold tracking-normal text-slate-500">Optional fields must match the current MLflow champion for this project.</p>
                 {importMessage && <p className="mt-2 text-[#74C7F5]">{importMessage}</p>}
               </div>
               <div className="grid w-full gap-3 lg:w-[30rem]">
-                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="Champion MLflow run ID optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
+                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="Champion MLflow run ID optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
                 <div className="grid gap-3 md:grid-cols-2">
-                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Champion version optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
-                  <input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name optional" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
+                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Champion version optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
+                  <input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
                 </div>
-                <button type="button" onClick={handleLoadChampionModel} disabled={Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white disabled:opacity-45">
+                <button type="button" onClick={handleLoadChampionModel} disabled={Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-white disabled:opacity-45">
                   {busy === 'load-champion-model' ? 'Loading...' : 'Load champion model'}
                 </button>
               </div>
@@ -957,13 +957,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           </div>
         )}
         {championActive && (
-          <div className="mt-4 rounded-2xl border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
+          <div className="mt-4 rounded-lg border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
             <div className="font-semibold">Approved champion active</div>
             <div className="mt-1">Champion model: {String((trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
           </div>
         )}
         {trainingCompleted && !candidateReady && !championActive && (
-          <div className="mt-4 rounded-2xl border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
+          <div className="mt-4 rounded-lg border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
             <div className="font-semibold">Training completed</div>
             <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
           </div>
@@ -972,26 +972,26 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <div className="mt-5">
           <DisclosurePanel title="Advanced settings">
             <div className="grid gap-3 md:grid-cols-3">
-              <label className="text-sm font-semibold text-slate-300">Search mode<select value={trainingConfig.search.mode} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, mode: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="single_config">single_config</option><option value="small_sweep_1h">small_sweep_1h</option><option value="balanced_sweep_2h">balanced_sweep_2h</option></select></label>
-              <label className="text-sm font-semibold text-slate-300">Budget minutes<input type="number" value={trainingConfig.search.wall_clock_budget_minutes} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, wall_clock_budget_minutes: Number(event.target.value) || 60 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-              <label className="text-sm font-semibold text-slate-300">Seeds<input value={trainingConfig.mlp.seeds.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+              <label className="text-sm font-semibold text-slate-300">Search mode<select value={trainingConfig.search.mode} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, mode: event.target.value } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"><option value="single_config">single_config</option><option value="small_sweep_1h">small_sweep_1h</option><option value="balanced_sweep_2h">balanced_sweep_2h</option></select></label>
+              <label className="text-sm font-semibold text-slate-300">Budget minutes<input type="number" value={trainingConfig.search.wall_clock_budget_minutes} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, wall_clock_budget_minutes: Number(event.target.value) || 60 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
+              <label className="text-sm font-semibold text-slate-300">Seeds<input value={trainingConfig.mlp.seeds.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
             </div>
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+              <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
                 <h3 className="font-semibold text-white">Linear baselines</h3>
                 <div className="mt-3 grid gap-3">
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-300"><input type="checkbox" checked={trainingConfig.linear.include_mvlr} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include MVLR</label>
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-300"><input type="checkbox" checked={trainingConfig.linear.include_ridge} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_ridge: event.target.checked } }))} /> Include Ridge</label>
-                  <label className="text-sm font-semibold text-slate-300">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-300">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
                 </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
+              <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
                 <h3 className="font-semibold text-white">MLP</h3>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="text-sm font-semibold text-slate-300">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
-                  <label className="text-sm font-semibold text-slate-300">Hidden layers<input value={trainingConfig.mlp.hidden_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                  <label className="text-sm font-semibold text-slate-300">Learning rate<input type="number" step="0.0001" value={trainingConfig.mlp.learning_rate} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
-                  <label className="text-sm font-semibold text-slate-300">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-300">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
+                  <label className="text-sm font-semibold text-slate-300">Hidden layers<input value={trainingConfig.mlp.hidden_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-300">Learning rate<input type="number" step="0.0001" value={trainingConfig.mlp.learning_rate} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
+                  <label className="text-sm font-semibold text-slate-300">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
                 </div>
               </div>
             </div>
@@ -1004,13 +1004,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           {selectedSession ? (
             <div>
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Project ID</div><div className="mt-1 break-all text-slate-300">{selectedSession.project_id}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Dataset</div><div className="mt-1 break-all text-slate-300">{selectedSession.dataset_id}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Session</div><div className="mt-1 break-all text-slate-300">{selectedSession.ingestion_session_id}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Project ID</div><div className="mt-1 break-all text-slate-300">{selectedSession.project_id}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Dataset</div><div className="mt-1 break-all text-slate-300">{selectedSession.dataset_id}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Session</div><div className="mt-1 break-all text-slate-300">{selectedSession.ingestion_session_id}</div></div>
               </div>
               <div className="mt-4 flex flex-wrap gap-3">
-                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 rounded-2xl border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-slate-300" />
-                <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 disabled:opacity-45">{busy === 'append-files' ? 'Appending...' : 'Append files'}</button>
+                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 rounded-lg border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-slate-300" />
+                <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'append-files' ? 'Appending...' : 'Append files'}</button>
               </div>
             </div>
           ) : <div className="text-sm text-slate-500">Select a session first.</div>}

@@ -14,47 +14,49 @@ export function RecommendationsTable({
   const visibleRecommendations = recommendations.slice(0, limit)
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
-        eyebrow="Best rows"
+        eyebrow="Candidate table"
         title={`Top ${visibleRecommendations.length} recommended experiments`}
-        description="Table rows stay focused on the strongest candidates; visualizations use the larger returned candidate set."
+        description="Ranked candidate settings and predicted outputs."
       />
-      <div className="mt-6 overflow-x-auto rounded-3xl border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-950 text-white">
+      <div className="mt-5 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-white/[0.08] text-[#9FB0C8]">
             <tr>
-              <th className="px-4 py-3 text-left font-semibold">Rank</th>
-              <th className="px-4 py-3 text-left font-semibold">Score</th>
+              <th className="py-3 pr-4 text-left font-medium">Rank</th>
+              <th className="px-4 py-3 text-right font-medium">Score</th>
               {schema.inputs.map((input) => (
-                <th key={input.name} className="px-4 py-3 text-left font-semibold">
+                <th key={input.name} className="px-4 py-3 text-right font-medium">
                   {input.label}
                 </th>
               ))}
               {schema.outputs.map((output) => (
-                <th key={output.name} className="px-4 py-3 text-left font-semibold">
+                <th key={output.name} className="px-4 py-3 text-right font-medium">
                   {output.label}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-white/[0.06]">
             {visibleRecommendations.map((candidate, index) => (
-              <tr key={`${candidate.score}-${index}`} className="hover:bg-[#f7f5ed]">
-                <td className="px-4 py-3 font-semibold text-slate-950">{index + 1}</td>
-                <td className="px-4 py-3 font-semibold text-[#2F6BFF]">
+              <tr key={`${candidate.score}-${index}`} className={index === 0 ? 'bg-[#2F6BFF]/8 text-white' : 'text-slate-300 hover:bg-white/[0.025]'}>
+                <td className="whitespace-nowrap py-3 pr-4 font-semibold">
+                  <span className={index === 0 ? 'border-l-2 border-[#74C7F5] pl-3 text-[#BDEAFF]' : 'pl-3'}>{index + 1}</span>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-[#74C7F5]">
                   {formatNumber(candidate.score)}
                 </td>
                 {schema.inputs.map((input) => (
-                  <td key={input.name} className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  <td key={input.name} className="whitespace-nowrap px-4 py-3 text-right">
                     {formatNumber(candidate.inputs[input.name])}
-                    <span className="ml-1 text-slate-400">{input.unit}</span>
+                    <span className="ml-1 text-slate-500">{input.unit}</span>
                   </td>
                 ))}
                 {schema.outputs.map((output) => (
-                  <td key={output.name} className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  <td key={output.name} className="whitespace-nowrap px-4 py-3 text-right">
                     {formatNumber(candidate.predictions[output.name])}
-                    <span className="ml-1 text-slate-400">{output.unit}</span>
+                    <span className="ml-1 text-slate-500">{output.unit}</span>
                   </td>
                 ))}
               </tr>

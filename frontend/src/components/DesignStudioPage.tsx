@@ -563,13 +563,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <section className="rounded-xl border border-white/70 bg-white/90 p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
         <PanelHeader
           eyebrow="Design Studio"
           title="Interactive surrogate-model playground"
           description="Seed a candidate, move schema-driven inputs, watch predictions update, compare against real experiments, and export a design package for lab review."
         />
-        <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
+        <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold tracking-normal">
           <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Served-model predictions</span>
           <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
           {defaultObjectiveName && <span className="rounded-md border border-[#2F6BFF]/50 bg-[#10203A] px-3 py-1 text-[#BDEAFF]">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
@@ -577,7 +577,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Schema bounds enforced</span>
           {prediction?.warnings?.length ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</span> : null}
         </div>
-        <details className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-600">
+        <details className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-600">
           <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {[
@@ -593,8 +593,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               ['Loaded by', traceability.loaded_by],
               ['Artifact/cache status', cacheStatus.status],
             ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-2xl bg-white p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{String(label)}</div>
+              <div key={String(label)} className="rounded-lg bg-white p-3">
+                <div className="text-xs font-semibold tracking-normal text-slate-400">{String(label)}</div>
                 <div className="mt-1 break-all font-medium text-slate-800">{asString(value) || '—'}</div>
               </div>
             ))}
@@ -602,7 +602,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </details>
       </section>
 
-      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-xl shadow-black/20" aria-label="Design Studio workflows">
+      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-sm shadow-black/20" aria-label="Design Studio workflows">
         <div className="grid gap-2 md:grid-cols-5">
           {[
             ['single_result', 'Single result', 'Edit the current design point and generate KPIs'],
@@ -625,11 +625,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       </nav>
 
       {activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
-        <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-4 shadow-xl shadow-black/20">
+        <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-4 shadow-sm shadow-black/20">
           <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(16rem,0.7fr)_minmax(0,1.1fr)] lg:items-start">
             <label className="min-w-0 text-sm font-semibold text-slate-700">
               Visualisation type
-              <select value={visualisationType} onChange={(event) => setVisualisationType(event.target.value as VisualisationType)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <select value={visualisationType} onChange={(event) => setVisualisationType(event.target.value as VisualisationType)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                 <option value="generic">Generic experiment visualisation</option>
                 <option value="electrochemical">Electrochemical device visualisation — feature not available yet</option>
                 <option value="battery_degradation">Battery degradation visualisation — feature not available yet</option>
@@ -649,7 +649,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   setSecondaryOutputName(Array.isArray(next?.series) ? asString(asRecord(next.series[0]).variable) : '')
                   setPlotTitle(next?.label || 'Predicted response')
                 }}
-                className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
               >
                 {visualisationConfigs.filter((item) => item.safe !== false).map((item) => <option key={item.id} value={item.id}>{item.recommended ? 'Recommended · ' : ''}{item.label}</option>)}
               </select>
@@ -662,66 +662,66 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               )}
             </div>
           </div>
-          <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
                   <p className="mt-1 text-sm leading-6 text-slate-600">Choose X, predicted Y, the sweep range, and fixed values for every other input. A 60-point sweep generates exactly 60 model predictions.</p>
                 </div>
-                <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">schema-driven</span>
+                <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold tracking-normal text-slate-500">schema-driven</span>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Plot title
-                  <input value={plotTitle} onChange={(event) => setPlotTitle(event.target.value)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <input value={plotTitle} onChange={(event) => setPlotTitle(event.target.value)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Sweep variable
-                  <select value={sweepInputName} onChange={(event) => { setSweepInputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={sweepInputName} onChange={(event) => { setSweepInputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Predicted response
-                  <select value={primaryOutputName} onChange={(event) => { setPrimaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={primaryOutputName} onChange={(event) => { setPrimaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700">
                   Optional second response
-                  <select value={secondaryOutputName} onChange={(event) => { setSecondaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={secondaryOutputName} onChange={(event) => { setSecondaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="">None</option>
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Sweep min
-                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.min ?? '')} className={`mt-2 w-full rounded-2xl border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
+                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.min ?? '')} className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Sweep max
-                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.max ?? '')} className={`mt-2 w-full rounded-2xl border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
+                  <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.max ?? '')} className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
                 <label className="text-sm font-semibold text-slate-700">
                   Points
-                  <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => { setSweepPointCount(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => { setSweepPointCount(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
                 <label className="min-w-0 text-sm font-semibold text-slate-700 xl:col-span-2">
                   Plot orientation
-                  <select value={responseAxesSwapped ? 'response_x' : 'sweep_x'} onChange={(event) => setResponseAxesSwapped(event.target.value === 'response_x')} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <select value={responseAxesSwapped ? 'response_x' : 'sweep_x'} onChange={(event) => setResponseAxesSwapped(event.target.value === 'response_x')} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="sweep_x">X = sweep variable, Y = predicted response</option>
                     <option value="response_x">X = predicted response, Y = sweep variable</option>
                   </select>
                 </label>
               </div>
-              <div className="mt-3 rounded-2xl border border-[#2F6BFF]/35 bg-[#10203A] px-4 py-3 text-sm leading-6 text-[#BDEAFF]">
+              <div className="mt-3 rounded-lg border border-[#2F6BFF]/35 bg-[#10203A] px-4 py-3 text-sm leading-6 text-[#BDEAFF]">
                 <strong>Sweep range = model input range.</strong> It must stay inside the approved schema bounds{ sweepMeta ? ` for ${sweepMeta.label}: ${formatNumber(sweepMeta.min)} to ${formatNumber(sweepMeta.max)}${sweepMeta.unit ? ` ${sweepMeta.unit}` : ''}` : '' }. Use Plotly zoom/pan on the chart for display-only axis zooming.
               </div>
-              {sweepRangeIssue && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+              {sweepRangeIssue && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                 <span>{sweepRangeIssue}</span>
                 {sweepMeta && <button type="button" onClick={() => { setSweepRangeMin(String(sweepMeta.min)); setSweepRangeMax(String(sweepMeta.max)); setVisualisationStale(true) }} className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900">Use schema range</button>}
               </div>}
-              <div className="mt-5 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+              <div className="mt-5 rounded-xl border border-slate-200 bg-[#0B1220] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
@@ -733,7 +733,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
                 <div className="mt-4 overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
-                    <thead className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <thead className="text-xs font-semibold tracking-normal text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Input</th>
                         <th className="px-3 py-2">Visualisation value</th>
@@ -768,17 +768,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </table>
                 </div>
               </div>
-              <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="grid gap-3 lg:grid-cols-[minmax(14rem,0.45fr)_minmax(0,1fr)_auto] lg:items-end">
                   <label className="min-w-0 text-sm font-semibold text-slate-700">
                     Plot label
-                    <select value={plotAnnotationMode} onChange={(event) => setPlotAnnotationMode(event.target.value as PlotAnnotationMode)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <select value={plotAnnotationMode} onChange={(event) => setPlotAnnotationMode(event.target.value as PlotAnnotationMode)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                       <option value="none">No in-plot fixed-condition label</option>
                       <option value="selected">Show selected fixed parameters</option>
                       <option value="all">Show all fixed parameters</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-2xl bg-[#0B1220] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
+                  <div className="min-w-0 rounded-lg bg-[#0B1220] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
                     {plotAnnotationMode === 'none' ? (
                       <span>Plot label hidden by default. Enable it only when exported figures need fixed-condition context.</span>
                     ) : plotAnnotationMode === 'selected' ? (
@@ -794,36 +794,36 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <span>All fixed parameters will be shown in the plot label. The swept variable is excluded.</span>
                     )}
                   </div>
-                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-50">
+                  <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate visualisation'}
                   </button>
                 </div>
               </div>
-              <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-slate-950">Measured training overlay</h3>
                     <p className="mt-1 max-w-5xl text-sm leading-6 text-slate-600">Optional: compare this visualisation with measured training rows from the loaded champion artifact. Hidden by default so predicted sweep setup stays primary.</p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 ring-1 ring-slate-200">
+                    <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold tracking-normal text-slate-500 ring-1 ring-slate-200">
                       {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} rows
                     </span>
-                    {trainingOverlayRows.length ? <span className="w-fit whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800 ring-1 ring-amber-200">Compare predicted line vs measured markers</span> : null}
+                    {trainingOverlayRows.length ? <span className="w-fit whitespace-nowrap rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold tracking-normal text-amber-800 ring-1 ring-amber-200">Compare predicted line vs measured markers</span> : null}
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(16rem,0.45fr)_minmax(0,1fr)] xl:items-start">
                   <label className="min-w-0 text-sm font-semibold text-slate-700">
                     Overlay mode
-                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
+                    <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
                       <option value="comparable">Comparable training data</option>
                       <option value="same_current_conditions">Re-suggest matches from current values</option>
                       <option value="custom">Custom matching filters</option>
                       <option value="none">No measured overlay</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-2xl bg-[#0B1220] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Matching by</div>
+                  <div className="min-w-0 rounded-lg bg-[#0B1220] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
+                    <div className="text-xs font-semibold tracking-normal text-slate-400">Matching by</div>
                     {overlayMode === 'none' ? (
                       <div className="mt-2 font-medium text-slate-700">Overlay hidden</div>
                     ) : displayedOverlaySummaryLabels.length ? (
@@ -842,21 +842,21 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
               </div>
 
-              <details className="mt-4 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+              <details className="mt-4 rounded-xl border border-slate-200 bg-[#0B1220] p-4">
                 <summary className="cursor-pointer select-none font-semibold text-slate-950">Refine matching / Advanced filters</summary>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
                   <label className="flex items-center gap-2 font-semibold text-slate-700">
                     <input type="checkbox" checked={trainingOverlayEnabled && overlayMode !== 'none'} onChange={(event) => { setTrainingOverlayEnabled(event.target.checked); if (event.target.checked && overlayMode === 'none') setOverlayMode('custom'); if (!event.target.checked) setOverlayMode('none') }} className="h-4 w-4 accent-[#2F6BFF]" />
                     Show measured training overlay
                   </label>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold tracking-normal text-slate-500">
                     {String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown / {String(trainingOverlay.source_row_count ?? state?.training_overlay_options?.row_count ?? 0)} source rows
                   </span>
                 </div>
                 {overlayColumns.length === 0 && <p className="mt-3 text-sm text-slate-500">No filterable predictions.csv columns were found for this loaded champion.</p>}
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                   {visibleOverlayColumns.map((column) => column.filter_kind === 'range' ? (
-                    <div key={column.name} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <div key={column.name} className="rounded-lg border border-slate-200 bg-white p-3">
                       <div className="text-sm font-semibold text-slate-800">{column.label}{column.unit ? ` / ${column.unit}` : ''}</div>
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         <input type="number" value={trainingOverlayRanges[column.name]?.min ?? ''} onChange={(event) => setTrainingOverlayRanges((current) => ({ ...current, [column.name]: { ...(current[column.name] ?? {}), min: event.target.value } }))} placeholder={column.min !== undefined ? `min ${formatNumber(column.min)}` : 'min'} className="rounded-xl border border-slate-200 px-2 py-1 text-sm" />
@@ -864,13 +864,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       </div>
                     </div>
                   ) : (
-                    <label key={column.name} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                    <label key={column.name} className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
                       {column.label}{column.unit ? ` / ${column.unit}` : ''}
                       <input list={`overlay-${column.name}`} value={trainingOverlayFilters[column.name] ?? ''} onChange={(event) => setTrainingOverlayFilters((current) => ({ ...current, [column.name]: event.target.value }))} placeholder="Any" className="mt-2 w-full rounded-xl border border-slate-200 px-2 py-1 font-normal" />
                       <datalist id={`overlay-${column.name}`}>{(column.values ?? []).map((value) => <option key={`${column.name}-${String(value)}`} value={String(value)} />)}</datalist>
                     </label>
                   ))}
-                  <label className="rounded-2xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                  <label className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
                     Color/group by
                     <select value={trainingOverlayGroupBy} onChange={(event) => setTrainingOverlayGroupBy(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-2 py-1 font-normal">
                       <option value="">No grouping</option>
@@ -879,7 +879,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </label>
                 </div>
                 {overlayVisible && prediction?.training_overlay && trainingOverlayRows.length === 0 && (
-                  <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">No measured training points match the current overlay filters.</p>
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">No measured training points match the current overlay filters.</p>
                 )}
               </details>
             </div>
@@ -888,12 +888,12 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
       {error && <Alert tone="error" title="Design Studio issue" messages={[error]} />}
       {prediction?.warnings?.length ? <Alert tone="warning" title="Model/support warnings" messages={prediction.warnings} /> : null}
-      {loading && <div className="rounded-[2rem] bg-white/80 p-6 text-slate-600">Loading Design Studio...</div>}
+      {loading && <div className="rounded-xl bg-white/80 p-6 text-slate-600">Loading Design Studio...</div>}
 
       {!loading && state && (
         <>
           <section id="design-workspace" className="scroll-mt-8 space-y-6">
-            {activeWorkflow === 'model_map' && <section className="rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+            {activeWorkflow === 'model_map' && <section className="rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
               <PanelHeader eyebrow="Model map" title="From experiment settings to predicted response" description="A schema view of the loaded model inputs and outputs. This is separated from Experiment visualisation so it does not interrupt plot setup." />
               <div className="mt-4">
                 <ModelMap
@@ -904,29 +904,29 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <PanelHeader eyebrow="Current design point" title="Tune one design point" description="Adjust the current composition/test values, then generate one model result. Experiment visualisation can sweep one input around this same design point." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
-                  <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:opacity-50">
+                  <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-50">
                     {predicting ? 'Generating...' : 'Generate result'}
                   </button>
-                  <span className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${hasPendingInputChanges ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' : prediction ? 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30' : 'bg-[#070C16] text-slate-500 ring-1 ring-slate-700'}`}>
+                  <span className={`rounded-md px-3 py-1 text-xs font-semibold tracking-normal ${hasPendingInputChanges ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' : prediction ? 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30' : 'bg-[#070C16] text-slate-500 ring-1 ring-slate-700'}`}>
                     {hasPendingInputChanges ? 'Inputs changed' : prediction ? 'Result current' : 'No result yet'}
                   </span>
                 </div>
               </div>
               {hasPendingInputChanges && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                   Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions. Use the copy action in Experiment visualisation when you want these values as sweep fixed conditions.
                 </div>
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
                 {schema.inputs.map((input) => (
-                  <label key={input.name} className="block rounded-3xl border border-slate-200 bg-[#0B1220] p-4 shadow-sm">
+                  <label key={input.name} className="block rounded-xl border border-slate-200 bg-[#0B1220] p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-900">{input.label}</span>
-                      <span className="rounded-full bg-white px-2 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-400">{input.unit}</span>
+                      <span className="rounded-full bg-white px-2 py-1 text-[0.68rem] font-semibold tracking-normal text-slate-400">{input.unit}</span>
                     </div>
                     <input
                       type="range"
@@ -969,11 +969,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     const delta = value !== undefined && comparisonValue !== undefined ? value - comparisonValue : undefined
                     const emphasized = emphasizedOutputs.has(output.name)
                     return (
-                      <div key={output.name} className={`rounded-3xl border p-4 ${emphasized ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#0B1220]'}`}>
+                      <div key={output.name} className={`rounded-xl border p-4 ${emphasized ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#0B1220]'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-semibold text-slate-900">{output.label}</div>
-                            <div className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{output.direction === 'minimize' ? 'Lower is better' : 'Higher is better'}</div>
+                            <div className="mt-1 text-xs font-semibold tracking-normal text-slate-400">{output.direction === 'minimize' ? 'Lower is better' : 'Higher is better'}</div>
                           </div>
                           <span className="text-xs text-slate-500">{output.unit}</span>
                         </div>
@@ -986,11 +986,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. Loading a candidate updates the current design point and the visualisation fixed conditions together." />
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={seedFromBatch} disabled={seeding} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-slate-950/15 disabled:opacity-50">
+                  <button type="button" onClick={seedFromBatch} disabled={seeding} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/15 disabled:opacity-50">
                     {seeding ? 'Searching designs...' : 'Find best starting design'}
                   </button>
                   <button type="button" onClick={findParetoTradeoffs} disabled={paretoLoading} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
@@ -1000,7 +1000,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
 
               <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                <div className="rounded-3xl border border-[#2F6BFF]/35 bg-[#10203A] p-4">
+                <div className="rounded-xl border border-[#2F6BFF]/35 bg-[#10203A] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="font-semibold text-blue-950">Optimization goal</h3>
@@ -1008,7 +1008,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate as the current design point.
                       </p>
                     </div>
-                    <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#BDEAFF]">Current goal: {currentGoalLabel}</span>
+                    <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold tracking-normal text-[#BDEAFF]">Current goal: {currentGoalLabel}</span>
                   </div>
                   <label className="mt-4 block text-sm font-semibold text-blue-950">
                     Objective preset
@@ -1022,7 +1022,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                           setObjectiveWeights(Object.fromEntries(schema.outputs.map((output) => [output.name, String(preset.weights[output.name] ?? 0)])))
                         }
                       }}
-                      className="mt-2 w-full rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900"
+                      className="mt-2 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900"
                     >
                       {objectivePresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
                     </select>
@@ -1030,10 +1030,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   {selectedObjective?.description && <p className="mt-2 text-xs leading-5 text-[#BDEAFF]">{selectedObjective.description}</p>}
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+                <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold text-slate-950">Objective mix</h3>
-                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">custom tradeoffs</span>
+                    <span className="text-xs font-semibold tracking-normal text-slate-400">custom tradeoffs</span>
                   </div>
                   <p className="mt-1 text-sm leading-6 text-slate-600">Check outputs you care about. Positive weights reward larger predictions; negative weights reward smaller predictions. Zero ignores that output.</p>
                   <div className="mt-4 grid gap-2 lg:grid-cols-2">
@@ -1041,7 +1041,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       const checked = Math.abs(Number(objectiveWeights[output.name] ?? '0')) > 1e-12
                       const defaultWeight = output.direction === 'minimize' ? '-1' : '1'
                       return (
-                        <div key={output.name} className={`grid gap-2 rounded-2xl border px-3 py-2 text-sm md:grid-cols-[1fr_5.5rem] md:items-center ${checked ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
+                        <div key={output.name} className={`grid gap-2 rounded-lg border px-3 py-2 text-sm md:grid-cols-[1fr_5.5rem] md:items-center ${checked ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
                           <label className="flex items-center gap-3 font-semibold text-slate-800">
                             <input
                               type="checkbox"
@@ -1072,20 +1072,20 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
                     <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Single result inputs; constrained inputs search only inside the selected range.</p>
                   </div>
-                  <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">generic inputs</span>
+                  <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold tracking-normal text-slate-500">generic inputs</span>
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
                   {schema.inputs.map((input) => {
                     const mode = searchSpaceModes[input.name] || 'free'
                     const range = searchSpaceRanges[input.name] || { min: String(input.min), max: String(input.max) }
                     return (
-                      <div key={input.name} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-3">
+                      <div key={input.name} className="rounded-lg border border-slate-200 bg-[#0B1220] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
                           <div className="text-xs text-slate-500">Current design point: {formatNumber(Number(currentDesignPoint[input.name]))}</div>
@@ -1106,7 +1106,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
               <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the experiment visualisation settings." />
               <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
@@ -1119,7 +1119,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </section>}
           </section>
 
-          {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-900/5">
+          {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <PanelHeader eyebrow="Experiment visualisation" title={plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response'} description={selectedExperimentVisualisationConfig?.description || 'Sweep one variable, keep fixed inputs constant, and plot predicted response points.'} />
               <button
@@ -1132,17 +1132,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </button>
             </div>
             {!curveRows.length && (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                 No experiment visualisation is available yet. Click <strong>Generate visualisation</strong> to sweep the selected variable, or <strong>Find best starting design</strong> to let the model choose a candidate.
               </div>
             )}
             {curveRows.length > 0 && visualisationStale && (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                 Fixed values or plot setup changed since this plot was generated. Click <strong>Generate visualisation</strong> to refresh the multi-point plot.
               </div>
             )}
             {curveRows.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-[#0B1220] p-4 text-sm leading-6 text-slate-600">
+              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm leading-6 text-slate-600">
                 <div><strong className="text-slate-900">Sweep:</strong> {sweepRangeLabel}</div>
                 <div><strong className="text-slate-900">Fixed conditions:</strong> {visualisationFixedConditionLabels.length ? visualisationFixedConditionLabels.join(' · ') : 'Only the swept variable is varied.'}</div>
                 {visualisationGroupLabels.length > 0 && <div><strong className="text-slate-900">Grouped curves:</strong> {visualisationGroupLabels.join(' · ')}</div>}
@@ -1157,24 +1157,24 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               useResizeHandler
               style={{ width: '100%', height: '470px' }}
             />
-            <p className="mt-3 rounded-2xl bg-[#0B1220] px-4 py-3 text-sm leading-6 text-slate-600">
+            <p className="mt-3 rounded-lg bg-[#0B1220] px-4 py-3 text-sm leading-6 text-slate-600">
               Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns and the generic filters above.
             </p>
           </section>}
 
           {activeWorkflow === 'optimize' && paretoResults && (
-            <section id="design-tradeoffs" className="scroll-mt-8 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            <section id="design-tradeoffs" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
               <PanelHeader
                 eyebrow="Find alternatives"
                 title="Tradeoff candidates"
                 description="Optional starting points. Use one as the current design point to update Single result inputs and visualisation fixed conditions together."
               />
-              <div className="mt-4 rounded-2xl border border-[#2F6BFF]/35 bg-[#10203A] p-4 text-sm leading-6 text-[#BDEAFF]">
+              <div className="mt-4 rounded-lg border border-[#2F6BFF]/35 bg-[#10203A] p-4 text-sm leading-6 text-[#BDEAFF]">
                 These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Use one as the current design point, then plot a sweep around that point. Lower raw values are better for minimized objectives.
               </div>
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
-                  <article key={candidate.rank} className="rounded-2xl border border-slate-200 bg-[#0B1220] p-3">
+                  <article key={candidate.rank} className="rounded-lg border border-slate-200 bg-[#0B1220] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="font-semibold text-slate-950">{candidate.label}</h3>
@@ -1186,7 +1186,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     </div>
                     <div className="mt-4 grid gap-2 text-sm md:grid-cols-2">
                       {schema.inputs.map((input) => (
-                        <div key={`${candidate.rank}-${input.name}`} className="flex justify-between gap-3 rounded-2xl bg-white px-3 py-2">
+                        <div key={`${candidate.rank}-${input.name}`} className="flex justify-between gap-3 rounded-lg bg-white px-3 py-2">
                           <span className="text-slate-600">{input.label}</span>
                           <strong className="text-slate-950">{formatNumber(candidate.inputs[input.name])} {input.unit}</strong>
                         </div>
@@ -1197,7 +1197,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         const obj = asRecord(objective)
                         const name = asString(obj.name)
                         return (
-                          <div key={`${candidate.rank}-${name}`} className="flex justify-between gap-3 rounded-2xl bg-white px-3 py-2">
+                          <div key={`${candidate.rank}-${name}`} className="flex justify-between gap-3 rounded-lg bg-white px-3 py-2">
                             <span className="text-slate-600">{asString(obj.label) || name}</span>
                             <strong className="text-slate-950">{formatNumber(candidate.predictions[name])} {asString(obj.unit)}</strong>
                           </div>
@@ -1209,7 +1209,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 ))}
               </div>
               {paretoResults.objectives.length >= 2 && (
-                <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                <details className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
                   <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">Show Pareto scatter plot</summary>
                   <div className="mt-4">
                   <Plot

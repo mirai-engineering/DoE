@@ -136,7 +136,7 @@ export function ParallelCoordinatesChart({
   const topCandidates = recommendations.slice(0, highlightLimit)
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
         eyebrow="Design space map"
         title="Parallel coordinates"
@@ -160,7 +160,7 @@ export function ParallelCoordinatesChart({
         the plot readable while the key maps each code to its variable and unit.
       </p>
       <AxisKey entries={axisKey} />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
+      <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.07] bg-[#0B1220]/70 p-2">
         <Plot
           data={[trace]}
           layout={layout}
@@ -181,9 +181,9 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
   ]
 
   return (
-    <div className="mt-6 rounded-3xl border border-slate-200 bg-[#0B1220] p-4">
+    <div className="mt-6 rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <h3 className="text-sm font-semibold tracking-normal text-slate-500">
           Axis key
         </h3>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
@@ -198,7 +198,7 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
 
           return (
             <div key={group.id}>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74C7F5]">
+              <p className="text-xs font-semibold tracking-normal text-[#74C7F5]">
                 {group.label}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">

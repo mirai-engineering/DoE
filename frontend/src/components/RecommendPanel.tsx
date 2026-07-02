@@ -42,7 +42,7 @@ export function RecommendPanel({
   onViewRecommendations: () => void
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#18211d] p-6 text-white shadow-xl shadow-slate-900/20">
+    <section className="rounded-xl border border-white/[0.08] bg-[#0B1220]/55 p-5 text-white">
       <PanelHeader
         eyebrow="Candidate search"
         title="Recommend experiments"
@@ -52,7 +52,7 @@ export function RecommendPanel({
 
       <form className="mt-6 space-y-6" onSubmit={onSubmit}>
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/60">
+          <h3 className="text-sm font-semibold tracking-normal text-white/60">
             Objective weights
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -72,7 +72,7 @@ export function RecommendPanel({
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/60">
+          <h3 className="text-sm font-semibold tracking-normal text-white/60">
             Fixed inputs
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -138,7 +138,7 @@ export function RecommendPanel({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-2xl bg-[#74C7F5] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#BDEAFF] disabled:cursor-not-allowed disabled:brightness-75"
+          className="w-full rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245CF0] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? 'Searching...' : 'Recommend candidates'}
         </button>
@@ -157,14 +157,14 @@ export function RecommendPanel({
       )}
 
       {recommendationRun && (
-        <div className="mt-5 rounded-2xl border border-[#74C7F5]/30 bg-[#74C7F5]/10 p-4">
+        <div className="mt-5 rounded-lg border border-[#74C7F5]/30 bg-[#74C7F5]/10 p-4">
           <p className="text-sm font-semibold text-[#BDEAFF]">
             {recommendationRun.recommendations.length} ranked candidates available for charts.
           </p>
           <button
             type="button"
             onClick={onViewRecommendations}
-            className="mt-3 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-white/20"
+            className="mt-3 rounded-md bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20"
           >
             View results
           </button>

@@ -64,8 +64,8 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
     <div className="space-y-6">
       <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <aside className="space-y-4">
-          <div className="rounded-xl border border-[#263654] bg-[#0D1730] p-5 shadow-2xl shadow-black/20">
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Suggested investigations</p>
+          <div className="rounded-xl border border-[#7C5CFF]/18 bg-[#0D1730]/70 p-5">
+            <p className="text-sm font-semibold text-slate-300">Suggested investigations</p>
             <div className="mt-5 space-y-3">
               {starters.map((starter, index) => (
                 <button
@@ -73,7 +73,7 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
                   type="button"
                   onClick={() => void submitQuestion(starter)}
                   disabled={loading}
-                  className={`group w-full rounded-lg border px-4 py-4 text-left text-sm font-semibold leading-6 transition disabled:cursor-not-allowed disabled:opacity-50 ${index === 2 ? 'border-[#7C5CFF]/60 bg-[#201F55]/80 text-white shadow-lg shadow-[#7C5CFF]/10' : 'border-[#263654] bg-[#0F1B35] text-[#D8E3F8] hover:border-[#74C7F5]/50 hover:bg-[#132344]'}`}
+                  className={`group w-full rounded-md border px-3 py-3 text-left text-sm font-medium leading-6 transition disabled:cursor-not-allowed disabled:opacity-50 ${index === 2 ? 'border-[#7C5CFF]/35 bg-[#7C5CFF]/12 text-white' : 'border-transparent bg-transparent text-[#D8E3F8] hover:bg-white/[0.04] hover:text-white'}`}
                 >
                   {starter}
                 </button>
@@ -94,15 +94,15 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
           </div>
         </aside>
 
-        <section className="overflow-hidden rounded-xl border border-[#263654] bg-[#0B1220] shadow-2xl shadow-black/25">
-          <div className="flex flex-col gap-4 border-b border-[#263654] bg-[#0D1730] px-6 py-5 md:flex-row md:items-center md:justify-between">
+        <section className="overflow-hidden rounded-xl border border-[#263654]/75 bg-[#0B1220]">
+          <div className="flex flex-col gap-4 border-b border-[#263654]/75 bg-[#0D1730]/70 px-5 py-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#251F63] shadow-lg shadow-[#7C5CFF]/20">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#251F63]">
                 <span className="h-3 w-3 rounded-full bg-[#7C5CFF]" />
               </div>
               <div>
                 <h2 className="text-xl font-semibold tracking-[-0.03em] text-white">Mirai Data Scientist</h2>
-                <p className="font-mono text-sm font-semibold tracking-[0.14em] text-[#74C7F5]">Active · Project-scoped</p>
+                <p className="text-sm font-medium text-[#74C7F5]">Active · Project-scoped</p>
               </div>
             </div>
             <div className="rounded-full border border-[#415276] px-4 py-1.5 font-mono text-xs font-semibold tracking-[0.16em] text-slate-400">
@@ -115,22 +115,22 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
           <div className="flex min-h-[34rem] flex-col">
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
               {messages.length === 0 ? (
-                <div className="rounded-xl border border-[#263654] bg-[#101D3A] p-8 text-center">
+                <div className="rounded-lg border border-[#263654]/70 bg-[#101D3A]/70 p-8 text-center">
                   <p className="text-lg font-semibold text-white">Ask a scoped project question</p>
                   <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-300">Choose a suggested investigation or ask directly. Answers stay inside the active project and cite only safe, sanitized context.</p>
                 </div>
               ) : (
                 messages.map((message, index) => (
                   <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[82%] rounded-xl px-5 py-4 text-base leading-7 shadow-xl ${message.role === 'user' ? 'border border-[#7C5CFF]/45 bg-[#26245F] text-white shadow-[#7C5CFF]/10' : 'border border-[#263654] bg-[#101D3A] text-[#D8E3F8] shadow-black/20'}`}>
+                    <div className={`max-w-[82%] rounded-lg px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'border border-[#7C5CFF]/35 bg-[#26245F]/80 text-white' : 'border border-[#263654]/75 bg-[#101D3A]/85 text-[#D8E3F8]'}`}>
                       {message.role === 'assistant' && (
                         <div className="mb-3 flex flex-wrap gap-2">
-                          <span className="rounded-full border border-[#74C7F5]/35 bg-[#12304A] px-3 py-1 font-mono text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#74C7F5]">Cited from project</span>
-                          <span className="rounded-full border border-[#7C5CFF]/35 bg-[#201F55] px-3 py-1 font-mono text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#9E8CFF]">Read-only tools</span>
+                          <span className="rounded-full border border-[#74C7F5]/35 bg-[#12304A] px-3 py-1 text-[0.7rem] font-medium text-[#74C7F5]">Cited from project</span>
+                          <span className="rounded-full border border-[#7C5CFF]/35 bg-[#201F55] px-3 py-1 text-[0.7rem] font-medium text-[#9E8CFF]">Read-only tools</span>
                         </div>
                       )}
                       <p className="whitespace-pre-wrap">{message.content}</p>
-                      {message.stopReason && <p className="mt-3 font-mono text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Stop: {message.stopReason.replace(/_/g, ' ')}</p>}
+                      {message.stopReason && <p className="mt-3 text-xs font-medium text-slate-500">Stop: {message.stopReason.replace(/_/g, ' ')}</p>}
                     </div>
                   </div>
                 ))
@@ -138,7 +138,7 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
               {loading && <div className="rounded-xl border border-[#263654] bg-[#101D3A] p-4 text-sm text-slate-300">Checking scoped project tools…</div>}
             </div>
 
-            <form onSubmit={handleSubmit} className="border-t border-[#263654] bg-[#0D1730] px-5 py-4">
+            <form onSubmit={handleSubmit} className="border-t border-[#263654]/75 bg-[#0D1730]/70 px-5 py-4">
               <div className="flex flex-col gap-3 rounded-lg border border-[#2D3F63] bg-[#101D3A] p-3 md:flex-row md:items-end">
                 <textarea
                   value={draft}
@@ -149,15 +149,15 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
                   className="min-h-[3rem] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-base text-slate-100 outline-none placeholder:text-slate-500 focus:ring-0"
                 />
                 <div className="flex items-center gap-2">
-                  <span className="hidden font-mono text-xs font-semibold uppercase tracking-[0.14em] text-[#7C5CFF] md:inline">Agent ready</span>
-                  <button type="submit" disabled={loading || !draft.trim()} className="rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#2F6BFF]/20 disabled:cursor-not-allowed disabled:opacity-50">Ask</button>
+                  <span className="hidden text-xs font-medium text-[#7C5CFF] md:inline">Agent ready</span>
+                  <button type="submit" disabled={loading || !draft.trim()} className="rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:cursor-not-allowed disabled:opacity-50">Ask</button>
                   {loading && <button type="button" onClick={cancelRequest} className="rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] px-4 py-3 text-sm font-semibold text-[#BDEAFF]">Cancel</button>}
                 </div>
               </div>
             </form>
 
-            <div className="border-t border-[#263654] bg-[#0D1730] px-6 py-5">
-              <p className="font-mono text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Tool activity</p>
+            <div className="border-t border-[#263654]/75 bg-[#0D1730]/70 px-5 py-4">
+              <p className="text-sm font-semibold text-slate-400">Tool activity</p>
               <div className="mt-4 space-y-2">
                 {events.length === 0 ? (
                   <p className="text-sm text-slate-500">No tool activity yet.</p>
@@ -168,7 +168,7 @@ export function DataScientistPage({ schema }: { schema: ProjectSchema }) {
                         <span className="h-1.5 w-1.5 rounded-full bg-[#7C5CFF]" />
                         <span className="truncate text-slate-100">{event.label}</span>
                       </div>
-                      <span className="font-mono text-xs uppercase tracking-[0.12em] text-slate-500">{event.tool_name ?? event.type}</span>
+                      <span className="text-xs text-slate-500">{event.tool_name ?? event.type}</span>
                       {event.detail && <p className="md:col-span-2 ml-4 text-xs leading-5 text-slate-500">{event.detail}</p>}
                     </div>
                   ))

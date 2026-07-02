@@ -8,6 +8,8 @@ from typing import Any
 import pandas as pd
 
 PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"
+FRAUNHOFER_FUEL_CELL_DEMO_PROJECT_ID = "fuel_cell_demo_65248559"
+SUPPORTED_PROJECT_IDS = {PROJECT_ID, FRAUNHOFER_FUEL_CELL_DEMO_PROJECT_ID}
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -30,8 +32,9 @@ def _money(value: float) -> int:
 
 
 def get_business_impact_summary(project_id: str) -> dict[str, Any]:
-    if project_id != PROJECT_ID:
-        raise ValueError(f"Business-impact case study is only available for {PROJECT_ID}")
+    if project_id not in SUPPORTED_PROJECT_IDS:
+        supported = ", ".join(sorted(SUPPORTED_PROJECT_IDS))
+        raise ValueError(f"Business-impact case study is only available for: {supported}")
 
     model_table = pd.read_csv(REAL_DATA_DIR / "model_table.csv")
     metadata = pd.read_csv(REAL_DATA_DIR / "cell_metadata.csv")

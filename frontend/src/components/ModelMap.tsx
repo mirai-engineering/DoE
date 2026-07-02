@@ -167,7 +167,7 @@ function HiddenRepresentation({ architecture, firstHiddenRefs, latentRefs }: {
 
 function VariableCard({ input, index, compact, portRef }: { input: SchemaInput; index: number; compact: boolean; portRef: (element: HTMLSpanElement | null) => void }) {
   return (
-    <div className={`group relative flex items-center gap-3 rounded-2xl border border-slate-200 bg-[#0D1B2D] pr-5 transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
+    <div className={`group relative flex items-center gap-3 rounded-lg border border-slate-200 bg-[#0D1B2D] pr-5 transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[#74C7F5]/60 bg-[#0D1B2D] text-xs font-bold text-[#2F6BFF]">{index + 1}</span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-white" title={displayName(input)}>{displayName(input)}</div>
@@ -180,11 +180,11 @@ function VariableCard({ input, index, compact, portRef }: { input: SchemaInput; 
 
 function OutputCard({ output, compact, portRef }: { output: SchemaOutput; compact: boolean; portRef: (element: HTMLSpanElement | null) => void }) {
   return (
-    <div className={`relative rounded-2xl border border-slate-200 bg-[#0D1B2D] transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'p-3 pl-5' : 'p-4 pl-5'}`}>
-      <span ref={portRef} className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-[3px] border-white bg-[#74C7F5] shadow-lg shadow-[#74C7F5]/40 ring-2 ring-[#74C7F5]/20" aria-hidden="true" />
+    <div className={`relative rounded-lg border border-slate-200 bg-[#0D1B2D] transition hover:border-[#74C7F5] hover:bg-[#10203A] ${compact ? 'p-3 pl-5' : 'p-4 pl-5'}`}>
+      <span ref={portRef} className="absolute -left-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-[3px] border-white bg-[#74C7F5] shadow-sm shadow-[#74C7F5]/40 ring-2 ring-[#74C7F5]/20" aria-hidden="true" />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 text-sm font-semibold leading-5 text-white" title={displayName(output)}>{displayName(output)}</div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[0.62rem] font-bold uppercase tracking-[0.12em] ${output.direction === 'minimize' ? 'bg-rose-950/40 text-rose-200 ring-1 ring-rose-400/30' : 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30'}`}>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[0.62rem] font-bold tracking-normal ${output.direction === 'minimize' ? 'bg-rose-950/40 text-rose-200 ring-1 ring-rose-400/30' : 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30'}`}>
           {directionLabel(output)}
         </span>
       </div>
@@ -291,10 +291,10 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
   }, [inputs.length, outputs.length])
 
   return (
-    <section id="design-model-flow" className="scroll-mt-8 overflow-hidden rounded-[2.2rem] border border-slate-200/80 bg-white/95 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section id="design-model-flow" className="scroll-mt-8 overflow-hidden rounded-[2.2rem] border border-slate-200/80 bg-white/95 p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">ML Model Map</p>
+          <p className="text-xs font-semibold tracking-normal text-[#74C7F5]">ML Model Map</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">From experiment settings to predicted response</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
             The surrogate model maps the active project&apos;s controlled variables into predicted KPIs used by the recommendation engine.
@@ -305,8 +305,8 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
       <div ref={wrapperRef} className="relative mt-6">
         <ConnectionOverlay wrapperRef={wrapperRef} inputPorts={inputPorts} outputPorts={outputPorts} firstHiddenNodes={firstHiddenNodes} latentNodes={latentNodes} />
         <div className="relative z-20 grid gap-5 xl:grid-cols-[0.9fr_1.45fr_0.95fr] xl:items-stretch">
-          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Controlled variables</div>
+          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+            <div className="text-[0.72rem] font-bold tracking-normal text-[#74C7F5]">Controlled variables</div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{inputs.length} variables</div>
             <p className="mt-2 text-sm leading-6 text-slate-300">Project-specific settings defined by the active schema.</p>
             <div className={`mt-5 space-y-2 pr-1 ${inputScroll ? 'max-h-[24rem] overflow-y-auto' : ''}`}>
@@ -316,17 +316,17 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
             </div>
           </div>
 
-          <div className="relative flex h-full min-h-[520px] flex-col overflow-hidden rounded-3xl border border-slate-800 bg-[#050918] p-4 text-white shadow-2xl shadow-slate-950/20">
+          <div className="relative flex h-full min-h-[520px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-[#050918] p-4 text-white shadow-sm shadow-slate-950/20">
             <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-[#74C7F5]/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-24 left-16 h-52 w-52 rounded-full bg-[#2F6BFF]/20 blur-3xl" />
             <div className="relative flex min-h-0 flex-1 flex-col">
               <header className="shrink-0">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-                  <span className="rounded-full border border-[#74C7F5]/40 bg-[#74C7F5]/12 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-[#BDEAFF]">
+                  <span className="rounded-full border border-[#74C7F5]/40 bg-[#74C7F5]/12 px-3 py-1 text-[0.68rem] font-bold tracking-normal text-[#BDEAFF]">
                     {modelRuntime} &middot; {modelStatus}
                   </span>
                 </div>
-                <div className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Neural surrogate</div>
+                <div className="text-[0.68rem] font-bold tracking-normal text-[#74C7F5]">Neural surrogate</div>
                 <div className="truncate text-base font-semibold tracking-[-0.03em] text-white/95" title={modelName}>{modelName}</div>
               </header>
 
@@ -342,8 +342,8 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-[#0B1220] p-5">
-            <div className="text-[0.72rem] font-bold uppercase tracking-[0.18em] text-[#74C7F5]">Predicted response</div>
+          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+            <div className="text-[0.72rem] font-bold tracking-normal text-[#74C7F5]">Predicted response</div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{outputs.length} KPIs</div>
             <p className="mt-2 text-sm leading-6 text-slate-300">Schema-defined model outputs used for scoring, search, and tradeoff review.</p>
             <div className={`mt-5 flex flex-col gap-2 pl-1 ${outputScroll ? 'max-h-[24rem] overflow-y-auto' : 'xl:min-h-[26rem] xl:justify-center'}`}>

@@ -324,7 +324,7 @@ export function OptimizationLoopPage({
 
   return (
     <div className="space-y-8">
-      <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+      <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
         <PanelHeader
           eyebrow="Explore & Exploit Tests"
           title="Choose the next test with measured feedback"
@@ -345,7 +345,7 @@ export function OptimizationLoopPage({
         </div>
       )}
 
-      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-xl shadow-black/20" aria-label="Explore and Exploit workbench sections">
+      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-sm shadow-black/20" aria-label="Explore and Exploit workbench sections">
         <div className="grid gap-2 md:grid-cols-4">
           {boViews.map((view) => {
             const active = boView === view.id
@@ -354,7 +354,7 @@ export function OptimizationLoopPage({
                 key={view.id}
                 type="button"
                 onClick={() => setBoView(view.id)}
-                className={`rounded-md border px-4 py-3 text-left transition ${active ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-lg shadow-[#2F6BFF]/10' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-[#74C7F5]/40 hover:text-white'}`}
+                className={`rounded-md border px-4 py-3 text-left transition ${active ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-sm shadow-[#2F6BFF]/10' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-[#74C7F5]/40 hover:text-white'}`}
                 aria-pressed={active}
               >
                 <span className="block text-sm font-semibold">{view.label}</span>
@@ -467,7 +467,7 @@ function SetupPanel({
   actionLoading: string | null
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 text-white shadow-xl shadow-slate-900/20">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 text-white shadow-sm shadow-slate-900/20">
       <PanelHeader
         eyebrow="Setup"
         title="Replay-backed BO run"
@@ -477,7 +477,7 @@ function SetupPanel({
 
       <div className="mt-6 space-y-6">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/60">
+          <h3 className="text-sm font-semibold tracking-normal text-white/60">
             Objective weights
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -503,7 +503,7 @@ function SetupPanel({
               id="bo-exploration"
               value={explorationLevel}
               onChange={(event) => setExplorationLevel(event.target.value as BOExplorationLevel)}
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-4 focus:ring-[#74C7F5]/20"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-4 focus:ring-[#74C7F5]/20"
             >
               {explorationOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -519,7 +519,7 @@ function SetupPanel({
               id="bo-acquisition"
               value={acquisitionFunction}
               onChange={(event) => setAcquisitionFunction(event.target.value as BOAcquisitionFunction)}
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-4 focus:ring-[#74C7F5]/20"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#74C7F5] focus:ring-4 focus:ring-[#74C7F5]/20"
             >
               {acquisitionOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -530,7 +530,7 @@ function SetupPanel({
           </label>
         </div>
 
-        <div className="rounded-2xl border border-[#74C7F5]/25 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
+        <div className="rounded-lg border border-[#74C7F5]/25 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
           The optimizer fits only observed replay results. MLP predictions are displayed for
           comparison and are not fed back as lab measurements.
         </div>
@@ -540,7 +540,7 @@ function SetupPanel({
             type="button"
             onClick={onInitialize}
             disabled={loading}
-            className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:brightness-75"
+            className="rounded-lg bg-white/10 px-4 py-3 text-sm font-semibold tracking-normal text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:brightness-75"
           >
             {actionLoading === 'initialize' ? 'Initializing...' : 'Initialize Replay'}
           </button>
@@ -548,7 +548,7 @@ function SetupPanel({
             type="button"
             onClick={onReset}
             disabled={loading}
-            className="rounded-2xl border border-white/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:brightness-75"
+            className="rounded-lg border border-white/15 px-4 py-3 text-sm font-semibold tracking-normal text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:brightness-75"
           >
             {actionLoading === 'reset' ? 'Resetting...' : 'Reset Loop'}
           </button>
@@ -556,7 +556,7 @@ function SetupPanel({
             type="button"
             onClick={onSaveConfig}
             disabled={loading}
-            className="rounded-2xl border border-[#74C7F5]/40 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-[#BDEAFF] transition hover:bg-[#10203A] disabled:cursor-not-allowed disabled:brightness-75"
+            className="rounded-lg border border-[#74C7F5]/40 px-4 py-3 text-sm font-semibold tracking-normal text-[#BDEAFF] transition hover:bg-[#10203A] disabled:cursor-not-allowed disabled:brightness-75"
           >
             {actionLoading === 'config' ? 'Saving...' : 'Save BO Config'}
           </button>
@@ -564,7 +564,7 @@ function SetupPanel({
             type="button"
             onClick={onSuggest}
             disabled={loading}
-            className="rounded-2xl bg-[#2F6BFF] px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#1E5BFF] disabled:cursor-not-allowed disabled:brightness-75"
+            className="rounded-lg bg-[#2F6BFF] px-4 py-3 text-sm font-semibold tracking-normal text-white shadow-sm shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#1E5BFF] disabled:cursor-not-allowed disabled:brightness-75"
           >
             {actionLoading === 'suggest' ? 'Suggesting...' : 'Suggest Next'}
           </button>
@@ -572,7 +572,7 @@ function SetupPanel({
             type="button"
             onClick={onFantasyRollout}
             disabled={loading}
-            className="rounded-2xl border border-blue-200/40 bg-blue-50/10 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-blue-100 transition hover:bg-blue-50/20 disabled:cursor-not-allowed disabled:brightness-75 sm:col-span-2"
+            className="rounded-lg border border-blue-200/40 bg-blue-50/10 px-4 py-3 text-sm font-semibold tracking-normal text-blue-100 transition hover:bg-blue-50/20 disabled:cursor-not-allowed disabled:brightness-75 sm:col-span-2"
           >
             {actionLoading === 'fantasy' ? 'Running lookahead...' : 'Run 5-Step Lookahead'}
           </button>
@@ -585,7 +585,7 @@ function SetupPanel({
 function CurrentBestCard({ schema, state }: { schema: ProjectSchema; state: BOStateResponse | null }) {
   const currentBest = state?.current_best
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Current best"
         title="Best observed experiment"
@@ -593,8 +593,8 @@ function CurrentBestCard({ schema, state }: { schema: ProjectSchema; state: BOSt
       />
       {currentBest ? (
         <div className="mt-5 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-          <div className="rounded-2xl border border-[#74C7F5] bg-[#0D1B2D] p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#2F6BFF]">
+          <div className="rounded-lg border border-[#74C7F5] bg-[#0D1B2D] p-4">
+            <p className="text-xs font-semibold tracking-normal text-[#2F6BFF]">
               Observed score
             </p>
             <p className="mt-2 text-4xl font-semibold tracking-[-0.05em] text-white">
@@ -612,7 +612,7 @@ function CurrentBestCard({ schema, state }: { schema: ProjectSchema; state: BOSt
           />
         </div>
       ) : (
-        <p className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-[#0D1B2D] p-5 text-sm text-slate-300">
+        <p className="mt-5 rounded-lg border border-dashed border-slate-300 bg-[#0D1B2D] p-5 text-sm text-slate-300">
           Initialize replay to seed observed experiments.
         </p>
       )}
@@ -641,8 +641,8 @@ function NextSuggestionCard({
 }) {
   if (!experiment) {
     return (
-      <section className="rounded-[2rem] border border-dashed border-slate-300 bg-[#0B1220] p-8 text-center shadow-xl shadow-slate-900/10 backdrop-blur">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
+      <section className="rounded-xl border border-dashed border-slate-300 bg-[#0B1220] p-8 text-center shadow-sm shadow-slate-900/10 backdrop-blur">
+        <p className="text-xs font-semibold tracking-normal text-[#74C7F5]">
           Next suggested experiment
         </p>
         <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-white">
@@ -661,7 +661,7 @@ function NextSuggestionCard({
       : null
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PanelHeader
           eyebrow={isObserved ? 'Replay result revealed' : 'Next suggested experiment'}
@@ -673,7 +673,7 @@ function NextSuggestionCard({
           }
         />
         <span
-          className={`rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] ${statusClass(
+          className={`rounded-full border px-3 py-1 text-xs font-bold tracking-normal ${statusClass(
             experiment.status,
           )}`}
         >
@@ -710,7 +710,7 @@ function NextSuggestionCard({
       </div>
 
       {reason && (
-        <div className="mt-5 rounded-2xl border border-blue-200 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
+        <div className="mt-5 rounded-lg border border-blue-200 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
           {reason}
         </div>
       )}
@@ -746,7 +746,7 @@ function NextSuggestionCard({
             type="button"
             onClick={() => onAccept(experiment.experiment_id)}
             disabled={loading || experiment.status !== 'suggested'}
-            className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#0B1220] disabled:cursor-not-allowed disabled:brightness-75"
+            className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#0B1220] disabled:cursor-not-allowed disabled:brightness-75"
           >
             Accept
           </button>
@@ -790,7 +790,7 @@ function ConstraintsPanel({
   setConstraints: Dispatch<SetStateAction<ConstraintDraft>>
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Expert constraints"
         title="Sequential-search limits"
@@ -799,7 +799,7 @@ function ConstraintsPanel({
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead>
-            <tr className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <tr className="text-xs font-semibold tracking-normal text-slate-500">
               <th className="px-3 py-3">Input</th>
               <th className="px-3 py-3">Schema range</th>
               <th className="px-3 py-3">Active min</th>
@@ -899,8 +899,8 @@ function ValueList({
   names: Array<{ name: string; label: string; unit: string }>
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-[#0B1220] p-4">
-      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</h3>
+    <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+      <h3 className="text-sm font-semibold tracking-normal text-slate-500">{title}</h3>
       <dl className="mt-3 space-y-2">
         {names.map((item) => (
           <div key={item.name} className="flex items-baseline justify-between gap-4">
@@ -1053,7 +1053,7 @@ function FantasyRolloutPanel({
   const secondInput = schema.inputs[1]
 
   return (
-    <section className="rounded-[2rem] border border-blue-100 bg-blue-50/70 p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-blue-100 bg-blue-50/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Fantasy rollout"
         title="5-step MLP lookahead"
@@ -1063,14 +1063,14 @@ function FantasyRolloutPanel({
         {trajectory.map((step) => (
           <div
             key={step.iteration}
-            className="rounded-2xl border border-blue-100 bg-[#0D1B2D] p-4 shadow-sm"
+            className="rounded-lg border border-blue-100 bg-[#0D1B2D] p-4 shadow-sm"
           >
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-900">
+              <p className="text-xs font-bold tracking-normal text-blue-900">
                 Step {step.iteration}
               </p>
               <span
-                className={`rounded-full px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.12em] ${
+                className={`rounded-full px-2 py-1 text-[0.65rem] font-bold tracking-normal ${
                   step.low_confidence_region
                     ? 'bg-amber-100 text-amber-900'
                     : 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30'
@@ -1165,7 +1165,7 @@ function PredictedObservedChart({
     : []
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Surrogate check"
         title={
@@ -1175,7 +1175,7 @@ function PredictedObservedChart({
         }
         description="Predicted and observed values remain visually separate."
       />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
+      <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-[#0B1220] p-3">
         {observedExperiment ? (
           <Plot
             data={traces}
@@ -1225,9 +1225,9 @@ function ChartPanel({
   })
 
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader eyebrow={eyebrow} title={title} description="Predicted and observed values remain visually separate." />
-      <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#0B1220] p-3">
+      <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-[#0B1220] p-3">
         {hasData ? (
           <Plot
             data={data}
@@ -1249,7 +1249,7 @@ function ChartPanel({
 function HistoryTable({ schema, state }: { schema: ProjectSchema; state: BOStateResponse | null }) {
   const history = [...(state?.history ?? [])].reverse().slice(0, 30)
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-xl shadow-slate-900/10 backdrop-blur">
+    <section className="rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
       <PanelHeader
         eyebrow="Experiment log"
         title="Explore/exploit history"
@@ -1258,7 +1258,7 @@ function HistoryTable({ schema, state }: { schema: ProjectSchema; state: BOState
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead>
-            <tr className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <tr className="text-xs font-semibold tracking-normal text-slate-500">
               <th className="px-3 py-3">Iteration</th>
               <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Source</th>
@@ -1275,7 +1275,7 @@ function HistoryTable({ schema, state }: { schema: ProjectSchema; state: BOState
                 <td className="px-3 py-3 font-semibold text-white">{experiment.iteration}</td>
                 <td className="px-3 py-3">
                   <span
-                    className={`rounded-full border px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] ${statusClass(
+                    className={`rounded-full border px-2 py-1 text-xs font-bold tracking-normal ${statusClass(
                       experiment.status,
                     )}`}
                   >
@@ -1329,7 +1329,7 @@ function ScientistReviewDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
-      <section className="w-full max-w-lg rounded-[2rem] border border-white/70 bg-[#0B1220] p-6 shadow-2xl">
+      <section className="w-full max-w-lg rounded-xl border border-white/70 bg-[#0B1220] p-6 shadow-sm">
         <PanelHeader
           eyebrow="Scientist review"
           title="Reject suggestion"

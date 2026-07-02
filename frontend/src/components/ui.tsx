@@ -10,19 +10,18 @@ export type LifecycleStep = {
 
 export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
   return (
-    <div className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-3">
-      <div className="grid gap-2 md:grid-cols-5">
+    <div className="border-y border-white/[0.07] py-4">
+      <div className="grid gap-3 md:grid-cols-5">
         {steps.map((step, index) => {
           const isDone = step.status === 'done'
           const isCurrent = step.status === 'current'
           return (
-            <div key={step.id} className={`rounded-md border px-3 py-3 ${isCurrent ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white' : isDone ? 'border-[#74C7F5]/30 bg-[#0D1B2D] text-slate-100' : 'border-slate-800 bg-[#070C16] text-slate-500'}`}>
-              <div className="flex items-center gap-2">
-                <span className={`grid h-6 w-6 place-items-center rounded text-xs font-bold ${isCurrent ? 'bg-[#2F6BFF] text-white' : isDone ? 'bg-[#74C7F5]/15 text-[#74C7F5]' : 'bg-[#050914] text-slate-500'}`}>
-                  {isDone ? '✓' : index + 1}
-                </span>
-                <span className="text-sm font-semibold">{step.label}</span>
-              </div>
+            <div key={step.id} className="relative flex items-center gap-2.5 text-sm">
+              <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[0.7rem] font-semibold ring-1 ${isCurrent ? 'bg-[#2F6BFF] text-white ring-[#74C7F5]/40' : isDone ? 'bg-[#74C7F5]/12 text-[#74C7F5] ring-[#74C7F5]/24' : 'bg-transparent text-slate-500 ring-white/10'}`}>
+                {isDone ? '✓' : index + 1}
+              </span>
+              <span className={isCurrent ? 'font-semibold text-white' : isDone ? 'font-medium text-slate-200' : 'font-medium text-slate-500'}>{step.label}</span>
+              {index < steps.length - 1 && <span className="hidden h-px flex-1 bg-white/10 md:block" />}
             </div>
           )
         })}
@@ -39,38 +38,42 @@ export function SectionCard({
 }: {
   children: ReactNode
   className?: string
-  variant?: 'glass' | 'solid' | 'subtle'
+  variant?: 'glass' | 'solid' | 'subtle' | 'flat'
   density?: 'compact' | 'normal'
 }) {
   const variants = {
-    glass: 'border-white/10 bg-[linear-gradient(145deg,rgba(16,27,50,0.88),rgba(8,13,24,0.82))] shadow-[0_20px_55px_rgba(2,6,23,0.22)] backdrop-blur-xl',
-    solid: 'border-slate-700/70 bg-[#0B1220] shadow-[0_16px_42px_rgba(2,6,23,0.18)]',
-    subtle: 'border-slate-700/55 bg-[#08111F]/82',
+    glass: 'border-white/[0.08] bg-[#0B1220]/72 shadow-[0_12px_32px_rgba(2,6,23,0.14)] backdrop-blur-xl',
+    solid: 'border-slate-700/60 bg-[#0B1220]',
+    subtle: 'border-slate-700/45 bg-[#08111F]/70',
+    flat: 'border-white/[0.07] bg-transparent',
   }
   const padding = density === 'compact' ? 'p-4 sm:p-5' : 'p-5 sm:p-6'
-  return <section className={`rounded-2xl border ${variants[variant]} ${padding} ${className}`}>{children}</section>
+  return <section className={`rounded-xl border ${variants[variant]} ${padding} ${className}`}>{children}</section>
 }
 
 export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-md border border-slate-700 bg-[#070C16]">
-      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-slate-100">
+    <div className="border-t border-white/10">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex w-full items-center justify-between gap-3 py-3 text-left text-sm font-semibold text-slate-100">
         {title}
-        <span className={`grid h-7 w-7 place-items-center rounded bg-[#050914] text-slate-400 transition ${open ? 'rotate-180' : ''}`}>⌄</span>
+        <span className={`grid h-6 w-6 place-items-center rounded text-slate-400 transition ${open ? 'rotate-180' : ''}`}>⌄</span>
       </button>
-      {open && <div className="border-t border-slate-700 px-4 py-4">{children}</div>}
+      {open && <div className="pb-4 text-sm text-slate-300">{children}</div>}
     </div>
   )
 }
 
-export function Metadata({ label, value }: { label: string; value: string }) {
+export function Metadata({ label, value, inline = false }: { label: string; value: string; inline?: boolean }) {
+  if (inline) {
+    return <span className="whitespace-nowrap text-sm text-[#9FB0C8]"><span className="text-slate-200">{value}</span> {label}</span>
+  }
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
-      <div className="text-[0.66rem] font-semibold uppercase tracking-[0.16em] text-[#9FB0C8]">
+    <div className="rounded-md border border-white/[0.07] bg-white/[0.025] px-3 py-2">
+      <div className="text-[0.68rem] font-medium text-[#9FB0C8]">
         {label}
       </div>
-      <div className="mt-1 truncate text-sm font-semibold text-slate-50">{value}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold text-slate-50">{value}</div>
     </div>
   )
 }
@@ -89,8 +92,8 @@ export function PanelHeader({
   return (
     <div>
       <p
-        className={`text-xs font-semibold uppercase tracking-[0.22em] ${
-          dark ? 'text-[#74C7F5]' : 'text-[#2F6BFF]'
+        className={`text-sm font-medium ${
+          dark ? 'text-[#74C7F5]' : 'text-[#74C7F5]'
         }`}
       >
         {eyebrow}
@@ -102,7 +105,7 @@ export function PanelHeader({
       >
         {title}
       </h2>
-      <p className={`mt-2 text-sm leading-6 ${dark ? 'text-white/76' : 'text-[#C7D2E4]'}`}>
+      <p className={`mt-2 max-w-3xl text-sm leading-6 ${dark ? 'text-white/76' : 'text-[#C7D2E4]'}`}>
         {description}
       </p>
     </div>
@@ -210,7 +213,7 @@ export function WeightField({
     <label htmlFor={id} className="block rounded-md border border-slate-700 bg-[#070C16] p-3">
       <span className="flex items-center justify-between gap-3 text-sm font-semibold text-white/90">
         {label}
-        <span className="text-xs font-medium uppercase tracking-[0.16em] text-white/40">
+        <span className="text-xs font-medium text-white/45">
           {direction}
         </span>
       </span>
@@ -282,7 +285,7 @@ export function KpiCard({
     <div className="rounded-lg border border-slate-300 bg-[#0B1220] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <span className="rounded bg-[#e8eadf] px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-[#2F6BFF]">
+        <span className="rounded bg-[#2F6BFF]/10 px-2 py-1 text-[0.68rem] font-semibold text-[#74C7F5]">
           {direction}
         </span>
       </div>
@@ -324,8 +327,8 @@ export function Alert({
 
 export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }) {
   return (
-    <section className="rounded-lg border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-xl shadow-slate-900/10">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#74C7F5]">
+    <section className="rounded-xl border border-dashed border-white/10 bg-[#0B1220]/60 p-10 text-center">
+      <p className="text-sm font-medium text-[#74C7F5]">
         Awaiting candidate search
       </p>
       <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950">

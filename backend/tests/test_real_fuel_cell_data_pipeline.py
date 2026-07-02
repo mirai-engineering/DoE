@@ -198,6 +198,16 @@ def test_business_impact_api_contracts():
         assert summary["caveats"]
 
 
+def test_business_impact_api_supports_fraunhofer_fuel_cell_demo_alias():
+    with TestClient(app) as client:
+        response = client.get("/projects/fuel_cell_demo_65248559/impact/summary")
+        assert response.status_code == 200
+        summary = response.json()
+        assert summary["project_id"] == "fuel_cell_demo_65248559"
+        assert summary["scenario"]["baseline_physical_recipes"] >= 40
+        assert summary["scenario"]["saved_bench_hours"] > 1000
+
+
 def test_model_quality_api_contracts():
     train_models(project_id=PROJECT_ID, register_mlflow=True, epochs=5)
     with TestClient(app) as client:
