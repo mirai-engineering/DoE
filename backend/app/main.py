@@ -6,9 +6,10 @@ import logging
 import os
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from .auth import auth_required, authenticate_bearer_token, docs_public, is_public_path, principal_workspace_id, request_principal
 from .schemas import (
@@ -55,6 +56,20 @@ from .services.data_scientist.agent_loop import run_data_scientist_agent
 from .services.data_scientist.schemas import DataScientistRequest, DataScientistResponse
 from .services.data_scientist.scope import authorize_agent_scope
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
+from .services.document_intake import (
+    approve_draft_table,
+    create_document_intake_session,
+    export_mirai_package,
+    get_document_intake_session,
+    get_draft_table,
+    get_export_zip,
+    get_issues_text,
+    list_document_intake_sessions,
+    match_mirai_contract,
+    reject_draft_table,
+    save_document_instruction,
+    upload_document_intake_files,
+)
 from .services.fantasy_rollout import run_fantasy_rollout
 from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
 from .services.mlflow_registry import durable_artifact_pointer_for_project
@@ -243,6 +258,14 @@ def _raise_if_no_workspace_access(request: Request) -> str | None:
     if not workspace_id:
         raise HTTPException(status_code=403, detail={"code": "no_workspace_membership", "detail": "Workspace membership required"})
     return workspace_id
+
+
+def _workspace_id_for_project_request(request: Request, project_id: str) -> str:
+    workspace_id = _raise_if_no_workspace_access(request)
+    if workspace_id:
+        return workspace_id
+    project = next((item for item in list_projects() if item.get("id") == project_id or item.get("project_id") == project_id), None)
+    return str((project or {}).get("workspace_id") or "fraunhofer")
 
 
 def _filter_projects_for_request(request: Request, projects: list[dict] | None = None) -> list[dict]:
@@ -770,6 +793,164 @@ def data_intake_create_training_request(project_id: str, dataset_id: str, sessio
         )
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Training request creation failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+class DocumentIntakeSessionCreate(BaseModel):
+    title: str | None = None
+    target_contract_id: str | None = None
+
+
+class DocumentIntakeInstruction(BaseModel):
+    message: str
+    expected_columns: list[str] | None = None
+    expected_row_count: int | None = None
+
+
+@app.get("/projects/{project_id}/document-intake/sessions")
+def document_intake_sessions(project_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return {"sessions": list_document_intake_sessions(workspace_id, project_id)}
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake session list failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions")
+def document_intake_create_session(project_id: str, body: DocumentIntakeSessionCreate, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return create_document_intake_session(
+            workspace_id,
+            project_id,
+            title=body.title,
+            target_contract_id=body.target_contract_id,
+            created_by=_request_user_id(request),
+        )
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake session create failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/document-intake/sessions/{session_id}")
+def document_intake_get_session(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return get_document_intake_session(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake session get failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/files")
+async def document_intake_upload_files(project_id: str, session_id: str, request: Request, files: list[UploadFile] = File(...)):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return await upload_document_intake_files(workspace_id, project_id, session_id, files)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake upload failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/document-intake/sessions/{session_id}/files")
+def document_intake_list_files(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return {"files": get_document_intake_session(workspace_id, project_id, session_id).get("files", [])}
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake file list failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/instruction")
+def document_intake_instruction(project_id: str, session_id: str, body: DocumentIntakeInstruction, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return save_document_instruction(workspace_id, project_id, session_id, body.message, body.expected_columns, body.expected_row_count)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake instruction failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/messages")
+def document_intake_message(project_id: str, session_id: str, body: DocumentIntakeInstruction, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return save_document_instruction(workspace_id, project_id, session_id, body.message, body.expected_columns, body.expected_row_count)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake message failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/match-mirai-contract")
+def document_intake_match_contract(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return match_mirai_contract(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake contract match failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/document-intake/sessions/{session_id}/draft-table")
+def document_intake_draft_table(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return get_draft_table(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake draft get failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/document-intake/sessions/{session_id}/issues.txt", response_class=PlainTextResponse)
+def document_intake_issues(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return get_issues_text(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake issues get failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/draft-table/approve")
+def document_intake_approve(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return approve_draft_table(workspace_id, project_id, session_id, approved_by=_request_user_id(request))
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake approve failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/draft-table/reject")
+def document_intake_reject(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return reject_draft_table(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake reject failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/export-mirai-package")
+def document_intake_export(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return export_mirai_package(workspace_id, project_id, session_id)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake export failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.get("/projects/{project_id}/document-intake/sessions/{session_id}/export.zip")
+def document_intake_export_zip(project_id: str, session_id: str, request: Request):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        payload = get_export_zip(workspace_id, project_id, session_id)
+        return StreamingResponse(BytesIO(payload), media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="mirai_package.zip"'})
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake export zip failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 

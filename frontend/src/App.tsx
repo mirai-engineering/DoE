@@ -10,6 +10,7 @@ import { ModelQualityPage } from './components/ModelQualityPage'
 import { BusinessImpactPage } from './components/BusinessImpactPage'
 import { DesignStudioPage } from './components/DesignStudioPage'
 import { DataIntakePage } from './components/DataIntakePage'
+import { KnowledgeIntakePage } from './components/KnowledgeIntakePage'
 import { DataScientistPage } from './components/DataScientistPage'
 import { PreprocessingReviewPage } from './components/PreprocessingReviewPage'
 import { Alert } from './components/ui'
@@ -31,7 +32,7 @@ import type { ActiveTab, FixedInputConfig, RecommendationRun } from './types/doe
 import type { PredictionMap } from './lib/api'
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('data-intake')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('knowledge-intake')
   const [batchView, setBatchView] = useState<'configure' | 'results' | 'visuals'>('configure')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
@@ -362,6 +363,8 @@ function App() {
                 )}
               </div>
             )}
+
+            {activeTab === 'knowledge-intake' && schema && <KnowledgeIntakePage schema={schema} onGoToDataIntake={() => setActiveTab('data-intake')} />}
 
             {activeTab === 'data-intake' && <DataIntakePage schema={schema} projects={projects} workspaces={workspaces} account={account} onSessionCreated={(session) => refreshProjectsAndSelect(session.project_id)} onReviewPreprocessing={() => setActiveTab('preprocessing-review')} />}
 

@@ -1539,3 +1539,166 @@ export async function askDataScientist(projectId: string, message: string, histo
     throw normalizeError(error, 'Unable to ask Data Scientist')
   }
 }
+
+export interface KnowledgeIntakeFile {
+  id: string
+  filename: string
+  content_type?: string | null
+  file_type: string
+  size_bytes?: number
+  parse_status?: string
+  parse_summary?: Record<string, unknown>
+}
+
+export interface KnowledgeIntakeSession {
+  id: string
+  project_id: string
+  title?: string
+  target_contract_id?: string
+  status: string
+  created_at?: string
+  updated_at?: string
+  file_count?: number
+  latest_draft_id?: string | null
+  latest_export_key?: string | null
+  user_instruction?: string
+  files?: KnowledgeIntakeFile[]
+  draft?: KnowledgeIntakeDraft | null
+  export?: KnowledgeIntakeExport | null
+}
+
+export interface KnowledgeIntakeDraft {
+  id: string
+  run_id?: string
+  status: string
+  table_kind?: string
+  schema?: Record<string, unknown>
+  tables?: Record<string, { columns: string[]; preview_rows: string[]; total_rows: number }>
+  row_counts?: Record<string, number>
+  source_reference_mode?: string
+  issues_key?: string
+  validation_passed?: boolean
+  validation_result?: Record<string, unknown>
+  loop_iteration?: Record<string, unknown>
+  adapter_id?: string | null
+  approved_at?: string | null
+}
+
+export interface KnowledgeIntakeExport {
+  status: string
+  package_key?: string
+  size_bytes?: number
+  created_at?: string
+}
+
+export async function listKnowledgeIntakeSessions(projectId: string): Promise<KnowledgeIntakeSession[]> {
+  try {
+    const response = await api.get<{ sessions: KnowledgeIntakeSession[] }>(`/projects/${projectId}/document-intake/sessions`)
+    return response.data.sessions
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load knowledge intake sessions')
+  }
+}
+
+export async function createKnowledgeIntakeSession(projectId: string, title?: string, targetContractId?: string): Promise<KnowledgeIntakeSession> {
+  try {
+    const response = await api.post<KnowledgeIntakeSession>(`/projects/${projectId}/document-intake/sessions`, { title, target_contract_id: targetContractId })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to create knowledge intake session')
+  }
+}
+
+export async function getKnowledgeIntakeSession(projectId: string, sessionId: string): Promise<KnowledgeIntakeSession> {
+  try {
+    const response = await api.get<KnowledgeIntakeSession>(`/projects/${projectId}/document-intake/sessions/${sessionId}`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load knowledge intake session')
+  }
+}
+
+export async function uploadKnowledgeIntakeFiles(projectId: string, sessionId: string, files: File[]): Promise<{ status: string; files: KnowledgeIntakeFile[] }> {
+  try {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    const response = await api.post<{ status: string; files: KnowledgeIntakeFile[] }>(`/projects/${projectId}/document-intake/sessions/${sessionId}/files`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to upload knowledge intake files')
+  }
+}
+
+export async function saveKnowledgeIntakeInstruction(projectId: string, sessionId: string, message: string): Promise<unknown> {
+  try {
+    const response = await api.post(`/projects/${projectId}/document-intake/sessions/${sessionId}/instruction`, { message })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to save knowledge intake instruction')
+  }
+}
+
+export async function matchKnowledgeIntakeMiraiContract(projectId: string, sessionId: string): Promise<{ status: string; draft: KnowledgeIntakeDraft }> {
+  try {
+    const response = await api.post<{ status: string; draft: KnowledgeIntakeDraft }>(`/projects/${projectId}/document-intake/sessions/${sessionId}/match-mirai-contract`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to match the Mirai contract')
+  }
+}
+
+export async function getKnowledgeIntakeDraft(projectId: string, sessionId: string): Promise<KnowledgeIntakeDraft> {
+  try {
+    const response = await api.get<KnowledgeIntakeDraft>(`/projects/${projectId}/document-intake/sessions/${sessionId}/draft-table`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load draft table')
+  }
+}
+
+export async function getKnowledgeIntakeIssues(projectId: string, sessionId: string): Promise<string> {
+  try {
+    const response = await api.get<string>(`/projects/${projectId}/document-intake/sessions/${sessionId}/issues.txt`, { responseType: 'text' })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to load issue notes')
+  }
+}
+
+export async function approveKnowledgeIntakeDraft(projectId: string, sessionId: string): Promise<{ status: string; draft: KnowledgeIntakeDraft }> {
+  try {
+    const response = await api.post<{ status: string; draft: KnowledgeIntakeDraft }>(`/projects/${projectId}/document-intake/sessions/${sessionId}/draft-table/approve`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to approve draft table')
+  }
+}
+
+export async function rejectKnowledgeIntakeDraft(projectId: string, sessionId: string): Promise<{ status: string }> {
+  try {
+    const response = await api.post<{ status: string }>(`/projects/${projectId}/document-intake/sessions/${sessionId}/draft-table/reject`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to reject draft table')
+  }
+}
+
+export async function exportKnowledgeIntakePackage(projectId: string, sessionId: string): Promise<KnowledgeIntakeExport> {
+  try {
+    const response = await api.post<KnowledgeIntakeExport>(`/projects/${projectId}/document-intake/sessions/${sessionId}/export-mirai-package`)
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to export Mirai package')
+  }
+}
+
+export async function downloadKnowledgeIntakePackage(projectId: string, sessionId: string): Promise<Blob> {
+  try {
+    const response = await api.get(`/projects/${projectId}/document-intake/sessions/${sessionId}/export.zip`, { responseType: 'blob' })
+    return response.data as Blob
+  } catch (error) {
+    throw normalizeError(error, 'Unable to download Mirai package')
+  }
+}

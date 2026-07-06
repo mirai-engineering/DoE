@@ -1,6 +1,7 @@
 import type { PredictionMap, Recommendation } from '../lib/api'
 
 export const tabs = [
+  { id: 'knowledge-intake', label: 'Knowledge Intake' },
   { id: 'data-intake', label: 'Data Intake' },
   { id: 'preprocessing-review', label: 'Preprocessing Review' },
   { id: 'model-quality', label: 'Model Quality' },

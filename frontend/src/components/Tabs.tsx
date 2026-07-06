@@ -13,6 +13,7 @@ const tabGroups: Array<{
   {
     title: 'Setup',
     items: [
+      { id: 'knowledge-intake', label: 'Knowledge Intake', short: 'KI' },
       { id: 'data-intake', label: 'Data Intake', short: 'DI' },
       { id: 'preprocessing-review', label: 'Preprocessing', short: 'PR' },
       { id: 'model-quality', label: 'Model Quality', short: 'MQ' },
