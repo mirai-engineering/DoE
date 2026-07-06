@@ -5,6 +5,7 @@ from io import BytesIO
 import hashlib
 import json
 import mimetypes
+import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -319,20 +320,28 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
 def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
     target_contract_id = str(session.get("target_contract_id") or "generic_tabular_doe")
     user_instruction = str(session.get("user_instruction") or "")
-    questions = [
-        "Confirm the exact target contract/table shape and required input/output columns.",
-        "Identify which uploaded files contain experiment metadata, conditions/inputs, and measured results/outputs.",
-        "Provide or approve an approved deterministic transform tool for this data shape before export.",
-    ]
+    agent_plan = _infer_mapping_plan_with_anthropic(target_contract_id, user_instruction, source_inventory)
+    questions = agent_plan.get("questions") if isinstance(agent_plan.get("questions"), list) else []
+    if not questions:
+        questions = [
+            "Confirm the exact target contract/table shape and required input/output columns.",
+            "Identify which uploaded files contain experiment metadata, conditions/inputs, and measured results/outputs.",
+            "Provide or approve an approved deterministic transform tool for this data shape before export.",
+        ]
     mapping = {
         "status": "candidate_only",
         "target_contract_id": target_contract_id,
         "user_instruction": user_instruction,
+        "agent_provider": agent_plan.get("provider"),
+        "agent_model": agent_plan.get("model"),
+        "agent_mapping": agent_plan.get("mapping"),
+        "agent_confidence": agent_plan.get("confidence"),
         "note": "Generic arbitrary-data support is intentionally plan-first. The agent may propose a structured mapping, but backend export requires an approved deterministic transform executor.",
     }
     transform_plan = {
         "execution_mode": "not_executed",
         "requires_approved_tool": True,
+        "agent_plan": agent_plan.get("transform_plan"),
         "steps": [
             "Inspect uploaded source inventory.",
             "Infer candidate source-to-contract mapping with an agent provider when configured.",
@@ -346,7 +355,8 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
         "Knowledge Intake loop notes",
         "",
         f"Target contract: {target_contract_id}",
-        "Status: generic contract-driven loop scaffold only; no arbitrary transform was executed.",
+        f"Agent planner: {agent_plan.get('provider')} ({agent_plan.get('model')})",
+        "Status: generic contract-driven loop planned only; no arbitrary transform was executed.",
         "The agent must not freely generate and execute transformation code. Export is blocked until an approved deterministic transform produces a valid contract package.",
         "",
         f"Loop iteration: {iteration_number}",
@@ -385,8 +395,70 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
         "loop_iteration": iteration,
         "approved_at": None,
     }
-    run = {"id": run_id, "status": "needs_user_input", "provider": "generic_loop_controller", "model": "anthropic_required_for_future_mapping", "started_at": _now(), "finished_at": _now(), "draft_id": draft_id}
+    run = {"id": run_id, "status": "needs_user_input", "provider": agent_plan.get("provider") or "generic_loop_controller", "model": agent_plan.get("model"), "started_at": _now(), "finished_at": _now(), "draft_id": draft_id, "usage": agent_plan.get("usage")}
     return draft, run, issue_lines, iteration
+
+
+def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction: str, source_inventory: list[dict[str, Any]]) -> dict[str, Any]:
+    model = os.getenv("MIRAI_KNOWLEDGE_INTAKE_MODEL") or os.getenv("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return {"provider": "not_configured", "model": model, "questions": [], "mapping": None, "confidence": "none"}
+    try:
+        from anthropic import Anthropic
+
+        client = Anthropic(timeout=float(os.getenv("MIRAI_KNOWLEDGE_INTAKE_TIMEOUT_SECONDS", "45")))
+        prompt = {
+            "target_contract_id": target_contract_id,
+            "user_instruction": user_instruction,
+            "source_inventory": source_inventory,
+            "constraints": [
+                "Do not generate executable code.",
+                "Return only a structured JSON planning object.",
+                "Backend may execute only approved deterministic transform tools.",
+                "List missing fields/questions required before validation/export.",
+            ],
+        }
+        response = client.messages.create(
+            model=model,
+            max_tokens=1800,
+            system=(
+                "You are Mirai's Knowledge Intake planner. Infer a source-to-contract mapping plan from uploaded source inventory. "
+                "You never write executable code. You produce JSON only with keys: mapping, transform_plan, questions, confidence."
+            ),
+            messages=[{"role": "user", "content": json.dumps(prompt, indent=2)}],
+        )
+        text = "\n".join(getattr(block, "text", "") for block in getattr(response, "content", []) if getattr(block, "type", None) == "text").strip()
+        parsed = _parse_json_object(text)
+        usage = getattr(response, "usage", None)
+        parsed.update({
+            "provider": "anthropic",
+            "model": model,
+            "usage": {
+                "input_tokens": getattr(usage, "input_tokens", None),
+                "output_tokens": getattr(usage, "output_tokens", None),
+            } if usage else None,
+        })
+        return parsed
+    except Exception as exc:  # noqa: BLE001 - planning should degrade to explicit questions, not break intake.
+        return {"provider": "anthropic_error", "model": model, "error": type(exc).__name__, "questions": [], "mapping": None, "confidence": "none"}
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    if not text:
+        return {}
+    try:
+        value = json.loads(text)
+        return value if isinstance(value, dict) else {}
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                value = json.loads(text[start : end + 1])
+                return value if isinstance(value, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {}
 
 
 def _csv_preview(path: Path, *, limit: int = 25) -> dict[str, Any]:

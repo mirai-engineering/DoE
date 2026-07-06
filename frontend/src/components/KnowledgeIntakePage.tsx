@@ -2,10 +2,12 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { ProjectSchema } from '../lib/api'
 import {
   approveKnowledgeIntakeDraft,
+  createIngestionSession,
   createKnowledgeIntakeSession,
   downloadKnowledgeIntakePackage,
   exportKnowledgeIntakePackage,
   getKnowledgeIntakeIssues,
+  getKnowledgeIntakeSession,
   type KnowledgeIntakeDraft,
   type KnowledgeIntakeSession,
   listKnowledgeIntakeSessions,
@@ -33,6 +35,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const [draft, setDraft] = useState<KnowledgeIntakeDraft | null>(null)
   const [issues, setIssues] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingLabel, setLoadingLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [tableName, setTableName] = useState('experiments.csv')
@@ -47,10 +50,13 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
     setError(null)
     try {
       const next = await listKnowledgeIntakeSessions(schema.project_id)
-      setSessions(next)
       const preferred = selectId || activeSessionId || next[0]?.id || ''
+      let selected = next.find((session) => session.id === preferred) ?? null
+      if (preferred) {
+        selected = await getKnowledgeIntakeSession(schema.project_id, preferred)
+      }
+      setSessions(selected ? next.map((session) => session.id === selected?.id ? { ...session, ...selected } : session) : next)
       setActiveSessionId(preferred)
-      const selected = next.find((session) => session.id === preferred)
       setDraft(selected?.draft ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load sessions')
@@ -59,6 +65,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
 
   async function handleCreateSession() {
     setLoading(true)
+    setLoadingLabel('Creating intake loop session…')
     setNotice(null)
     setError(null)
     try {
@@ -70,6 +77,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       setError(err instanceof Error ? err.message : 'Unable to create session')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
     }
   }
 
@@ -77,6 +85,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
     event.preventDefault()
     if (!activeSessionId || selectedFiles.length === 0) return
     setLoading(true)
+    setLoadingLabel('Uploading and indexing source files…')
     setNotice(null)
     setError(null)
     try {
@@ -88,12 +97,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
     }
   }
 
   async function handleMatch() {
     if (!activeSessionId) return
     setLoading(true)
+    setLoadingLabel('Agent planner is inspecting sources and drafting the contract mapping…')
     setNotice(null)
     setError(null)
     try {
@@ -108,12 +119,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       setError(err instanceof Error ? err.message : 'Unable to match Mirai contract')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
     }
   }
 
   async function handleApprove() {
     if (!activeSessionId) return
     setLoading(true)
+    setLoadingLabel('Persisting approval for the validated draft…')
     setNotice(null)
     setError(null)
     try {
@@ -125,12 +138,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       setError(err instanceof Error ? err.message : 'Approval failed')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
     }
   }
 
   async function handleReject() {
     if (!activeSessionId) return
     setLoading(true)
+    setLoadingLabel('Rejecting and deleting the current draft…')
     setNotice(null)
     setError(null)
     try {
@@ -143,12 +158,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       setError(err instanceof Error ? err.message : 'Reject failed')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
     }
   }
 
   async function handleExport() {
     if (!activeSessionId) return
     setLoading(true)
+    setLoadingLabel('Exporting the validated package and creating a Data Intake session…')
     setNotice(null)
     setError(null)
     try {
@@ -160,12 +177,28 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       link.download = 'mirai_package.zip'
       link.click()
       URL.revokeObjectURL(url)
-      setNotice('Mirai package exported. Upload it manually in Data Intake to continue.')
+      const packageFile = new File([blob], 'mirai_package.zip', { type: 'application/zip' })
+      const ingestion = await createIngestionSession(schema.display_name, [packageFile], `Created from Knowledge Intake session ${activeSessionId}.`, { existingProjectId: schema.project_id })
+      setNotice(`Mirai package exported and handed off to Data Intake session ${ingestion.ingestion_session_id}. Continue in Data Intake / Preprocessing.`)
       await refreshSessions(activeSessionId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed')
     } finally {
       setLoading(false)
+      setLoadingLabel('')
+    }
+  }
+
+  async function handleSelectSession(sessionId: string) {
+    setActiveSessionId(sessionId)
+    setIssues('')
+    try {
+      const detail = await getKnowledgeIntakeSession(schema.project_id, sessionId)
+      setSessions((prev) => prev.map((session) => session.id === sessionId ? { ...session, ...detail } : session))
+      setDraft(detail.draft ?? null)
+    } catch {
+      const selected = sessions.find((session) => session.id === sessionId)
+      setDraft(selected?.draft ?? null)
     }
   }
 
@@ -187,6 +220,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
             New session
           </button>
         </div>
+        {loading && <div className="mt-4 flex items-center gap-3 rounded-lg border border-[#74C7F5]/30 bg-[#74C7F5]/10 p-3 text-sm text-[#D9F3FF]"><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#74C7F5]/30 border-t-[#74C7F5]" />{loadingLabel || 'Working…'}</div>}
         {error && <div className="mt-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div>}
         {notice && <div className="mt-4 rounded-lg border border-emerald-300/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">{notice}</div>}
       </section>
@@ -201,7 +235,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
             {sessions.length === 0 ? (
               <p className="rounded-lg border border-dashed border-white/10 p-3 text-sm text-slate-400">Create a session to start uploading source files.</p>
             ) : sessions.map((session) => (
-              <button key={session.id} type="button" onClick={() => { setActiveSessionId(session.id); setDraft(session.draft ?? null); setIssues('') }} className={`w-full rounded-lg border px-3 py-2 text-left transition ${session.id === activeSessionId ? 'border-[#74C7F5]/50 bg-[#2F6BFF]/10' : 'border-white/[0.07] bg-white/[0.025] hover:bg-white/[0.045]'}`}>
+              <button key={session.id} type="button" onClick={() => { void handleSelectSession(session.id) }} className={`w-full rounded-lg border px-3 py-2 text-left transition ${session.id === activeSessionId ? 'border-[#74C7F5]/50 bg-[#2F6BFF]/10' : 'border-white/[0.07] bg-white/[0.025] hover:bg-white/[0.045]'}`}>
                 <span className="block text-sm font-medium text-white">{session.title || session.id}</span>
                 <span className="mt-1 block text-xs text-slate-400">{session.status} · {session.file_count ?? 0} files</span>
               </button>
