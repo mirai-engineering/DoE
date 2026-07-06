@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react
 import { SignInButton, SignUpButton } from '@clerk/clerk-react'
 import batteriesImage from '../../assets/batteries.png'
 import coverageMapImage from '../../assets/coverage-map.png'
-import electrolyzersImage from '../../assets/electrolyzers.png'
-import manufacturingImage from '../../assets/manufacturing.png'
+import catImage from '../../assets/CAT.png'
+import miningImage from '../../assets/mining.png'
 import materialsImage from '../../assets/materials.png'
 import processImage from '../../assets/process.png'
 import residualPlotImage from '../../assets/residual-plot.png'
@@ -19,10 +19,10 @@ const NAV_ITEMS = [
 ]
 
 const PROCESS_STAGES = [
-  { number: '1', title: 'Documents', desc: 'Pressure requirement A sits on PDF page 324; material constraint B is buried in Word document 5.', meta: 'Raw engineering memory' },
-  { number: '2', title: 'Structure', desc: 'Mirai links both to the same pump, line, or vessel — and flags the collision for review.', meta: 'Approved project schema' },
-  { number: '3', title: 'Questions', desc: 'Ask which assets violate pressure limits, which constraints conflict, and what changed before downtime.', meta: 'Traceable answers' },
-  { number: '4', title: 'Predictions', desc: 'Prioritize inspections, maintenance actions, and operating changes before failure or shutdown.', meta: 'Decision support' },
+  { number: '1', title: 'Maintenance', desc: 'Unify work orders, inspection notes, failure history, and sensor exports to decide which assets need attention first.', meta: 'Asset priority' },
+  { number: '2', title: 'Operating Windows', desc: 'Connect requirements, plant records, and process data to find safer, more efficient settings.', meta: 'Recommended settings' },
+  { number: '3', title: 'Constraint Conflicts', desc: 'Surface mismatched limits across PDFs, spreadsheets, and engineering notes before they become operational risk.', meta: 'Review queue' },
+  { number: '4', title: 'Downtime Risk', desc: 'Learn from fragmented historical signals to anticipate where intervention is most likely to pay off.', meta: 'Decision support' },
 ]
 
 const PRODUCT_STAGES = [
@@ -95,11 +95,10 @@ const CANDIDATES = [
 ]
 
 const INDUSTRIES = [
-  { title: 'Processes', objectives: 'Yield, throughput, process settings, energy use', detail: 'Learn from tabulated process data to recommend operating windows, formulations, and robust parameter settings.', image: processImage },
   { title: 'Batteries', objectives: 'Capacity retention, fast-charge, safety margins, cost', detail: 'Balance formation protocols, material formulations, and cycle-life targets under sparse experimental budgets.', image: batteriesImage },
   { title: 'Materials', objectives: 'Strength, fatigue, corrosion, manufacturability', detail: 'Connect composition and processing variables to measured properties with traceable surrogate models.', image: materialsImage },
-  { title: 'Electrolyzers', objectives: 'Efficiency, lifetime, operating window, stack cost', detail: 'Optimize operating conditions while keeping durability and degradation risks visible.', image: electrolyzersImage },
-  { title: 'Advanced manufacturing', objectives: 'Yield, cycle time, defects, energy use', detail: 'Rank parameter sets for production experiments where downtime and scrap are expensive.', image: manufacturingImage },
+  { title: 'Electrolyzers', objectives: 'Efficiency, lifetime, operating window, stack cost', detail: 'Optimize operating conditions while keeping durability and degradation risks visible.', image: processImage },
+  { title: 'Advanced manufacturing', objectives: 'Yield, cycle time, defects, energy use', detail: 'Rank parameter sets for production experiments where downtime and scrap are expensive.', image: miningImage },
 ]
 
 const scatterPoints = Array.from({ length: 40 }, (_, i) => ({
@@ -116,11 +115,11 @@ function showDemoContactMessage(event: MouseEvent<HTMLElement>) {
 }
 
 function Eyebrow({ children }: { children: string }) {
-  return <p className="mb-4 font-mono text-[0.75rem] uppercase tracking-[0.15em] text-[#7C5CFF]">{children}</p>
+  return <p className="mb-5 inline-flex rounded-full border border-violet-300/25 bg-[#6D5DFB]/12 px-3 py-1.5 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-[#B9AEFF] shadow-[0_0_18px_rgba(109,93,251,0.08)]">{children}</p>
 }
 
 function Meta({ children, className = '' }: { children: string; className?: string }) {
-  return <p className={`font-mono text-[10px] uppercase tracking-[0.08em] text-[#8899BB] ${className}`}>{children}</p>
+  return <p className={`font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-[#AEBBDD] ${className}`}>{children}</p>
 }
 
 function MiraiLogo({ className = '' }: { className?: string }) {
@@ -210,8 +209,8 @@ function Hero() {
 
           <div className="mt-12 grid w-full gap-4 sm:grid-cols-2 lg:w-[min(1080px,calc(100vw-3rem))] lg:grid-cols-4">
             {[
-              { icon: '01', label: 'Knowledge', desc: 'The information already exists: requirements, reports, logs, test results. It is just impossible to use together.' },
-              { icon: '02', label: 'Structure', desc: 'Your experts know the answers. Mirai helps turn what lives in documents, spreadsheets, and people’s heads into approved project data.' },
+              { icon: '01', label: 'Knowledge', desc: 'The information already exists: requirements, reports, logs, and test results. It is scattered across systems and formats.' },
+              { icon: '02', label: 'Structure', desc: 'Your experts know the answers. Mirai helps bring what lives in documents, spreadsheets, and people’s heads into one trusted engineering view.' },
               { icon: '03', label: 'Learn', desc: 'Teams should not spend hours hunting for information. They should see patterns, risks, constraints, and opportunities.' },
               { icon: '04', label: 'Decide', desc: 'The next project should not start from zero. Every recommendation should build on what you already know.' },
             ].map((feature, index) => (
@@ -275,14 +274,17 @@ function ProblemDecisions() {
 
         <div className="mt-12 grid gap-4 md:grid-cols-4">
           {[
-            ['Maintenance', 'Prioritize assets before downtime.'],
-            ['Processes', 'Choose operating changes with evidence.'],
-            ['Products', 'Compare designs before expensive builds.'],
-            ['Experiments', 'Run the test that teaches the most.'],
-          ].map(([title, copy]) => (
-            <div key={title} className="rounded-2xl border border-violet-300/20 bg-[#09152F] p-6 text-center">
-              <h3 className="text-xl font-semibold text-[#F6F4EA]">{title}</h3>
+            ['01', 'Maintenance', 'The question becomes which asset deserves attention first, not where the evidence is stored.'],
+            ['02', 'Processes', 'The question becomes which operating change is safest and most valuable to make next.'],
+            ['03', 'Products', 'The question becomes which design or formulation should move forward before expensive builds begin.'],
+            ['04', 'Experiments', 'The question becomes which test will reduce uncertainty the most for the budget available.'],
+          ].map(([num, title, copy]) => (
+            <div key={title} className="group relative overflow-hidden rounded-2xl border border-violet-300/20 bg-[#09152F] p-6 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-300/35 hover:bg-[#0B1938]">
+              <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#63D7FF]/45 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <span className="font-mono text-[11px] font-semibold tracking-[0.16em] text-[#63D7FF]">{num}</span>
+              <h3 className="mt-4 text-xl font-semibold text-[#F6F4EA]">{title}</h3>
               <p className="mt-3 text-sm leading-relaxed text-[#D6DEF0]">{copy}</p>
+              <div className="mt-6 h-px w-12 bg-gradient-to-r from-[#7C5CFF] to-transparent" />
             </div>
           ))}
         </div>
@@ -326,17 +328,17 @@ function Workflow() {
     <section id="workflow" className="relative border-t border-violet-300/15 bg-[#030716] py-16">
       <div className="mx-auto max-w-[1400px] px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <Eyebrow>The Mirai workflow</Eyebrow>
+          <Eyebrow>Second solution</Eyebrow>
           <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">From engineering knowledge to ranked decisions.</h2>
           <p className="mt-4 text-sm leading-relaxed text-[#C5D0E6]">Mirai supports both operational engineering knowledge and structured product R&amp;D data before applying validated models and optimization.</p>
         </div>
         <div className="mt-12 rounded-2xl border border-violet-300/15 bg-[#071126]/60 p-5">
-          <Meta className="text-[#63D7FF]">Use Case 1 — Process Engineering</Meta>
-          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[#F6F4EA]">Organize operational knowledge before ML.</h3>
+          <Meta className="text-[#63D7FF]">Example 1 — Process Engineering</Meta>
+          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[#F6F4EA]">Unify fragmented process data and make better decisions with machine learning.</h3>
           <StageGrid stages={PROCESS_STAGES} />
         </div>
         <div className="mt-6 rounded-2xl border border-violet-300/15 bg-[#071126]/60 p-5">
-          <Meta className="text-[#7C5CFF]">Use Case 2 — Product Engineering</Meta>
+          <Meta className="text-[#7C5CFF]">Example 2 — Product Engineering</Meta>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-[#F6F4EA]">Turn structured experimental data into optimized run plans.</h3>
           <StageGrid stages={PRODUCT_STAGES} />
         </div>
@@ -379,14 +381,14 @@ function ExperimentNavigator() {
 
         <div className="absolute bottom-8 left-6 right-6 z-20 lg:bottom-0 lg:left-0 lg:top-0 lg:flex lg:w-[440px] lg:max-w-[40vw] lg:flex-col lg:justify-center lg:px-14">
           <div className="rounded-2xl border border-white/10 bg-[#030716]/80 p-6 shadow-2xl backdrop-blur-xl lg:p-8">
-            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.22em] text-[#7C5CFF]/80">Use Case 2 — Product Engineering</p>
+            {stageIdx === 0 && <p className="mb-4 text-xl font-semibold leading-snug tracking-tight text-[#F6F4EA]">From fragmented data to battery testing — an example</p>}
             <div className="mb-5 flex items-center gap-2">
               {STORY_STAGES.map((item, index) => (
                 <div key={item.num} className={`h-[3px] flex-1 rounded-full transition-all duration-500 ${index === stageIdx ? 'bg-[#6D5DFB] shadow-[0_0_8px_rgba(109,93,251,0.5)]' : index < stageIdx ? 'bg-[#63D7FF]/50' : 'bg-white/10'}`} />
               ))}
               <span className="ml-1 min-w-[24px] text-right font-mono text-[10px] text-white/30">{stageIdx + 1}/{STORY_STAGES.length}</span>
             </div>
-            <p className="mb-2 font-mono text-[12px] uppercase tracking-[0.16em] text-[#7C5CFF]">{stage.num} / {stage.label}</p>
+            <p className="mb-2 font-mono text-[12px] font-semibold uppercase tracking-[0.16em] text-[#B9AEFF]">{stage.num} / {stage.label}</p>
             <h3 className="text-[22px] font-semibold leading-snug tracking-tight text-white">{stage.headline}</h3>
             <p className="mt-3 text-[14px] leading-relaxed text-[#C5D0E6]">{stage.body}</p>
             <div className="mt-5 flex flex-wrap gap-3 border-t border-white/10 pt-4">
@@ -417,7 +419,7 @@ function DataScientist() {
       <div className="pointer-events-none absolute left-1/4 right-1/4 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/20 to-transparent" />
       <div className="mx-auto max-w-[1400px] px-6">
         <div className="mb-14 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-300/20 bg-[#6D5DFB]/5 px-4 py-1.5"><span className="font-mono text-[10px] tracking-wider text-[#7C5CFF]/80">First solution</span></div>
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-violet-300/25 bg-[#6D5DFB]/12 px-4 py-1.5 shadow-[0_0_18px_rgba(109,93,251,0.08)]"><span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#B9AEFF]">First solution</span></div>
           <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Ask across fragmented engineering knowledge.</h2>
           <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-[#C5D0E6]">Mirai helps teams find requirements, conflicts, maintenance patterns, and source evidence across project files — then turns the result into reviewed structure.</p>
         </div>
@@ -554,8 +556,8 @@ function Industries() {
           <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-4xl">Built for engineering domains where evidence is fragmented and trade-offs are real.</h2>
           <p className="mt-4 text-sm leading-relaxed text-[#D6DEF0]">Start with structured engineering data from documents, systems, and experiments. Expand across teams, projects, and sites.</p>
         </div>
-        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {INDUSTRIES.map((industry) => <div key={industry.title} className="group overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-300 hover:border-violet-300/35"><div className="aspect-[3/2] overflow-hidden rounded-xl bg-[#030716]"><img src={industry.image} alt={`${industry.title} tabular experiment optimization`} className="h-full w-full object-contain object-center opacity-95 transition duration-500 group-hover:scale-[1.01]" /></div></div>)}
+        <div className="mx-auto mt-12 grid max-w-5xl gap-5 md:grid-cols-2">
+          {INDUSTRIES.map((industry) => <div key={industry.title} className="group overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-300 hover:border-violet-300/35"><div className="aspect-[3/2] overflow-hidden rounded-xl bg-[#030716]"><img src={industry.image} alt={`${industry.title} tabular experiment optimization`} className="h-full w-full object-cover object-center opacity-95 transition duration-500 group-hover:scale-[1.01]" /></div></div>)}
         </div>
       </div>
     </section>
@@ -567,17 +569,17 @@ function Cta() {
     <section id="cta" className="relative overflow-hidden border-t border-violet-300/15 bg-[#010412]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(109,93,251,0.14),transparent_32%),radial-gradient(circle_at_82%_78%,rgba(59,130,246,0.12),transparent_34%)]" />
       <div className="relative mx-auto max-w-[1400px] px-6 py-20">
-        <div className="grid items-center gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="grid items-center gap-12 lg:grid-cols-[1fr_0.9fr]">
           <div>
-            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-[#7C5CFF]">Mirai</p>
-            <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-[2.5rem]">Make every physical test count.</h2>
-            <p className="mt-4 max-w-md text-base leading-relaxed text-[#D6DEF0]">Walk through knowledge structuring, traceability, surrogate diagnostics, and ranked recommendations for a representative slice of your engineering data.</p>
-            <p className="mt-3 max-w-md text-sm leading-relaxed text-[#AEBBDD]">Use Mirai to turn documents, historical experiments, maintenance records, and process tables into a defensible ranked plan before the next expensive lab or production run.</p>
+            <p className="mb-4 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[#B9AEFF]">Process and product engineering</p>
+            <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-[2.5rem]">Make every decision count.</h2>
+            <p className="mt-4 max-w-md text-base leading-relaxed text-[#D6DEF0]">Walk through how Mirai structures engineering knowledge, validates models, and ranks next actions across process and product engineering workflows.</p>
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-[#AEBBDD]">Use Mirai to turn documents, historical experiments, maintenance records, and process tables into defensible decisions before the next lab run, plant change, or product iteration.</p>
             <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#6D5DFB]/90 px-8 text-sm font-medium tracking-wide text-white transition-all duration-200 hover:bg-[#6D5DFB]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-violet-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#6D5DFB]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#3B82F6]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-violet-300/20 bg-[#071126] p-3 shadow-[0_0_36px_rgba(109,93,251,0.12)]">
-            <div className="aspect-[2560/1429] overflow-hidden rounded-xl border border-blue-300/10 bg-[#020817]">
-              <img src="/assets/cta-bg.png" alt="Decision-ready Mirai run plan export" className="h-full w-full object-cover object-center opacity-100" />
+          <div className="w-full max-w-[620px] justify-self-center overflow-hidden rounded-2xl border border-violet-300/20 bg-[#020817] shadow-[0_0_36px_rgba(109,93,251,0.12)] lg:justify-self-end">
+            <div className="aspect-[1694/928] overflow-hidden">
+              <img src={catImage} alt="Industrial decision workflow in Mirai" className="h-full w-full object-contain object-center opacity-100" />
             </div>
           </div>
         </div>
