@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from io import BytesIO
+import csv
 import hashlib
 import json
 import mimetypes
 import os
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 import zipfile
@@ -24,6 +26,19 @@ LOCAL_BUCKET = "mirai-document-intake"
 
 ALLOWED_SUFFIXES = {".pdf", ".docx", ".xlsx", ".csv", ".zip"}
 PACKAGE_FILES = ["mirai_manifest.json", "data_dictionary.csv", "experiments.csv", "conditions.csv", "results.csv"]
+GENERIC_TABULAR_DOE_FIELDS = [
+    {"field": "pt_c_ratio", "role": "input", "required": True, "description": "Platinum-to-carbon ratio or catalyst Pt/C formulation variable."},
+    {"field": "i_c_ratio", "role": "input", "required": True, "description": "Ionomer-to-carbon ratio or ionomer loading formulation variable."},
+    {"field": "ionomer_ew", "role": "input", "required": True, "description": "Ionomer equivalent weight."},
+    {"field": "operating_rh", "role": "input", "required": True, "description": "Operating relative humidity."},
+    {"field": "operating_voltage", "role": "input", "required": True, "description": "Operating voltage grid/condition."},
+    {"field": "ast_rh", "role": "input", "required": True, "description": "Accelerated stress test relative humidity."},
+    {"field": "ast_upl", "role": "input", "required": True, "description": "Accelerated stress test upper potential limit."},
+    {"field": "bol_current_density", "role": "output", "required": True, "description": "Beginning-of-life current density."},
+    {"field": "eol_current_density", "role": "output", "required": True, "description": "End-of-life current density."},
+    {"field": "bol_ecsa", "role": "output", "required": True, "description": "Beginning-of-life electrochemical surface area."},
+    {"field": "ecsa_loss", "role": "output", "required": True, "description": "ECSA degradation/loss."},
+]
 
 
 def _now() -> str:
@@ -121,8 +136,10 @@ def get_document_intake_session(workspace_id: str, project_id: str, session_id: 
     files = _read_json(config, _json_key(config, session_id, "files"), default=[])
     draft = _read_json(config, _json_key(config, session_id, "draft"), default=None)
     export = _read_json(config, _json_key(config, session_id, "export"), default=None)
+    messages = _read_json(config, _json_key(config, session_id, "messages"), default=[])
     public = _public_session(session)
     public["files"] = files if isinstance(files, list) else []
+    public["messages"] = messages if isinstance(messages, list) else []
     public["draft"] = draft if isinstance(draft, dict) else None
     public["export"] = export if isinstance(export, dict) else None
     return public
@@ -171,16 +188,124 @@ def _summarize_file(filename: str, suffix: str, data: bytes) -> dict[str, Any]:
         try:
             with zipfile.ZipFile(BytesIO(data)) as archive:
                 names = [name for name in archive.namelist() if not name.endswith("/")]
+                indexed_tables: list[dict[str, Any]] = []
+                for name in names[:120]:
+                    inner_suffix = Path(name).suffix.lower()
+                    if inner_suffix == ".csv":
+                        try:
+                            indexed_tables.append(_summarize_csv_bytes(archive.read(name), table_name=name, max_bytes=120_000))
+                        except Exception as exc:  # noqa: BLE001
+                            indexed_tables.append({"table_name": name, "type": "csv", "status": "parse_warning", "warning": type(exc).__name__})
+                    elif inner_suffix == ".xlsx":
+                        try:
+                            indexed_tables.extend(_summarize_xlsx_bytes(archive.read(name), workbook_name=name))
+                        except Exception as exc:  # noqa: BLE001
+                            indexed_tables.append({"table_name": name, "type": "xlsx", "status": "parse_warning", "warning": type(exc).__name__})
                 allowed_inner = [name for name in names if Path(name).suffix.lower() in {".csv", ".xlsx"}]
-                return {"status": "container_indexed", "inner_file_count": len(names), "allowed_inner_file_count": len(allowed_inner), "sample_inner_files": allowed_inner[:20]}
+                return {"status": "container_indexed", "inner_file_count": len(names), "allowed_inner_file_count": len(allowed_inner), "sample_inner_files": allowed_inner[:20], "tables": indexed_tables[:60]}
         except zipfile.BadZipFile:
             return {"status": "parse_warning", "warning": "Invalid ZIP container"}
     if suffix == ".csv":
-        text = data[:8192].decode("utf-8", errors="replace")
-        return {"status": "parsed_preview", "line_count_sample": len(text.splitlines()), "preview": text.splitlines()[:5]}
+        return {"status": "parsed_preview", "tables": [_summarize_csv_bytes(data, table_name=filename)]}
     if suffix == ".xlsx":
-        return {"status": "uploaded", "note": "XLSX parsing is planned behind the document parser boundary."}
+        tables = _summarize_xlsx_bytes(data, workbook_name=filename)
+        return {"status": "parsed_preview" if tables else "uploaded", "tables": tables, "note": None if tables else "XLSX parser could not extract a tabular preview."}
     return {"status": "uploaded", "note": "Text/document parsing is planned behind the document parser boundary."}
+
+
+def _summarize_csv_bytes(data: bytes, *, table_name: str, max_bytes: int = 250_000) -> dict[str, Any]:
+    text = data[:max_bytes].decode("utf-8-sig", errors="replace")
+    sample = text.splitlines()[:100]
+    if not sample:
+        return {"table_name": table_name, "type": "csv", "status": "empty", "columns": [], "row_count_sample": 0, "sample_rows": []}
+    try:
+        dialect = csv.Sniffer().sniff("\n".join(sample[:10])) if len(sample) > 1 else csv.excel
+    except csv.Error:
+        dialect = csv.excel
+    rows = list(csv.reader(sample, dialect))
+    columns = [str(value).strip() for value in (rows[0] if rows else [])]
+    data_rows = rows[1:6]
+    return {
+        "table_name": table_name,
+        "type": "csv",
+        "status": "parsed_preview",
+        "columns": columns,
+        "row_count_sample": max(len(rows) - 1, 0),
+        "sample_rows": [_row_dict(columns, row) for row in data_rows],
+        "column_profiles": [_column_profile(column, [row[idx] if idx < len(row) else "" for row in rows[1:20]]) for idx, column in enumerate(columns)],
+    }
+
+
+def _summarize_xlsx_bytes(data: bytes, *, workbook_name: str) -> list[dict[str, Any]]:
+    try:
+        import pandas as pd
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        workbook = pd.ExcelFile(BytesIO(data))
+    except Exception:  # noqa: BLE001
+        return []
+    tables: list[dict[str, Any]] = []
+    for sheet_name in workbook.sheet_names[:20]:
+        try:
+            frame = workbook.parse(sheet_name=sheet_name, nrows=25)
+            columns = [str(column).strip() for column in frame.columns.tolist()]
+            sample_rows = frame.head(5).where(frame.notna(), None).to_dict(orient="records")
+            tables.append({
+                "table_name": f"{workbook_name}::{sheet_name}",
+                "workbook": workbook_name,
+                "sheet_name": sheet_name,
+                "type": "xlsx_sheet",
+                "status": "parsed_preview",
+                "columns": columns,
+                "row_count_sample": int(len(frame.index)),
+                "sample_rows": sample_rows,
+                "column_profiles": [_column_profile(column, [row.get(column) for row in sample_rows]) for column in columns],
+            })
+        except Exception as exc:  # noqa: BLE001
+            tables.append({"table_name": f"{workbook_name}::{sheet_name}", "type": "xlsx_sheet", "status": "parse_warning", "warning": type(exc).__name__})
+    return tables
+
+
+def _row_dict(columns: list[str], row: list[str]) -> dict[str, Any]:
+    return {column or f"column_{idx + 1}": row[idx] if idx < len(row) else None for idx, column in enumerate(columns[:40])}
+
+
+def _column_profile(column: str, values: list[Any]) -> dict[str, Any]:
+    non_empty = [value for value in values if value not in {None, ""}]
+    numeric = 0
+    for value in non_empty:
+        try:
+            float(str(value).replace(",", ""))
+            numeric += 1
+        except ValueError:
+            pass
+    return {
+        "name": column,
+        "sample_values": [str(value) for value in non_empty[:5]],
+        "inferred_type": "numeric" if non_empty and numeric / len(non_empty) >= 0.8 else "text",
+        "semantic_hints": _semantic_hints(column),
+    }
+
+
+def _semantic_hints(column: str) -> list[str]:
+    text = column.lower().replace("_", " ").replace("-", " ")
+    hints = []
+    patterns = {
+        "voltage": r"\b(voltage|volt|potential|ewe|u\b)",
+        "current_density": r"current|j\b|ma\s*cm|a\s*cm",
+        "relative_humidity": r"\brh\b|humidity",
+        "ecsa": r"ecsa|surface area",
+        "bol": r"\bbol\b|beginning",
+        "eol": r"\beol\b|end of life",
+        "upl": r"upl|upper potential",
+        "catalyst_ratio": r"pt.?c|platinum|catalyst",
+        "ionomer": r"ionomer|nafion|ew\b",
+    }
+    for hint, pattern in patterns.items():
+        if re.search(pattern, text):
+            hints.append(hint)
+    return hints
 
 
 def save_document_instruction(workspace_id: str, project_id: str, session_id: str, message: str, expected_columns: list[str] | None = None, expected_row_count: int | None = None) -> dict[str, Any]:
@@ -226,22 +351,49 @@ def match_mirai_contract(workspace_id: str, project_id: str, session_id: str) ->
     _write_json(config, _json_key(config, session_id, "draft"), draft)
     _record_draft_sql(workspace_id, project_id, session_id, draft)
     _write_json(config, _json_key(config, session_id, "latest_run"), run)
+    if isinstance(draft.get("agent_response"), str):
+        messages = _read_json(config, _json_key(config, session_id, "messages"), default=[])
+        messages = messages if isinstance(messages, list) else []
+        messages.append({"role": "assistant", "content": draft["agent_response"], "created_at": _now(), "draft_id": draft_id})
+        _write_json(config, _json_key(config, session_id, "messages"), messages[-50:])
     _update_session(config, project_id, session)
     return {"status": session["status"], "draft": draft, "run": run, "iteration": iteration}
 
 
 def _source_inventory(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
+    inventory: list[dict[str, Any]] = []
+    for item in files:
+        parse_summary = item.get("parse_summary") if isinstance(item.get("parse_summary"), dict) else {}
+        tables = parse_summary.get("tables") if isinstance(parse_summary.get("tables"), list) else []
+        available_columns = []
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            for column in table.get("columns") or []:
+                available_columns.append({
+                    "file_id": item.get("id"),
+                    "filename": item.get("filename"),
+                    "table_name": table.get("table_name"),
+                    "column": column,
+                    "semantic_hints": _semantic_hints(str(column)),
+                })
+        inventory.append({
             "id": item.get("id"),
             "filename": item.get("filename"),
             "file_type": item.get("file_type"),
             "size_bytes": item.get("size_bytes"),
             "parse_status": item.get("parse_status"),
-            "parse_summary": item.get("parse_summary"),
-        }
-        for item in files
-    ]
+            "tables": tables,
+            "available_columns": available_columns,
+            "parse_summary": {k: v for k, v in parse_summary.items() if k != "tables"},
+        })
+    return inventory
+
+
+def _contract_fields(target_contract_id: str) -> list[dict[str, Any]]:
+    if target_contract_id in {"generic_tabular_doe", "mirai_fixed_source_tables", "fraunhofer2miraicontract-full"}:
+        return GENERIC_TABULAR_DOE_FIELDS
+    return []
 
 
 def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str, draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
@@ -249,10 +401,15 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
     tables = {name: _csv_preview_text(text) for name, text in harness.files.items() if name.endswith(".csv")}
     manifest = json.loads(harness.files["mirai_manifest.json"])
     validation_passed = bool(harness.validation.get("passed"))
+    mapping_board = [
+        {"field": field["field"], "role": field["role"], "required": field["required"], "description": field["description"], "source_column": "deterministic demo adapter", "source_table": "data_overview.xlsx + Cell_XX.zip IV/ECSA CSVs", "source_file": "uploaded Fraunhofer fixture", "confidence": "high", "status": "mapped", "rationale": "Mapped by approved Fraunhofer cathode catalyst deterministic adapter."}
+        for field in GENERIC_TABULAR_DOE_FIELDS
+    ]
     mapping = {
         "adapter": "fraunhofer_cathode_catalyst_demo",
         "description": "Deterministic proof adapter for the Cathode Catalyst Degradation fixture only; not the generic intake harness.",
         "target_contract_id": "fraunhofer2miraicontract-full",
+        "mapping_board": mapping_board,
     }
     transform_plan = {
         "execution_mode": "approved_deterministic_adapter",
@@ -289,6 +446,7 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
         "goal": {"target_contract_id": "fraunhofer2miraicontract-full", "export_requires_validation": True},
         "source_inventory": source_inventory,
         "proposed_mapping": mapping,
+        "mapping_board": mapping_board,
         "transform_plan": transform_plan,
         "transform_attempt": {"status": "completed", "executor": "backend_deterministic_adapter", "adapter": "fraunhofer_cathode_catalyst_demo"},
         "validation_result": harness.validation,
@@ -304,6 +462,9 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
         "adapter_id": "fraunhofer_cathode_catalyst_demo",
         "created_at": _now(),
         "schema": _contract_schema(manifest),
+        "available_columns": _flatten_available_columns(source_inventory),
+        "mapping_board": mapping_board,
+        "agent_response": "The Fraunhofer demo adapter mapped and validated the selected contract with a deterministic backend transform." if validation_passed else "The Fraunhofer demo adapter needs the missing fixture files listed in the issues panel.",
         "tables": tables,
         "contract_files": harness.files if validation_passed else None,
         "row_counts": harness.row_counts,
@@ -320,49 +481,70 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
 def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
     target_contract_id = str(session.get("target_contract_id") or "generic_tabular_doe")
     user_instruction = str(session.get("user_instruction") or "")
-    agent_plan = _infer_mapping_plan_with_anthropic(target_contract_id, user_instruction, source_inventory)
-    questions = agent_plan.get("questions") if isinstance(agent_plan.get("questions"), list) else []
+    contract_fields = _contract_fields(target_contract_id)
+    available_columns = _flatten_available_columns(source_inventory)
+    user_intent = _classify_user_intent(user_instruction)
+    agent_plan = _infer_mapping_plan_with_anthropic(target_contract_id, user_instruction, source_inventory, contract_fields)
+    mapping_board = _build_mapping_board(contract_fields, available_columns, agent_plan, user_instruction)
+    missing_fields = [row["field"] for row in mapping_board if row.get("required") and row.get("status") == "missing"]
+    user_selected = _extract_user_selected_columns(user_instruction, available_columns)
+    approved_mapping = user_intent == "approve_all" and not missing_fields
+    blockers = []
+    if missing_fields:
+        blockers.extend([f"Map or mark constant/unknown: {field}" for field in missing_fields])
+    blockers.append("No approved deterministic transform executor exists yet for this generic source shape; export remains blocked until one validates package files.")
+    questions = _specific_questions(mapping_board, missing_fields, user_selected)
     if not questions:
-        questions = [
-            "Confirm the exact target contract/table shape and required input/output columns.",
-            "Identify which uploaded files contain experiment metadata, conditions/inputs, and measured results/outputs.",
-            "Provide or approve an approved deterministic transform tool for this data shape before export.",
-        ]
+        questions = agent_plan.get("questions") if isinstance(agent_plan.get("questions"), list) else []
+    if not questions:
+        questions = ["Confirm the proposed mapping, or say which available columns should be inputs and outputs."]
+    agent_response = _agent_response_text(user_intent, approved_mapping, missing_fields, user_selected, mapping_board, available_columns)
     mapping = {
-        "status": "candidate_only",
+        "status": "user_approved_mapping" if approved_mapping else "candidate_only",
         "target_contract_id": target_contract_id,
         "user_instruction": user_instruction,
         "agent_provider": agent_plan.get("provider"),
         "agent_model": agent_plan.get("model"),
         "agent_mapping": agent_plan.get("mapping"),
         "agent_confidence": agent_plan.get("confidence"),
-        "note": "Generic arbitrary-data support is intentionally plan-first. The agent may propose a structured mapping, but backend export requires an approved deterministic transform executor.",
+        "mapping_board": mapping_board,
+        "available_columns": available_columns,
+        "user_selected_columns": user_selected,
+        "agent_response": agent_response,
+        "note": "Generic arbitrary-data support is plan-first. The agent proposes a structured mapping, but backend export requires an approved deterministic transform executor and selected-contract validation.",
     }
     transform_plan = {
         "execution_mode": "not_executed",
         "requires_approved_tool": True,
         "agent_plan": agent_plan.get("transform_plan"),
         "steps": [
-            "Inspect uploaded source inventory.",
+            "Inspect uploaded source inventory and list available columns.",
             "Infer candidate source-to-contract mapping with an agent provider when configured.",
-            "Ask user to resolve missing fields/ambiguous joins.",
+            "Let the user approve/correct input and output assignments conversationally.",
             "Execute only approved deterministic backend transforms.",
             "Validate generated package against the selected contract before approval/export.",
         ],
     }
-    validation = {"passed": False, "status": "blocked_no_approved_transform", "target_contract_id": target_contract_id, "missing_fields": questions}
+    validation = {"passed": False, "status": "blocked_no_approved_transform", "target_contract_id": target_contract_id, "missing_fields": missing_fields, "blockers": blockers}
     issue_lines = [
         "Knowledge Intake loop notes",
         "",
         f"Target contract: {target_contract_id}",
         f"Agent planner: {agent_plan.get('provider')} ({agent_plan.get('model')})",
-        "Status: generic contract-driven loop planned only; no arbitrary transform was executed.",
-        "The agent must not freely generate and execute transformation code. Export is blocked until an approved deterministic transform produces a valid contract package.",
+        "Status: generic contract-driven mapping conversation; no arbitrary transform was executed.",
+        "The agent proposes columns and roles. Export is blocked until an approved deterministic transform produces a valid contract package.",
         "",
         f"Loop iteration: {iteration_number}",
         f"Uploaded files: {len(files)}",
+        f"Available columns discovered: {len(available_columns)}",
         "",
-        "Questions / missing information:",
+        "Agent response:",
+        agent_response,
+        "",
+        "Mapping blockers:",
+        *[f"- {blocker}" for blocker in blockers],
+        "",
+        "Questions / next actions:",
         *[f"- {question}" for question in questions],
     ]
     iteration = {
@@ -370,22 +552,32 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
         "created_at": _now(),
         "goal": {"target_contract_id": target_contract_id, "export_requires_validation": True},
         "source_inventory": source_inventory,
+        "contract_fields": contract_fields,
+        "available_columns": available_columns,
         "proposed_mapping": mapping,
+        "mapping_board": mapping_board,
         "transform_plan": transform_plan,
         "transform_attempt": {"status": "not_executed", "reason": "no_approved_deterministic_transform_for_target"},
         "validation_result": validation,
-        "missing_fields": questions,
+        "missing_fields": missing_fields,
+        "blockers": blockers,
         "questions": questions,
         "user_answers": [user_instruction] if user_instruction else [],
+        "conversation": _conversation_with_agent(session, agent_response),
     }
     draft = {
         "id": draft_id,
         "run_id": run_id,
-        "status": "needs_user_input",
+        "status": "mapping_approved_blocked_executor" if approved_mapping else "needs_user_input",
         "table_kind": "contract_mapping_plan",
         "adapter_id": None,
         "created_at": _now(),
-        "schema": {"template_id": target_contract_id, "tables": [], "inputs": [], "outputs": []},
+        "schema": {"template_id": target_contract_id, "fields": contract_fields, "inputs": [f for f in contract_fields if f.get("role") == "input"], "outputs": [f for f in contract_fields if f.get("role") == "output"]},
+        "source_inventory": source_inventory,
+        "available_columns": available_columns,
+        "mapping_board": mapping_board,
+        "agent_response": agent_response,
+        "conversation": iteration["conversation"],
         "tables": {},
         "contract_files": None,
         "row_counts": {},
@@ -395,11 +587,165 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
         "loop_iteration": iteration,
         "approved_at": None,
     }
+    session["mapping_state"] = mapping
     run = {"id": run_id, "status": "needs_user_input", "provider": agent_plan.get("provider") or "generic_loop_controller", "model": agent_plan.get("model"), "started_at": _now(), "finished_at": _now(), "draft_id": draft_id, "usage": agent_plan.get("usage")}
     return draft, run, issue_lines, iteration
 
 
-def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction: str, source_inventory: list[dict[str, Any]]) -> dict[str, Any]:
+def _flatten_available_columns(source_inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    columns: list[dict[str, Any]] = []
+    for item in source_inventory:
+        for column in item.get("available_columns") or []:
+            if isinstance(column, dict):
+                columns.append(column)
+    return columns[:300]
+
+
+def _classify_user_intent(message: str) -> str:
+    text = message.strip().lower()
+    if re.search(r"\b(approve|accept|ok|yes|confirm)\b.*\b(all|everything|suggested|mapping|proposal)\b", text) or text in {"approved", "approve", "yes", "ok"}:
+        return "approve_all"
+    if "input" in text or "output" in text:
+        return "mapping_update"
+    if "constant" in text or "unknown" in text or "exclude" in text:
+        return "field_override"
+    return "instruction"
+
+
+def _extract_user_selected_columns(message: str, available_columns: list[dict[str, Any]]) -> dict[str, list[str]]:
+    text = message.lower()
+    names = [str(col.get("column") or "") for col in available_columns]
+    selected = {"inputs": [], "outputs": [], "mentioned": []}
+    for name in names:
+        if name and name.lower() in text:
+            selected["mentioned"].append(name)
+            before = text[: text.find(name.lower())]
+            if "output" in before[-80:]:
+                selected["outputs"].append(name)
+            elif "input" in before[-80:]:
+                selected["inputs"].append(name)
+    return selected
+
+
+def _build_mapping_board(contract_fields: list[dict[str, Any]], available_columns: list[dict[str, Any]], agent_plan: dict[str, Any], user_instruction: str) -> list[dict[str, Any]]:
+    agent_mapping = agent_plan.get("mapping") if isinstance(agent_plan.get("mapping"), dict) else {}
+    rows = []
+    for field in contract_fields:
+        field_name = str(field.get("field"))
+        candidate = _best_column_candidate(field_name, available_columns)
+        agent_candidate = agent_mapping.get(field_name) if isinstance(agent_mapping, dict) else None
+        if isinstance(agent_candidate, dict):
+            source = agent_candidate.get("source") or agent_candidate.get("source_column") or candidate.get("column")
+            confidence = agent_candidate.get("confidence") or candidate.get("confidence")
+            rationale = agent_candidate.get("rationale") or candidate.get("rationale")
+        else:
+            source = candidate.get("column")
+            confidence = candidate.get("confidence")
+            rationale = candidate.get("rationale")
+        status = "mapped" if source else "missing"
+        if _user_marked_field_override(user_instruction, field_name):
+            status = "constant_or_unknown"
+            source = source or "user-marked constant/unknown"
+            confidence = "user_confirmed"
+            rationale = "User instructed Mirai to treat this field as constant/unknown/excluded for this dataset."
+        rows.append({
+            "field": field_name,
+            "role": field.get("role"),
+            "required": field.get("required", True),
+            "description": field.get("description"),
+            "source_column": source,
+            "source_table": candidate.get("table_name"),
+            "source_file": candidate.get("filename"),
+            "confidence": confidence or "none",
+            "status": status,
+            "rationale": rationale or ("No matching source column found yet." if status == "missing" else "Matched from column name/hints."),
+        })
+    return rows
+
+
+def _user_marked_field_override(message: str, field_name: str) -> bool:
+    text = message.lower()
+    return field_name.lower() in text and any(word in text for word in ["constant", "unknown", "exclude", "ignore"])
+
+
+def _best_column_candidate(field_name: str, available_columns: list[dict[str, Any]]) -> dict[str, Any]:
+    field_hints = set(_field_hints(field_name))
+    best: tuple[int, dict[str, Any]] = (0, {})
+    for column in available_columns:
+        name = str(column.get("column") or "")
+        normalized = name.lower().replace("_", " ").replace("-", " ")
+        hints = set(column.get("semantic_hints") or [])
+        score = 0
+        if field_name.lower() == name.lower():
+            score += 10
+        for token in field_name.lower().split("_"):
+            if len(token) > 2 and token in normalized:
+                score += 2
+        score += len(field_hints & hints) * 4
+        if field_name.startswith("bol") and "eol" in hints:
+            score -= 4
+        if field_name.startswith("eol") and "bol" in hints:
+            score -= 4
+        if score > best[0]:
+            confidence = "high" if score >= 8 else "medium" if score >= 4 else "low"
+            best = (score, {**column, "confidence": confidence, "rationale": f"Name/hint match score {score}."})
+    return best[1] if best[0] >= 3 else {}
+
+
+def _field_hints(field_name: str) -> list[str]:
+    mapping = {
+        "operating_voltage": ["voltage"],
+        "operating_rh": ["relative_humidity"],
+        "ast_rh": ["relative_humidity"],
+        "ast_upl": ["upl", "voltage"],
+        "bol_current_density": ["bol", "current_density"],
+        "eol_current_density": ["eol", "current_density"],
+        "bol_ecsa": ["bol", "ecsa"],
+        "ecsa_loss": ["ecsa"],
+        "pt_c_ratio": ["catalyst_ratio"],
+        "i_c_ratio": ["ionomer"],
+        "ionomer_ew": ["ionomer"],
+    }
+    return mapping.get(field_name, [])
+
+
+def _specific_questions(mapping_board: list[dict[str, Any]], missing_fields: list[str], user_selected: dict[str, list[str]]) -> list[str]:
+    questions = []
+    if user_selected.get("inputs") or user_selected.get("outputs"):
+        questions.append("I recorded your mentioned input/output columns. Confirm which Mirai contract fields each should populate, or approve the proposed board if correct.")
+    for field in missing_fields[:8]:
+        questions.append(f"Which available column should populate `{field}`, or should it be marked constant/unknown for this dataset?")
+    if any(row.get("confidence") == "low" for row in mapping_board):
+        questions.append("Please confirm low-confidence mappings before validation.")
+    return questions
+
+
+def _agent_response_text(user_intent: str, approved_mapping: bool, missing_fields: list[str], user_selected: dict[str, list[str]], mapping_board: list[dict[str, Any]], available_columns: list[dict[str, Any]]) -> str:
+    mapped = [row for row in mapping_board if row.get("status") == "mapped"]
+    if user_intent == "approve_all" and missing_fields:
+        return "I cannot approve everything yet. I found proposed columns for some fields, but these required Mirai fields are still unmapped: " + ", ".join(missing_fields) + ". Tell me which available columns to use, mark them constant/unknown, or upload metadata containing them."
+    if approved_mapping:
+        return "I recorded your approval of the proposed mapping. Export is still blocked because the generic path needs an approved deterministic transform executor and contract validation package files."
+    if user_selected.get("mentioned"):
+        return "I found your mentioned columns (" + ", ".join(user_selected["mentioned"]) + ") and updated the mapping conversation. Please confirm the specific Mirai fields or approve the board once blockers are resolved."
+    if available_columns:
+        return f"I found {len(available_columns)} available source columns and proposed {len(mapped)} Mirai field mappings. Review the mapping board; tell me which columns to use as inputs/outputs or say 'approve suggested mapping' if it is correct."
+    return "I indexed the uploaded files, but did not find tabular columns yet. Upload CSV/XLSX files or ZIPs containing them, or describe where the contract variables are located."
+
+
+def _conversation_with_agent(session: dict[str, Any], agent_response: str) -> list[dict[str, Any]]:
+    conversation = []
+    for message in session.get("loop_iterations") or []:
+        for turn in message.get("conversation") or []:
+            if isinstance(turn, dict):
+                conversation.append(turn)
+    if session.get("user_instruction"):
+        conversation.append({"role": "user", "content": session.get("user_instruction"), "created_at": _now()})
+    conversation.append({"role": "assistant", "content": agent_response, "created_at": _now()})
+    return conversation[-20:]
+
+
+def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction: str, source_inventory: list[dict[str, Any]], contract_fields: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     model = os.getenv("MIRAI_KNOWLEDGE_INTAKE_MODEL") or os.getenv("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
     if not os.getenv("ANTHROPIC_API_KEY"):
         return {"provider": "not_configured", "model": model, "questions": [], "mapping": None, "confidence": "none"}
@@ -409,6 +755,7 @@ def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction
         client = Anthropic(timeout=float(os.getenv("MIRAI_KNOWLEDGE_INTAKE_TIMEOUT_SECONDS", "45")))
         prompt = {
             "target_contract_id": target_contract_id,
+            "contract_fields": contract_fields or _contract_fields(target_contract_id),
             "user_instruction": user_instruction,
             "source_inventory": source_inventory,
             "constraints": [
@@ -416,6 +763,7 @@ def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction
                 "Return only a structured JSON planning object.",
                 "Backend may execute only approved deterministic transform tools.",
                 "List missing fields/questions required before validation/export.",
+                "Suggest source columns for each Mirai contract field when possible, with confidence and rationale.",
             ],
         }
         response = client.messages.create(
@@ -423,7 +771,8 @@ def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction
             max_tokens=1800,
             system=(
                 "You are Mirai's Knowledge Intake planner. Infer a source-to-contract mapping plan from uploaded source inventory. "
-                "You never write executable code. You produce JSON only with keys: mapping, transform_plan, questions, confidence."
+                "You never write executable code. You produce JSON only with keys: source_summary, available_columns, mapping, transform_plan, questions, blockers, suggested_user_actions, confidence. "
+                "The mapping object should be keyed by Mirai contract field and include source_column, source_table, confidence, and rationale."
             ),
             messages=[{"role": "user", "content": json.dumps(prompt, indent=2)}],
         )

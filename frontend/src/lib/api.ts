@@ -1550,6 +1550,34 @@ export interface KnowledgeIntakeFile {
   parse_summary?: Record<string, unknown>
 }
 
+export interface KnowledgeIntakeMessage {
+  role: 'user' | 'assistant' | string
+  content: string
+  created_at?: string
+  draft_id?: string
+}
+
+export interface KnowledgeIntakeSourceColumn {
+  file_id?: string
+  filename?: string
+  table_name?: string
+  column: string
+  semantic_hints?: string[]
+}
+
+export interface KnowledgeIntakeMappingRow {
+  field: string
+  role?: string
+  required?: boolean
+  description?: string
+  source_column?: string | null
+  source_table?: string | null
+  source_file?: string | null
+  confidence?: string
+  status?: string
+  rationale?: string
+}
+
 export interface KnowledgeIntakeSession {
   id: string
   project_id: string
@@ -1563,6 +1591,7 @@ export interface KnowledgeIntakeSession {
   latest_export_key?: string | null
   user_instruction?: string
   files?: KnowledgeIntakeFile[]
+  messages?: KnowledgeIntakeMessage[]
   draft?: KnowledgeIntakeDraft | null
   export?: KnowledgeIntakeExport | null
 }
@@ -1575,6 +1604,11 @@ export interface KnowledgeIntakeDraft {
   schema?: Record<string, unknown>
   tables?: Record<string, { columns: string[]; preview_rows: string[]; total_rows: number }>
   row_counts?: Record<string, number>
+  source_inventory?: Record<string, unknown>[]
+  available_columns?: KnowledgeIntakeSourceColumn[]
+  mapping_board?: KnowledgeIntakeMappingRow[]
+  agent_response?: string
+  conversation?: KnowledgeIntakeMessage[]
   source_reference_mode?: string
   issues_key?: string
   validation_passed?: boolean

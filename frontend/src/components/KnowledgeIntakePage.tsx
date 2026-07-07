@@ -101,14 +101,16 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
     }
   }
 
-  async function handleMatch() {
+  async function handleMatch(nextInstruction?: string) {
     if (!activeSessionId) return
+    const message = nextInstruction ?? instruction
+    setInstruction(message)
     setLoading(true)
     setLoadingLabel('Agent planner is inspecting sources and drafting the contract mapping…')
     setNotice(null)
     setError(null)
     try {
-      await saveKnowledgeIntakeInstruction(schema.project_id, activeSessionId, instruction)
+      await saveKnowledgeIntakeInstruction(schema.project_id, activeSessionId, message)
       const result = await matchKnowledgeIntakeMiraiContract(schema.project_id, activeSessionId)
       setDraft(result.draft)
       const text = await getKnowledgeIntakeIssues(schema.project_id, activeSessionId)
@@ -204,6 +206,10 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
 
   const currentTable = draft?.tables?.[tableName] ?? null
   const tableOptions = Object.keys(draft?.tables ?? {})
+  const availableColumns = draft?.available_columns ?? []
+  const mappingBoard = draft?.mapping_board ?? []
+  const conversation = draft?.conversation ?? activeSession?.messages ?? []
+  const blockers = Array.isArray(draft?.validation_result?.blockers) ? draft?.validation_result?.blockers as string[] : []
 
   return (
     <div className="space-y-6">
@@ -269,14 +275,27 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
           </section>
 
           <section className="rounded-2xl border border-white/[0.08] bg-[#081526]/80 p-5">
-            <h3 className="text-base font-semibold text-white">2. Choose target contract and run the loop</h3>
+            <h3 className="text-base font-semibold text-white">2. Choose target contract and talk to the mapping agent</h3>
             <label className="mt-3 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Target contract goal</label>
             <select value={targetContractId} onChange={(event) => setTargetContractId(event.target.value)} className="mt-2 w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-sm text-slate-100">
               {targetContracts.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
             </select>
-            <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={4} className="mt-3 w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-sm leading-6 text-slate-100 outline-none ring-[#74C7F5]/30 focus:ring-2" />
+            {conversation.length > 0 && (
+              <div className="mt-4 max-h-72 space-y-3 overflow-auto rounded-lg border border-white/[0.07] bg-[#050B16] p-3">
+                {conversation.slice(-8).map((turn, index) => (
+                  <div key={`${turn.role}-${index}`} className={turn.role === 'user' ? 'text-right' : 'text-left'}>
+                    <div className={`inline-block max-w-[88%] rounded-xl px-3 py-2 text-sm leading-6 ${turn.role === 'user' ? 'bg-[#2F6BFF]/25 text-blue-50' : 'bg-white/[0.055] text-slate-200'}`}>
+                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{turn.role === 'user' ? 'You' : 'Mapping agent'}</span>
+                      {turn.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={4} placeholder="Ask the agent, e.g. 'Use voltage and RH as inputs and current density/ECSA as outputs' or 'approve suggested mapping'." className="mt-3 w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-sm leading-6 text-slate-100 outline-none ring-[#74C7F5]/30 focus:ring-2" />
             <div className="mt-3 flex flex-wrap gap-3">
-              <button type="button" onClick={handleMatch} disabled={!activeSessionId || loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-50">Run intake loop</button>
+              <button type="button" onClick={() => { void handleMatch() }} disabled={!activeSessionId || loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-50">Ask agent / update mapping</button>
+              <button type="button" onClick={() => { void handleMatch('approve suggested mapping') }} disabled={!activeSessionId || loading || mappingBoard.length === 0} className="rounded-lg border border-[#74C7F5]/35 px-4 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10 disabled:cursor-not-allowed disabled:opacity-50">Approve suggested mapping</button>
               <p className="self-center text-xs text-slate-400">Selected target: {activeSession?.target_contract_id ?? targetContractId}. Export requires contract validation.</p>
             </div>
           </section>
@@ -292,6 +311,44 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
                   {tableOptions.map((name) => <option key={name} value={name}>{name}</option>)}
                 </select>
               </div>
+              {availableColumns.length > 0 && (
+                <div className="mt-4 rounded-lg border border-white/[0.07] bg-[#050B16] p-3">
+                  <h4 className="text-sm font-semibold text-white">Available source columns</h4>
+                  <div className="mt-3 flex max-h-36 flex-wrap gap-2 overflow-auto">
+                    {availableColumns.slice(0, 80).map((column, index) => (
+                      <span key={`${column.filename}-${column.table_name}-${column.column}-${index}`} className="rounded-full border border-white/[0.09] bg-white/[0.035] px-2.5 py-1 text-xs text-slate-300" title={`${column.filename ?? ''} ${column.table_name ?? ''}`}>{column.column}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mappingBoard.length > 0 && (
+                <div className="mt-4 overflow-auto rounded-lg border border-white/[0.07]">
+                  <table className="min-w-full divide-y divide-white/[0.06] text-xs">
+                    <thead className="bg-white/[0.035] text-slate-300">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold">Contract field</th>
+                        <th className="px-3 py-2 text-left font-semibold">Role</th>
+                        <th className="px-3 py-2 text-left font-semibold">Suggested source</th>
+                        <th className="px-3 py-2 text-left font-semibold">Confidence</th>
+                        <th className="px-3 py-2 text-left font-semibold">Status</th>
+                        <th className="px-3 py-2 text-left font-semibold">Rationale</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.06] text-slate-300">
+                      {mappingBoard.map((row) => (
+                        <tr key={row.field}>
+                          <td className="px-3 py-2 font-medium text-slate-100">{row.field}</td>
+                          <td className="px-3 py-2">{row.role}</td>
+                          <td className="max-w-[260px] truncate px-3 py-2">{row.source_column ? `${row.source_column}${row.source_table ? ` · ${row.source_table}` : ''}` : '—'}</td>
+                          <td className="px-3 py-2">{row.confidence ?? 'none'}</td>
+                          <td className={`px-3 py-2 ${row.status === 'mapped' ? 'text-emerald-300' : 'text-amber-300'}`}>{row.status}</td>
+                          <td className="max-w-[320px] px-3 py-2 text-slate-400">{row.rationale}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {currentTable && (
                 <div className="mt-4 overflow-auto rounded-lg border border-white/[0.07]">
                   <table className="min-w-full divide-y divide-white/[0.06] text-xs">
@@ -313,7 +370,12 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
                 </div>
                 <div className="rounded-lg border border-white/[0.07] bg-[#050B16] p-3">
                   <h4 className="text-sm font-semibold text-white">Manual gates</h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">Approve only after validation passes. Export is blocked until a selected contract has validated package files. After export, upload the ZIP through Data Intake and continue through the existing approval flow.</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">Approve only after validation passes. Export is blocked until a selected contract has validated package files. After export, the ZIP is handed off through Data Intake and continues through the existing approval flow.</p>
+                  {blockers.length > 0 && (
+                    <ul className="mt-3 space-y-1 text-xs text-amber-200">
+                      {blockers.map((blocker) => <li key={blocker}>• {blocker}</li>)}
+                    </ul>
+                  )}
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button type="button" onClick={handleApprove} disabled={loading || draft.status === 'approved_persistent' || !draft.validation_passed} className="rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve validated draft</button>
                     <button type="button" onClick={handleReject} disabled={loading} className="rounded-lg border border-red-300/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50">Reject/delete draft</button>
