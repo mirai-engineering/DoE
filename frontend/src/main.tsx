@@ -34,7 +34,18 @@ function AuthenticatedApp() {
 }
 
 const app = clerkPublishableKey ? (
-  <ClerkProvider publishableKey={clerkPublishableKey}>
+  <ClerkProvider
+    publishableKey={clerkPublishableKey}
+    appearance={{
+      elements: {
+        footerAction: 'hidden',
+        footerActionLink: 'hidden',
+        socialButtonsBlockButton: 'hidden',
+        socialButtonsProviderIcon: 'hidden',
+        dividerRow: 'hidden',
+      },
+    }}
+  >
     <SignedIn>
       <AuthenticatedApp />
     </SignedIn>

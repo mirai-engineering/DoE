@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
-import { SignInButton, SignUpButton } from '@clerk/clerk-react'
+import { SignInButton } from '@clerk/clerk-react'
 import batteriesImage from '../../assets/batteries.png'
 import coverageMapImage from '../../assets/coverage-map.png'
 import catImage from '../../assets/CAT.png'
@@ -649,7 +649,7 @@ function Cta() {
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-[#F6F4EA] sm:text-[2.5rem]">Make every decision count.</h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-[#D6DEF0]">Walk through how Mirai structures engineering knowledge, validates models, and ranks next actions across process and product engineering workflows.</p>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-[#AEBBDD]">Use Mirai to turn documents, historical experiments, maintenance records, and process tables into defensible decisions before the next lab run, plant change, or product iteration.</p>
-            <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#63D7FF] px-8 text-sm font-semibold tracking-wide text-[#030716] shadow-[0_0_24px_rgba(99,215,255,0.22)] transition-all duration-200 hover:bg-[#8DEBFF]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-cyan-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#63D7FF]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton><SignUpButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-blue-300/20 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#63D7FF]/50 hover:text-[#F6F4EA]">Create account</button></SignUpButton></div>
+            <div className="mt-8 flex flex-wrap gap-3"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="inline-flex h-11 items-center rounded-full bg-[#63D7FF] px-8 text-sm font-semibold tracking-wide text-[#030716] shadow-[0_0_24px_rgba(99,215,255,0.22)] transition-all duration-200 hover:bg-[#8DEBFF]">Request a demo</a><SignInButton mode="modal"><button className="inline-flex h-11 items-center rounded-full border border-cyan-300/30 px-7 text-sm font-medium tracking-wide text-[#D6DEF0] transition-all duration-200 hover:border-[#63D7FF]/50 hover:text-[#F6F4EA]">Sign in to Mirai</button></SignInButton></div>
           </div>
           <div className="w-full max-w-[620px] justify-self-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#020817] shadow-[0_0_36px_rgba(99,215,255,0.12)] lg:justify-self-end">
             <div className="aspect-[1694/928] overflow-hidden">
