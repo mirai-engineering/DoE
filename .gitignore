@@ -49,6 +49,7 @@ training-runs/
 # Runtime/local generated artifacts
 logs/
 context.md
+/artifacts/
 
 # Local Higgsfield generated/source exports
 higgsfield/
