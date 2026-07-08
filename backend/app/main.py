@@ -69,6 +69,7 @@ from .services.document_intake import (
     reject_draft_table,
     save_document_instruction,
     upload_document_intake_files,
+    upload_document_intake_target_contract,
 )
 from .services.fantasy_rollout import run_fantasy_rollout
 from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
@@ -840,6 +841,16 @@ def document_intake_get_session(project_id: str, session_id: str, request: Reque
         return get_document_intake_session(workspace_id, project_id, session_id)
     except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
         logger.exception("Document intake session get failed for project_id=%s", project_id)
+        _raise_api_error(exc)
+
+
+@app.post("/projects/{project_id}/document-intake/sessions/{session_id}/target-contract")
+async def document_intake_upload_target_contract(project_id: str, session_id: str, request: Request, files: list[UploadFile] = File(...)):
+    try:
+        workspace_id = _workspace_id_for_project_request(request, project_id)
+        return await upload_document_intake_target_contract(workspace_id, project_id, session_id, files)
+    except Exception as exc:  # noqa: BLE001 - translated to API-safe errors.
+        logger.exception("Document intake target contract upload failed for project_id=%s", project_id)
         _raise_api_error(exc)
 
 

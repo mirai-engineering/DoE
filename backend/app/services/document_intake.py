@@ -9,6 +9,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import tempfile
 from typing import Any
 from uuid import uuid4
 import zipfile
@@ -19,26 +20,16 @@ from .cathode_contract_harness import build_cathode_demo_mirai_contract
 from .control_plane import get_project_storage_config
 from .db import execute, jsonb, postgres_control_plane_enabled
 from .workspace_storage import WorkspaceStorageConfig, get_workspace_object, put_workspace_object
+from ml_lifecycle.ingesting.generic_tabular_doe.contract import ContractValidationError, load_and_validate_contract, schema_from_contract
+from ml_lifecycle.ingesting.generic_tabular_doe.preprocessing import build_generic_preprocessing_artifacts
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 TARGET_CONTRACT_DIR = BACKEND_ROOT / "docs" / "examples" / "fuel-cell" / "fraunhofer2miraicontract-full"
 LOCAL_BUCKET = "mirai-document-intake"
 
 ALLOWED_SUFFIXES = {".pdf", ".docx", ".xlsx", ".csv", ".zip"}
-PACKAGE_FILES = ["mirai_manifest.json", "data_dictionary.csv", "experiments.csv", "conditions.csv", "results.csv"]
-GENERIC_TABULAR_DOE_FIELDS = [
-    {"field": "pt_c_ratio", "role": "input", "required": True, "description": "Platinum-to-carbon ratio or catalyst Pt/C formulation variable."},
-    {"field": "i_c_ratio", "role": "input", "required": True, "description": "Ionomer-to-carbon ratio or ionomer loading formulation variable."},
-    {"field": "ionomer_ew", "role": "input", "required": True, "description": "Ionomer equivalent weight."},
-    {"field": "operating_rh", "role": "input", "required": True, "description": "Operating relative humidity."},
-    {"field": "operating_voltage", "role": "input", "required": True, "description": "Operating voltage grid/condition."},
-    {"field": "ast_rh", "role": "input", "required": True, "description": "Accelerated stress test relative humidity."},
-    {"field": "ast_upl", "role": "input", "required": True, "description": "Accelerated stress test upper potential limit."},
-    {"field": "bol_current_density", "role": "output", "required": True, "description": "Beginning-of-life current density."},
-    {"field": "eol_current_density", "role": "output", "required": True, "description": "End-of-life current density."},
-    {"field": "bol_ecsa", "role": "output", "required": True, "description": "Beginning-of-life electrochemical surface area."},
-    {"field": "ecsa_loss", "role": "output", "required": True, "description": "ECSA degradation/loss."},
-]
+TARGET_CONTRACT_SUFFIXES = {".csv", ".json", ".zip"}
+PACKAGE_FILES = ["mirai_manifest.json", "data_dictionary.csv", "model_table.csv", "experiments.csv", "conditions.csv", "results.csv"]
 
 
 def _now() -> str:
@@ -181,6 +172,86 @@ async def upload_document_intake_files(workspace_id: str, project_id: str, sessi
     _write_json(config, _json_key(config, session_id, "files"), files)
     _update_session(config, project_id, session)
     return {"status": session["status"], "files": files}
+
+
+async def upload_document_intake_target_contract(workspace_id: str, project_id: str, session_id: str, uploads: list[UploadFile]) -> dict[str, Any]:
+    """Upload and validate the Mirai package shape Knowledge Intake must populate.
+
+    This is intentionally scoped to Knowledge Intake. It reads the same generic contract
+    rules downstream Data Intake uses, but does not create ingestion sessions or modify
+    Data Intake/preprocessing state.
+    """
+    config = _storage_config(workspace_id, project_id)
+    session = _read_json(config, _json_key(config, session_id, "session"), default=None)
+    if not isinstance(session, dict):
+        raise FileNotFoundError("Document intake session not found")
+    target_files: dict[str, str] = {}
+    stored_files: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="mirai_target_contract_") as tmp:
+        root = Path(tmp) / "package"
+        root.mkdir(parents=True, exist_ok=True)
+        for upload in uploads:
+            filename = Path(upload.filename or "target.bin").name
+            suffix = Path(filename).suffix.lower()
+            if suffix not in TARGET_CONTRACT_SUFFIXES:
+                raise ValueError(f"Unsupported target contract file type: {suffix or filename}")
+            data = await upload.read()
+            object_key = f"{_session_prefix(config, session_id)}/target_contract/{uuid4().hex[:8]}_{filename}"
+            put_workspace_object(config, object_key, data, content_type=upload.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream")
+            stored_files.append({"filename": filename, "object_key": object_key, "sha256": _sha256(data), "size_bytes": len(data), "created_at": _now()})
+            if suffix == ".zip":
+                with zipfile.ZipFile(BytesIO(data)) as archive:
+                    for member in archive.namelist():
+                        if member.endswith("/"):
+                            continue
+                        safe_name = _safe_package_member_name(member)
+                        if safe_name and Path(safe_name).name in PACKAGE_FILES:
+                            payload = archive.read(member)
+                            (root / Path(safe_name).name).write_bytes(payload)
+                            target_files[Path(safe_name).name] = payload.decode("utf-8-sig", errors="replace")
+            else:
+                if filename not in PACKAGE_FILES:
+                    raise ValueError(f"Target contract file {filename!r} is not a supported Mirai package file")
+                (root / filename).write_bytes(data)
+                target_files[filename] = data.decode("utf-8-sig", errors="replace")
+        contract = load_and_validate_contract(root)
+        schema = schema_from_contract(contract, project_id=project_id)
+    target_snapshot = _target_snapshot_from_contract(contract, schema, target_files, stored_files)
+    session["target_contract_id"] = target_snapshot["contract_id"]
+    session["target_contract"] = target_snapshot
+    session["status"] = "target_contract_uploaded"
+    _write_json(config, _json_key(config, session_id, "target_contract"), target_snapshot)
+    _update_session(config, project_id, session)
+    return {"status": session["status"], "target_contract": target_snapshot, "session": _public_session(session)}
+
+
+def _safe_package_member_name(member: str) -> str | None:
+    path = Path(member)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return path.name
+
+
+def _target_snapshot_from_contract(contract: dict[str, Any], schema: dict[str, Any], target_files: dict[str, str], stored_files: list[dict[str, Any]]) -> dict[str, Any]:
+    table_paths = [str(table.get("path")) for table in contract.get("tables", []) if isinstance(table, dict) and table.get("path")]
+    package_style = "model_table" if "model_table.csv" in table_paths else "fixed_source_tables" if {"experiments.csv", "conditions.csv", "results.csv"}.issubset(set(table_paths)) else "unknown"
+    fields = _fields_from_contract(contract)
+    return {
+        "id": f"target_{uuid4().hex[:12]}",
+        "contract_id": contract.get("project", {}).get("template_id") or "generic_tabular_doe",
+        "uploaded_at": _now(),
+        "package_style": package_style,
+        "required_files": ["mirai_manifest.json", "data_dictionary.csv", *[path for path in table_paths if path in PACKAGE_FILES and path not in {"mirai_manifest.json", "data_dictionary.csv"}]],
+        "tables": contract.get("tables", []),
+        "joins": contract.get("joins", []),
+        "split_hints": contract.get("split_hints", {}),
+        "columns": contract.get("columns", []),
+        "fields": fields,
+        "schema": schema,
+        "files": {name: text for name, text in target_files.items() if name in {"mirai_manifest.json", "data_dictionary.csv"}},
+        "file_names": sorted(target_files),
+        "stored_files": stored_files,
+    }
 
 
 def _summarize_file(filename: str, suffix: str, data: bytes) -> dict[str, Any]:
@@ -336,12 +407,14 @@ def match_mirai_contract(workspace_id: str, project_id: str, session_id: str) ->
     draft_id = f"draft_{uuid4().hex[:12]}"
     run_id = f"run_{uuid4().hex[:12]}"
     target_contract_id = str(session.get("target_contract_id") or "generic_tabular_doe")
+    if not isinstance(session.get("target_contract"), dict):
+        raise ValueError("Upload a target Mirai contract package before running the Knowledge Intake loop")
     iteration_number = len(session.get("loop_iterations") or []) + 1
     source_inventory = _source_inventory(files)
-    if target_contract_id == "fraunhofer2miraicontract-full":
+    if _fraunhofer_tool_requested(session, source_inventory):
         draft, run, issue_lines, iteration = _run_fraunhofer_demo_adapter(config, session_id, draft_id, run_id, files, source_inventory, iteration_number)
     else:
-        draft, run, issue_lines, iteration = _run_generic_contract_loop_stub(session, draft_id, run_id, files, source_inventory, iteration_number)
+        draft, run, issue_lines, iteration = _run_generic_contract_loop_stub(config, session, draft_id, run_id, files, source_inventory, iteration_number)
     issues_key = f"{_session_prefix(config, session_id)}/drafts/{draft_id}/issues.txt"
     put_workspace_object(config, issues_key, "\n".join(issue_lines).encode("utf-8"), content_type="text/plain")
     draft["issues_key"] = issues_key
@@ -390,10 +463,44 @@ def _source_inventory(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return inventory
 
 
-def _contract_fields(target_contract_id: str) -> list[dict[str, Any]]:
-    if target_contract_id in {"generic_tabular_doe", "mirai_fixed_source_tables", "fraunhofer2miraicontract-full"}:
-        return GENERIC_TABULAR_DOE_FIELDS
-    return []
+def _fields_from_contract(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for column in contract.get("columns", []):
+        if not isinstance(column, dict) or column.get("role") == "ignore":
+            continue
+        variable_id = str(column.get("variable_id") or column.get("name") or column.get("source_name") or "")
+        fields.append({
+            "field": variable_id,
+            "variable_id": variable_id,
+            "source_name": column.get("source_name") or column.get("name") or variable_id,
+            "source_table": column.get("source_table") or column.get("table"),
+            "role": column.get("role"),
+            "dtype": column.get("dtype"),
+            "unit": column.get("unit"),
+            "required": bool(column.get("required")),
+            "direction": column.get("direction"),
+            "allowed_min": column.get("allowed_min"),
+            "allowed_max": column.get("allowed_max"),
+            "ui_label": column.get("ui_label") or column.get("source_name") or variable_id,
+            "description": column.get("description") or "",
+            "join_key": column.get("join_key"),
+            "split_hint": column.get("split_hint"),
+        })
+    return fields
+
+
+def _contract_fields(session: dict[str, Any]) -> list[dict[str, Any]]:
+    target = session.get("target_contract") if isinstance(session.get("target_contract"), dict) else {}
+    fields = target.get("fields") if isinstance(target.get("fields"), list) else []
+    return [field for field in fields if isinstance(field, dict)]
+
+
+def _fraunhofer_tool_requested(session: dict[str, Any], source_inventory: list[dict[str, Any]]) -> bool:
+    instruction = str(session.get("user_instruction") or "").lower()
+    if "fraunhofer" not in instruction and "cathode" not in instruction:
+        return False
+    filenames = " ".join(str(item.get("filename") or "") for item in source_inventory).lower()
+    return "data_overview" in filenames or "cell_" in filenames
 
 
 def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str, draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
@@ -401,9 +508,10 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
     tables = {name: _csv_preview_text(text) for name, text in harness.files.items() if name.endswith(".csv")}
     manifest = json.loads(harness.files["mirai_manifest.json"])
     validation_passed = bool(harness.validation.get("passed"))
+    demo_fields = _fields_from_contract({"columns": manifest.get("columns", [])})
     mapping_board = [
-        {"field": field["field"], "role": field["role"], "required": field["required"], "description": field["description"], "source_column": "deterministic demo adapter", "source_table": "data_overview.xlsx + Cell_XX.zip IV/ECSA CSVs", "source_file": "uploaded Fraunhofer fixture", "confidence": "high", "status": "mapped", "rationale": "Mapped by approved Fraunhofer cathode catalyst deterministic adapter."}
-        for field in GENERIC_TABULAR_DOE_FIELDS
+        {"field": field["field"], "role": field.get("role"), "required": field.get("required", True), "description": field.get("description"), "source_name": field.get("source_name"), "variable_id": field.get("variable_id"), "source_column": "deterministic demo adapter", "source_table": "data_overview.xlsx + Cell_XX.zip IV/ECSA CSVs", "source_file": "uploaded Fraunhofer fixture", "confidence": "high", "status": "mapped", "rationale": "Mapped by approved Fraunhofer cathode catalyst deterministic adapter."}
+        for field in demo_fields
     ]
     mapping = {
         "adapter": "fraunhofer_cathode_catalyst_demo",
@@ -478,10 +586,10 @@ def _run_fraunhofer_demo_adapter(config: WorkspaceStorageConfig, session_id: str
     return draft, run, issue_lines, iteration
 
 
-def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
+def _run_generic_contract_loop_stub(config: WorkspaceStorageConfig, session: dict[str, Any], draft_id: str, run_id: str, files: list[dict[str, Any]], source_inventory: list[dict[str, Any]], iteration_number: int) -> tuple[dict[str, Any], dict[str, Any], list[str], dict[str, Any]]:
     target_contract_id = str(session.get("target_contract_id") or "generic_tabular_doe")
     user_instruction = str(session.get("user_instruction") or "")
-    contract_fields = _contract_fields(target_contract_id)
+    contract_fields = _contract_fields(session)
     available_columns = _flatten_available_columns(source_inventory)
     user_intent = _classify_user_intent(user_instruction)
     agent_plan = _infer_mapping_plan_with_anthropic(target_contract_id, user_instruction, source_inventory, contract_fields)
@@ -525,14 +633,22 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
             "Validate generated package against the selected contract before approval/export.",
         ],
     }
-    validation = {"passed": False, "status": "blocked_no_approved_transform", "target_contract_id": target_contract_id, "missing_fields": missing_fields, "blockers": blockers}
+    materialized = _try_materialize_uploaded_package_tables(config, str(session["id"]), str(session.get("project_id") or "uploaded_project"), session.get("target_contract") if isinstance(session.get("target_contract"), dict) else {}, files)
+    if materialized.get("validation", {}).get("passed"):
+        validation = materialized["validation"]
+        blockers = []
+        transform_plan["execution_mode"] = "approved_ephemeral_table_copy"
+        transform_plan["requires_approved_tool"] = False
+        transform_plan["execution_summary"] = materialized.get("execution_summary")
+    else:
+        validation = {"passed": False, "status": "blocked_no_validated_transform", "target_contract_id": target_contract_id, "missing_fields": missing_fields, "blockers": blockers, "transform_attempt": materialized.get("validation")}
     issue_lines = [
         "Knowledge Intake loop notes",
         "",
         f"Target contract: {target_contract_id}",
         f"Agent planner: {agent_plan.get('provider')} ({agent_plan.get('model')})",
         "Status: generic contract-driven mapping conversation; no arbitrary transform was executed.",
-        "The agent proposes columns and roles. Export is blocked until an approved deterministic transform produces a valid contract package.",
+        "The agent proposes columns and roles. Export is blocked until an approved Knowledge Intake transform produces a valid contract package.",
         "",
         f"Loop iteration: {iteration_number}",
         f"Uploaded files: {len(files)}",
@@ -557,7 +673,7 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
         "proposed_mapping": mapping,
         "mapping_board": mapping_board,
         "transform_plan": transform_plan,
-        "transform_attempt": {"status": "not_executed", "reason": "no_approved_deterministic_transform_for_target"},
+        "transform_attempt": materialized.get("execution_summary") or {"status": "not_executed", "reason": "no_validated_ephemeral_transform_for_target"},
         "validation_result": validation,
         "missing_fields": missing_fields,
         "blockers": blockers,
@@ -568,21 +684,21 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
     draft = {
         "id": draft_id,
         "run_id": run_id,
-        "status": "mapping_approved_blocked_executor" if approved_mapping else "needs_user_input",
+        "status": "ready_for_review" if validation.get("passed") else "mapping_approved_blocked_executor" if approved_mapping else "needs_user_input",
         "table_kind": "contract_mapping_plan",
         "adapter_id": None,
         "created_at": _now(),
-        "schema": {"template_id": target_contract_id, "fields": contract_fields, "inputs": [f for f in contract_fields if f.get("role") == "input"], "outputs": [f for f in contract_fields if f.get("role") == "output"]},
+        "schema": (session.get("target_contract") or {}).get("schema") or {"template_id": target_contract_id, "fields": contract_fields, "inputs": [f for f in contract_fields if f.get("role") == "input"], "outputs": [f for f in contract_fields if f.get("role") == "output"]},
         "source_inventory": source_inventory,
         "available_columns": available_columns,
         "mapping_board": mapping_board,
         "agent_response": agent_response,
         "conversation": iteration["conversation"],
-        "tables": {},
-        "contract_files": None,
-        "row_counts": {},
+        "tables": materialized.get("tables") or {},
+        "contract_files": materialized.get("contract_files") if validation.get("passed") else None,
+        "row_counts": materialized.get("row_counts") or {},
         "source_reference_mode": "filename+sheet/csv-row when available",
-        "validation_passed": False,
+        "validation_passed": bool(validation.get("passed")),
         "validation_result": validation,
         "loop_iteration": iteration,
         "approved_at": None,
@@ -590,6 +706,92 @@ def _run_generic_contract_loop_stub(session: dict[str, Any], draft_id: str, run_
     session["mapping_state"] = mapping
     run = {"id": run_id, "status": "needs_user_input", "provider": agent_plan.get("provider") or "generic_loop_controller", "model": agent_plan.get("model"), "started_at": _now(), "finished_at": _now(), "draft_id": draft_id, "usage": agent_plan.get("usage")}
     return draft, run, issue_lines, iteration
+
+
+def _try_materialize_uploaded_package_tables(config: WorkspaceStorageConfig, session_id: str, project_id: str, target_contract: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any]:
+    """Ephemeral MVP executor: assemble package files from uploaded source files only.
+
+    This deliberately avoids persistent generated code. It supports the safest first case:
+    source uploads already contain tables whose basenames match the target package style
+    (`model_table.csv` or `experiments.csv`/`conditions.csv`/`results.csv`). The output is
+    then validated through the unchanged generic contract/preprocessing pipeline in a temp dir.
+    """
+    target_static = target_contract.get("files") if isinstance(target_contract.get("files"), dict) else {}
+    if not {"mirai_manifest.json", "data_dictionary.csv"}.issubset(set(target_static)):
+        return {"validation": {"passed": False, "status": "missing_target_contract_files"}}
+    required_files = [name for name in target_contract.get("required_files") or [] if name in PACKAGE_FILES]
+    data_files = [name for name in required_files if name not in {"mirai_manifest.json", "data_dictionary.csv"}]
+    if not data_files:
+        return {"validation": {"passed": False, "status": "target_has_no_output_tables"}}
+    source_texts = _source_package_texts(config, files, data_files)
+    missing = [name for name in data_files if name not in source_texts]
+    if missing:
+        return {"validation": {"passed": False, "status": "source_package_tables_missing", "missing_files": missing}}
+    contract_files = {"mirai_manifest.json": str(target_static["mirai_manifest.json"]), "data_dictionary.csv": str(target_static["data_dictionary.csv"]), **source_texts}
+    validation = _validate_candidate_contract_files(contract_files, project_id)
+    tables = {name: _csv_preview_text(text) for name, text in contract_files.items() if name.endswith(".csv")}
+    row_counts = {name: table.get("total_rows", 0) for name, table in tables.items()}
+    return {
+        "contract_files": contract_files if validation.get("passed") else None,
+        "tables": tables,
+        "row_counts": row_counts,
+        "validation": validation,
+        "execution_summary": {
+            "status": "completed" if validation.get("passed") else "failed_validation",
+            "executor": "knowledge_intake_ephemeral_table_copy",
+            "sandbox": "temporary_directory_no_persistent_code",
+            "source_files": sorted(source_texts),
+            "notes": "Copied package-shaped CSV tables from source uploads and validated with generic_tabular_doe preprocessing in a temp workspace.",
+        },
+    }
+
+
+def _source_package_texts(config: WorkspaceStorageConfig, files: list[dict[str, Any]], wanted: list[str]) -> dict[str, str]:
+    wanted_set = set(wanted)
+    found: dict[str, str] = {}
+    for item in files:
+        filename = str(item.get("filename") or "")
+        object_key = item.get("object_key")
+        if not object_key:
+            continue
+        data = get_workspace_object(config, str(object_key))
+        if Path(filename).name in wanted_set:
+            found[Path(filename).name] = data.decode("utf-8-sig", errors="replace")
+        elif Path(filename).suffix.lower() == ".zip":
+            try:
+                with zipfile.ZipFile(BytesIO(data)) as archive:
+                    for member in archive.namelist():
+                        base = Path(member).name
+                        if base in wanted_set and base not in found:
+                            found[base] = archive.read(member).decode("utf-8-sig", errors="replace")
+            except zipfile.BadZipFile:
+                continue
+    return found
+
+
+def _validate_candidate_contract_files(contract_files: dict[str, str], project_id: str) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="mirai_knowledge_validate_") as tmp:
+        root = Path(tmp) / "package"
+        canonical = Path(tmp) / "canonical"
+        artifacts = Path(tmp) / "artifacts"
+        root.mkdir(parents=True, exist_ok=True)
+        for name, text in contract_files.items():
+            (root / name).write_text(str(text), encoding="utf-8")
+        try:
+            contract = load_and_validate_contract(root)
+            preprocessing = build_generic_preprocessing_artifacts(raw_root=root, canonical_dir=canonical, artifact_dir=artifacts, project_id=project_id)
+            return {
+                "passed": True,
+                "status": "validated_with_generic_tabular_doe",
+                "package_style": "model_table" if "model_table.csv" in contract_files else "fixed_source_tables",
+                "row_count": preprocessing.get("row_count") or preprocessing.get("accepted_rows"),
+                "inputs": [column.get("variable_id") for column in contract.get("columns", []) if column.get("role") == "input"],
+                "outputs": [column.get("variable_id") for column in contract.get("columns", []) if column.get("role") == "output"],
+            }
+        except ContractValidationError as exc:
+            return {"passed": False, "status": "contract_validation_failed", "errors": exc.errors}
+        except Exception as exc:  # noqa: BLE001 - validation failures should be visible blockers.
+            return {"passed": False, "status": "preprocessing_validation_failed", "error": type(exc).__name__, "detail": str(exc)}
 
 
 def _flatten_available_columns(source_inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -632,7 +834,7 @@ def _build_mapping_board(contract_fields: list[dict[str, Any]], available_column
     rows = []
     for field in contract_fields:
         field_name = str(field.get("field"))
-        candidate = _best_column_candidate(field_name, available_columns)
+        candidate = _best_column_candidate(field, available_columns)
         agent_candidate = agent_mapping.get(field_name) if isinstance(agent_mapping, dict) else None
         if isinstance(agent_candidate, dict):
             source = agent_candidate.get("source") or agent_candidate.get("source_column") or candidate.get("column")
@@ -650,15 +852,23 @@ def _build_mapping_board(contract_fields: list[dict[str, Any]], available_column
             rationale = "User instructed Mirai to treat this field as constant/unknown/excluded for this dataset."
         rows.append({
             "field": field_name,
+            "variable_id": field.get("variable_id") or field_name,
+            "source_name": field.get("source_name"),
+            "ui_label": field.get("ui_label"),
             "role": field.get("role"),
+            "dtype": field.get("dtype"),
+            "unit": field.get("unit"),
             "required": field.get("required", True),
+            "direction": field.get("direction"),
+            "allowed_min": field.get("allowed_min"),
+            "allowed_max": field.get("allowed_max"),
             "description": field.get("description"),
             "source_column": source,
-            "source_table": candidate.get("table_name"),
+            "source_table": candidate.get("table_name") or field.get("source_table"),
             "source_file": candidate.get("filename"),
             "confidence": confidence or "none",
             "status": status,
-            "rationale": rationale or ("No matching source column found yet." if status == "missing" else "Matched from column name/hints."),
+            "rationale": rationale or ("No matching source column found yet." if status == "missing" else "Matched from target contract labels/source names."),
         })
     return rows
 
@@ -668,45 +878,24 @@ def _user_marked_field_override(message: str, field_name: str) -> bool:
     return field_name.lower() in text and any(word in text for word in ["constant", "unknown", "exclude", "ignore"])
 
 
-def _best_column_candidate(field_name: str, available_columns: list[dict[str, Any]]) -> dict[str, Any]:
-    field_hints = set(_field_hints(field_name))
+def _best_column_candidate(field: dict[str, Any], available_columns: list[dict[str, Any]]) -> dict[str, Any]:
+    field_names = [str(value or "") for value in [field.get("field"), field.get("variable_id"), field.get("source_name"), field.get("ui_label")]]
+    field_tokens = {token for name in field_names for token in re.split(r"[^a-z0-9]+", name.lower()) if len(token) > 2}
     best: tuple[int, dict[str, Any]] = (0, {})
     for column in available_columns:
         name = str(column.get("column") or "")
         normalized = name.lower().replace("_", " ").replace("-", " ")
-        hints = set(column.get("semantic_hints") or [])
+        column_tokens = {token for token in re.split(r"[^a-z0-9]+", normalized) if len(token) > 2}
         score = 0
-        if field_name.lower() == name.lower():
-            score += 10
-        for token in field_name.lower().split("_"):
-            if len(token) > 2 and token in normalized:
-                score += 2
-        score += len(field_hints & hints) * 4
-        if field_name.startswith("bol") and "eol" in hints:
-            score -= 4
-        if field_name.startswith("eol") and "bol" in hints:
-            score -= 4
+        if any(field_name and field_name.lower() == name.lower() for field_name in field_names):
+            score += 12
+        score += len(field_tokens & column_tokens) * 3
+        if str(field.get("source_table") or "") and str(field.get("source_table")) == str(column.get("table_name")):
+            score += 2
         if score > best[0]:
-            confidence = "high" if score >= 8 else "medium" if score >= 4 else "low"
-            best = (score, {**column, "confidence": confidence, "rationale": f"Name/hint match score {score}."})
+            confidence = "high" if score >= 10 else "medium" if score >= 5 else "low"
+            best = (score, {**column, "confidence": confidence, "rationale": f"Contract label/source-name match score {score}."})
     return best[1] if best[0] >= 3 else {}
-
-
-def _field_hints(field_name: str) -> list[str]:
-    mapping = {
-        "operating_voltage": ["voltage"],
-        "operating_rh": ["relative_humidity"],
-        "ast_rh": ["relative_humidity"],
-        "ast_upl": ["upl", "voltage"],
-        "bol_current_density": ["bol", "current_density"],
-        "eol_current_density": ["eol", "current_density"],
-        "bol_ecsa": ["bol", "ecsa"],
-        "ecsa_loss": ["ecsa"],
-        "pt_c_ratio": ["catalyst_ratio"],
-        "i_c_ratio": ["ionomer"],
-        "ionomer_ew": ["ionomer"],
-    }
-    return mapping.get(field_name, [])
 
 
 def _specific_questions(mapping_board: list[dict[str, Any]], missing_fields: list[str], user_selected: dict[str, list[str]]) -> list[str]:
@@ -745,8 +934,19 @@ def _conversation_with_agent(session: dict[str, Any], agent_response: str) -> li
     return conversation[-20:]
 
 
+def _knowledge_intake_model() -> str:
+    configured = os.getenv("MIRAI_KNOWLEDGE_INTAKE_MODEL") or os.getenv("ANTHROPIC_MODEL")
+    if configured:
+        aliases = {
+            "fable-5": "claude-fable-5",
+            "claude-fable-5": "claude-fable-5",
+        }
+        return aliases.get(configured.strip().lower(), configured)
+    return "claude-sonnet-4-5"
+
+
 def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction: str, source_inventory: list[dict[str, Any]], contract_fields: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    model = os.getenv("MIRAI_KNOWLEDGE_INTAKE_MODEL") or os.getenv("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+    model = _knowledge_intake_model()
     if not os.getenv("ANTHROPIC_API_KEY"):
         return {"provider": "not_configured", "model": model, "questions": [], "mapping": None, "confidence": "none"}
     try:
@@ -755,7 +955,7 @@ def _infer_mapping_plan_with_anthropic(target_contract_id: str, user_instruction
         client = Anthropic(timeout=float(os.getenv("MIRAI_KNOWLEDGE_INTAKE_TIMEOUT_SECONDS", "45")))
         prompt = {
             "target_contract_id": target_contract_id,
-            "contract_fields": contract_fields or _contract_fields(target_contract_id),
+            "contract_fields": contract_fields or [],
             "user_instruction": user_instruction,
             "source_inventory": source_inventory,
             "constraints": [

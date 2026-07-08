@@ -2,7 +2,6 @@ import { FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ProjectSchema } from '../lib/api'
 import {
   approveKnowledgeIntakeDraft,
-  createIngestionSession,
   createKnowledgeIntakeSession,
   downloadKnowledgeIntakePackage,
   exportKnowledgeIntakePackage,
@@ -17,18 +16,10 @@ import {
   rejectKnowledgeIntakeDraft,
   saveKnowledgeIntakeInstruction,
   uploadKnowledgeIntakeFiles,
+  uploadKnowledgeIntakeTargetContract,
 } from '../lib/api'
 
-const defaultInstruction = 'Inspect these sources, infer a candidate source-to-contract mapping, list missing fields/questions, and run only approved deterministic backend transforms for the selected target contract.'
-
-const targetContracts = [
-  { id: 'generic_tabular_doe', label: 'Generic model_table.csv / tabular DoE loop', summary: '7 inputs · 4 outputs' },
-  { id: 'mirai_fixed_source_tables', label: 'Mirai tabular DoE fixed-source tables', summary: 'Mirai package tables' },
-  { id: 'process_maintenance_table', label: 'Process-engineering maintenance table', summary: 'Process table intake' },
-  { id: 'fraunhofer2miraicontract-full', label: 'Demo adapter: Fraunhofer cathode catalyst', summary: 'Deterministic demo adapter' },
-]
-
-type TargetContract = (typeof targetContracts)[number]
+const defaultInstruction = 'Inspect these sources against the uploaded target Mirai contract, infer a candidate source-to-contract mapping, list missing fields/questions, and run only approved Knowledge Intake transforms that validate as a Mirai package.'
 
 type MappingStats = {
   totalFields: number
@@ -63,8 +54,8 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const [sessions, setSessions] = useState<KnowledgeIntakeSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [selectedTargetFiles, setSelectedTargetFiles] = useState<File[]>([])
   const [instruction, setInstruction] = useState(defaultInstruction)
-  const [targetContractId, setTargetContractId] = useState('generic_tabular_doe')
   const [draft, setDraft] = useState<KnowledgeIntakeDraft | null>(null)
   const [issues, setIssues] = useState('')
   const [loading, setLoading] = useState(false)
@@ -104,12 +95,31 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
     setNotice(null)
     setError(null)
     try {
-      const selectedTarget = targetContracts.find((target) => target.id === targetContractId)
-      const session = await createKnowledgeIntakeSession(schema.project_id, `Knowledge intake → ${selectedTarget?.label ?? targetContractId}`, targetContractId)
-      setNotice('Knowledge intake session created.')
+      const session = await createKnowledgeIntakeSession(schema.project_id, 'Knowledge intake → uploaded Mirai contract', 'generic_tabular_doe')
+      setNotice('Knowledge intake session created. Upload the target Mirai contract package next.')
       await refreshSessions(session.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create session')
+    } finally {
+      setLoading(false)
+      setLoadingLabel('')
+    }
+  }
+
+  async function handleUploadTargetContract(event: FormEvent) {
+    event.preventDefault()
+    if (!activeSessionId || selectedTargetFiles.length === 0) return
+    setLoading(true)
+    setLoadingLabel('Uploading and validating target Mirai contract…')
+    setNotice(null)
+    setError(null)
+    try {
+      await uploadKnowledgeIntakeTargetContract(schema.project_id, activeSessionId, selectedTargetFiles)
+      setSelectedTargetFiles([])
+      setNotice('Target Mirai contract uploaded and parsed. Now upload source files to populate it.')
+      await refreshSessions(activeSessionId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Target contract upload failed')
     } finally {
       setLoading(false)
       setLoadingLabel('')
@@ -202,7 +212,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   async function handleExport() {
     if (!activeSessionId) return
     setLoading(true)
-    setLoadingLabel('Exporting the validated package and creating a Data Intake session…')
+    setLoadingLabel('Exporting the validated Mirai package ZIP…')
     setNotice(null)
     setError(null)
     try {
@@ -214,9 +224,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       link.download = 'mirai_package.zip'
       link.click()
       URL.revokeObjectURL(url)
-      const packageFile = new File([blob], 'mirai_package.zip', { type: 'application/zip' })
-      const ingestion = await createIngestionSession(schema.display_name, [packageFile], `Created from Knowledge Intake session ${activeSessionId}.`, { existingProjectId: schema.project_id })
-      setNotice(`Mirai package exported and handed off to Data Intake session ${ingestion.ingestion_session_id}. Continue in Data Intake / Preprocessing.`)
+      setNotice('Mirai package downloaded. Manually upload this ZIP in Data Intake to continue through the existing preprocessing/review flow.')
       await refreshSessions(activeSessionId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed')
@@ -246,7 +254,8 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const mappingBoard = draft?.mapping_board ?? []
   const conversation = draft?.conversation ?? activeSession?.messages ?? []
   const blockers = Array.isArray(draft?.validation_result?.blockers) ? draft?.validation_result?.blockers as string[] : []
-  const selectedTarget = targetContracts.find((target) => target.id === (activeSession?.target_contract_id ?? targetContractId)) ?? targetContracts[0]
+  const targetContract = activeSession?.target_contract
+  const targetLabel = targetContract ? `${targetContract.contract_id ?? 'generic_tabular_doe'} · ${targetContract.package_style ?? 'uploaded package'}` : 'No target Mirai contract uploaded'
   const mappingStats = getMappingStats(mappingBoard)
   const validationSummary = getValidationSummary(draft, blockers)
   const sourceSummary = getSourceSummary(activeSession?.files ?? [], availableColumns.length)
@@ -255,7 +264,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
     <div className="space-y-5">
       <KnowledgeIntakeHeader
         schema={schema}
-        targetLabel={selectedTarget.label}
+        targetLabel={targetLabel}
         fileCount={activeSession?.file_count ?? activeSession?.files?.length ?? 0}
         sessionStatus={activeSession?.status ?? 'No session'}
         validationLabel={validationSummary.label}
@@ -275,13 +284,13 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
           sessions={sessions}
           activeSession={activeSession}
           activeSessionId={activeSessionId}
-          targetContractId={targetContractId}
-          targetContracts={targetContracts}
           selectedFiles={selectedFiles}
+          selectedTargetFiles={selectedTargetFiles}
           sourceSummary={sourceSummary}
           loading={loading}
           onSelectSession={handleSelectSession}
-          onTargetContractChange={setTargetContractId}
+          onTargetFilesChange={setSelectedTargetFiles}
+          onUploadTargetContract={handleUploadTargetContract}
           onFilesChange={setSelectedFiles}
           onUpload={handleUpload}
         />
@@ -341,8 +350,8 @@ function KnowledgeIntakeHeader({ schema, targetLabel, fileCount, sessionStatus, 
   )
 }
 
-function SourcesPanel({ sessions, activeSession, activeSessionId, targetContractId, targetContracts, selectedFiles, sourceSummary, loading, onSelectSession, onTargetContractChange, onFilesChange, onUpload }: { sessions: KnowledgeIntakeSession[]; activeSession: KnowledgeIntakeSession | null; activeSessionId: string; targetContractId: string; targetContracts: TargetContract[]; selectedFiles: File[]; sourceSummary: SourceSummary; loading: boolean; onSelectSession: (sessionId: string) => Promise<void>; onTargetContractChange: (value: string) => void; onFilesChange: (files: File[]) => void; onUpload: (event: FormEvent) => Promise<void> }) {
-  const selectedTarget = targetContracts.find((target) => target.id === (activeSession?.target_contract_id ?? targetContractId)) ?? targetContracts[0]
+function SourcesPanel({ sessions, activeSession, activeSessionId, selectedFiles, selectedTargetFiles, sourceSummary, loading, onSelectSession, onTargetFilesChange, onUploadTargetContract, onFilesChange, onUpload }: { sessions: KnowledgeIntakeSession[]; activeSession: KnowledgeIntakeSession | null; activeSessionId: string; selectedFiles: File[]; selectedTargetFiles: File[]; sourceSummary: SourceSummary; loading: boolean; onSelectSession: (sessionId: string) => Promise<void>; onTargetFilesChange: (files: File[]) => void; onUploadTargetContract: (event: FormEvent) => Promise<void>; onFilesChange: (files: File[]) => void; onUpload: (event: FormEvent) => Promise<void> }) {
+  const targetContract = activeSession?.target_contract
   return (
     <aside className="flex min-h-0 flex-col gap-4 lg:col-span-1">
       <WorkspaceCard title="Sessions" aside={`${sessions.length}`}>
@@ -371,13 +380,15 @@ function SourcesPanel({ sessions, activeSession, activeSessionId, targetContract
         </div>
       </WorkspaceCard>
 
-      <WorkspaceCard title="Target contract">
-        <select value={activeSession?.target_contract_id ?? targetContractId} onChange={(event) => onTargetContractChange(event.target.value)} disabled={Boolean(activeSession?.target_contract_id)} className="w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-sm text-slate-100 disabled:opacity-70">
-          {targetContracts.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
-        </select>
+      <WorkspaceCard title="Target Mirai contract">
+        <form onSubmit={onUploadTargetContract} className="space-y-3">
+          <input type="file" multiple accept=".zip,.json,.csv" onChange={(event) => onTargetFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
+          <button type="submit" disabled={!activeSessionId || selectedTargetFiles.length === 0 || loading} className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload target contract</button>
+        </form>
         <div className="mt-3 rounded-lg border border-white/[0.07] bg-[#050B16] p-3">
-          <p className="text-sm font-medium text-white">{selectedTarget.label}</p>
-          <p className="mt-1 text-xs text-slate-400">{selectedTarget.summary}</p>
+          <p className="text-sm font-medium text-white">{targetContract ? `${targetContract.contract_id ?? 'generic_tabular_doe'} · ${targetContract.package_style ?? 'package'}` : 'No target uploaded'}</p>
+          <p className="mt-1 text-xs text-slate-400">{targetContract ? `Required files: ${(targetContract.required_files ?? []).join(', ')}` : 'Upload a Mirai package ZIP or manifest/data_dictionary/package CSV files. Fraunhofer packages are examples, not product target options.'}</p>
+          {targetContract?.fields && <p className="mt-1 text-xs text-slate-500">{targetContract.fields.length} contract columns · {(targetContract.tables ?? []).length} tables</p>}
         </div>
       </WorkspaceCard>
 

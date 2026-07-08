@@ -1567,8 +1567,16 @@ export interface KnowledgeIntakeSourceColumn {
 
 export interface KnowledgeIntakeMappingRow {
   field: string
+  variable_id?: string
+  source_name?: string
+  ui_label?: string
   role?: string
+  dtype?: string
+  unit?: string | null
   required?: boolean
+  direction?: string | null
+  allowed_min?: number | null
+  allowed_max?: number | null
   description?: string
   source_column?: string | null
   source_table?: string | null
@@ -1578,11 +1586,24 @@ export interface KnowledgeIntakeMappingRow {
   rationale?: string
 }
 
+export interface KnowledgeIntakeTargetContract {
+  id?: string
+  contract_id?: string
+  package_style?: string
+  required_files?: string[]
+  file_names?: string[]
+  tables?: Record<string, unknown>[]
+  joins?: Record<string, unknown>[]
+  fields?: KnowledgeIntakeMappingRow[]
+  schema?: Record<string, unknown>
+}
+
 export interface KnowledgeIntakeSession {
   id: string
   project_id: string
   title?: string
   target_contract_id?: string
+  target_contract?: KnowledgeIntakeTargetContract
   status: string
   created_at?: string
   updated_at?: string
@@ -1649,6 +1670,19 @@ export async function getKnowledgeIntakeSession(projectId: string, sessionId: st
     return response.data
   } catch (error) {
     throw normalizeError(error, 'Unable to load knowledge intake session')
+  }
+}
+
+export async function uploadKnowledgeIntakeTargetContract(projectId: string, sessionId: string, files: File[]): Promise<{ status: string; target_contract: KnowledgeIntakeTargetContract; session: KnowledgeIntakeSession }> {
+  try {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    const response = await api.post<{ status: string; target_contract: KnowledgeIntakeTargetContract; session: KnowledgeIntakeSession }>(`/projects/${projectId}/document-intake/sessions/${sessionId}/target-contract`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  } catch (error) {
+    throw normalizeError(error, 'Unable to upload target Mirai contract')
   }
 }
 
