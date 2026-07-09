@@ -42,7 +42,7 @@ export function RecommendPanel({
   onViewRecommendations: () => void
 }) {
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-[#0B1220]/55 p-5 text-white">
+    <section className="border-y border-slate-400/[0.10] py-5 text-white">
       <PanelHeader
         eyebrow="Candidate search"
         title="Recommend experiments"
@@ -102,7 +102,7 @@ export function RecommendPanel({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3">
           <NumberField
             id="n-candidates"
             label="Candidates sampled"
@@ -157,7 +157,7 @@ export function RecommendPanel({
       )}
 
       {recommendationRun && (
-        <div className="mt-5 rounded-lg border border-[#74C7F5]/30 bg-[#74C7F5]/10 p-4">
+        <div className="mt-5 border-l-2 border-[#74C7F5]/70 bg-[#74C7F5]/10 px-4 py-3">
           <p className="text-sm font-semibold text-[#BDEAFF]">
             {recommendationRun.recommendations.length} ranked candidates available for charts.
           </p>

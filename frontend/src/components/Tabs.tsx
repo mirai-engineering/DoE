@@ -48,14 +48,14 @@ export function Tabs({
   onCollapsedChange: (collapsed: boolean) => void
 }) {
   return (
-    <aside className="sticky top-4 z-[90] flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-[#07101D]/86 shadow-[0_10px_30px_rgba(2,6,23,0.16)] backdrop-blur-xl" aria-label="Primary product navigation">
-      <div className={`border-b border-white/[0.06] ${collapsed ? 'p-3' : 'p-4'}`}>
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <img src="/assets/mirai-mark.png" alt="Mirai" className="h-9 w-9 rounded-md bg-[#050914] object-cover ring-1 ring-white/10" />
+    <aside className={`fixed inset-y-0 left-0 z-[90] flex flex-col overflow-hidden border-r border-slate-400/[0.12] bg-[#070C17] transition-[width] duration-200 ${collapsed ? 'w-[4.75rem]' : 'w-[15.75rem]'}`} aria-label="Primary product navigation">
+      <div className={`border-b border-slate-400/[0.10] ${collapsed ? 'p-3' : 'p-4'}`}>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3.5'}`}>
+          <img src="/assets/mirai-mark.png" alt="Mirai" className="h-12 w-12 rounded-lg bg-[#050914] object-cover ring-1 ring-[#5BA8FF]/25" />
           {!collapsed && (
             <div className="min-w-0">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-[#74C7F5]">Mirai</p>
-              <p className="mt-0.5 text-sm font-medium tracking-[-0.01em] text-slate-100">AI-guided acceleration</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8FD3FF]">Mirai</p>
+              <p className="mt-0.5 text-sm font-medium tracking-[-0.01em] text-[#F3F7FF]">AI-guided acceleration</p>
             </div>
           )}
         </div>
@@ -87,16 +87,16 @@ export function Tabs({
                     aria-current={itemActive ? 'page' : undefined}
                     aria-label={collapsed ? item.label : undefined}
                     title={collapsed ? item.label : undefined}
-                    className={`group relative w-full rounded-md border border-transparent text-left transition ${
-                      collapsed ? 'px-2 py-2.5 text-center' : 'px-3 py-2.5'
+                    className={`group relative w-full border border-transparent text-left transition ${
+                      collapsed ? 'rounded-r-lg px-2 py-2.5 text-center before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5' : 'rounded-md px-3 py-2.5 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5'
                     } ${
                       itemActive
-                        ? 'bg-[#2F6BFF]/10 text-white before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:rounded-full before:bg-[#74C7F5]'
-                        : 'text-[#C7D2E4] hover:bg-white/[0.035] hover:text-white'
+                        ? 'bg-[#5BA8FF]/10 text-[#F3F7FF] before:bg-[#5BA8FF]'
+                        : 'text-[#C7D2E4] before:bg-transparent hover:bg-white/[0.035] hover:text-white'
                     }`}
                   >
                     {collapsed ? (
-                      <span className={`block text-xs font-semibold tracking-[0.04em] ${itemActive ? 'text-[#BDEAFF]' : 'text-[#9FB0C8]'}`}>{item.short}</span>
+                      <span className={`block text-xs font-semibold tracking-[0.04em] ${itemActive ? 'text-[#F3F7FF]' : 'text-[#9FB0C8]'}`}>{item.short}</span>
                     ) : (
                       <span className={`text-sm tracking-[-0.01em] ${itemActive ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
                     )}

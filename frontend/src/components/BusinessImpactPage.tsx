@@ -77,7 +77,7 @@ function TimeCapacityChart({ rows }: { rows: Array<Record<string, unknown>> }) {
   return (
     <div className="space-y-5">
       {rows.map((row) => (
-        <div key={asString(row.label)} className="rounded-xl border border-slate-200 bg-white p-4">
+        <div key={asString(row.label)} className="border-y border-slate-400/[0.10] py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm font-semibold text-slate-800">{asString(row.label)}</div>
             <div className="text-sm font-bold text-slate-950">{hoursLabel(asNumber(row.hours))}</div>
@@ -159,7 +159,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
   if (businessImpactUnavailable) {
     return (
       <div className="space-y-6">
-        <section className="rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
+        <section className="border-y border-slate-400/[0.10] py-6">
           <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Business Impact</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-slate-950">Business-impact metadata not configured</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
@@ -171,7 +171,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
   }
 
   if (loading) {
-    return <div className="rounded-xl border border-white/70 bg-white/80 p-8 text-slate-600 shadow-sm">Loading impact case study...</div>
+    return <div className="border-y border-slate-400/[0.10] py-8 text-slate-300">Loading impact case study...</div>
   }
 
   if (error || !summary) {
@@ -180,7 +180,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
 
   return (
     <div className="space-y-8">
-      <section id="impact-story" className="scroll-mt-8 border-b border-white/[0.07] pb-6 text-white">
+      <section id="impact-story" className="scroll-mt-8 border-b border-slate-400/[0.07] pb-6 text-white">
         <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
           <div>
             <p className="text-sm font-medium text-[#74C7F5]">
@@ -206,19 +206,19 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
 
         <div className="mt-8 grid gap-4 text-sm text-white/70 md:grid-cols-3">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+          <div className="border-t border-slate-400/[0.10] pt-5">
             <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold tracking-normal text-[#74C7F5]">
               X — Bottleneck
             </div>
             <p className="leading-6">{summary.headline.problem}</p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+          <div className="border-t border-slate-400/[0.10] pt-5">
             <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold tracking-normal text-[#74C7F5]">
               Y — Method
             </div>
             <p className="leading-6">{summary.headline.method}</p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+          <div className="border-t border-slate-400/[0.10] pt-5">
             <div className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold tracking-normal text-[#74C7F5]">
               Z — Proof
             </div>
@@ -227,7 +227,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </section>
 
-      <nav className="border-b border-white/[0.07] pb-3" aria-label="Business Impact page sections">
+      <nav className="border-b border-slate-400/[0.07] pb-3" aria-label="Business Impact page sections">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="px-2 text-xs font-semibold tracking-normal text-slate-400">On this page</span>
           {[
@@ -244,7 +244,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
       </nav>
 
       <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="border-t border-white/[0.07] pt-6">
+        <div className="border-t border-slate-400/[0.07] pt-6">
           <PanelHeader
             eyebrow="Experiment funnel"
             title="From thousands of ideas to fewer physical experiments"
@@ -255,7 +255,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
           </div>
         </div>
 
-        <div className="border-t border-white/[0.07] pt-6">
+        <div className="border-t border-slate-400/[0.07] pt-6">
           <PanelHeader
             eyebrow="Time saved"
             title="Campaign schedule impact"
@@ -267,7 +267,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </section>
 
-      <section id="impact-roi-assumptions" className="scroll-mt-8 border-t border-white/[0.07] pt-6">
+      <section id="impact-roi-assumptions" className="scroll-mt-8 border-t border-slate-400/[0.07] pt-6">
         <PanelHeader
           eyebrow="ROI assumptions"
           title="Customer-specific savings preview"
@@ -292,15 +292,15 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
           </label>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+          <div className="border-l border-slate-400/[0.10] pl-4">
             <div className="text-xs font-semibold tracking-normal text-slate-500">Hours saved / campaign</div>
             <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">~{formatNumber(savingsPreview.savedHoursPerCampaign)} h</div>
           </div>
-          <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+          <div className="border-l border-slate-400/[0.10] pl-4">
             <div className="text-xs font-semibold tracking-normal text-slate-500">Cost saved / campaign</div>
             <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">{moneyCompact(savingsPreview.savedCostPerCampaign)}</div>
           </div>
-          <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+          <div className="border-l border-slate-400/[0.10] pl-4">
             <div className="text-xs font-semibold tracking-normal text-slate-500">Annualized savings</div>
             <div className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">{moneyCompact(savingsPreview.annualizedSavings)}</div>
           </div>
@@ -308,21 +308,21 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
       </section>
 
       <section className="grid gap-6 md:grid-cols-3">
-        <div className="border-t border-white/[0.07] pt-6">
+        <div className="border-t border-slate-400/[0.07] pt-6">
           <div className="text-sm font-semibold text-slate-500">Physical recipes avoided</div>
           <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
             {formatNumber(asNumber(scenario.avoided_physical_recipes))}
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-600">Fewer physical samples consumed in a campaign of {formatNumber(asNumber(scenario.baseline_physical_recipes))} candidate designs.</p>
         </div>
-        <div className="border-t border-white/[0.07] pt-6">
+        <div className="border-t border-slate-400/[0.07] pt-6">
           <div className="text-sm font-semibold text-slate-500">Hands-on work avoided</div>
           <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
             ~{formatNumber(asNumber(scenario.saved_hands_on_hours))} h
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-600">Setup, inspection, assembly, transfer, monitoring, and review time that scientists can redirect to better hypotheses.</p>
         </div>
-        <div className="border-t border-white/[0.07] pt-6">
+        <div className="border-t border-slate-400/[0.07] pt-6">
           <div className="text-sm font-semibold text-slate-500">Internal direct savings</div>
           <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
             {moneyCompact(internalRange.low)}–{moneyCompact(internalRange.high)}
@@ -331,14 +331,14 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </section>
 
-      <section id="impact-evidence" className="scroll-mt-8 border-t border-white/[0.07] pt-6">
+      <section id="impact-evidence" className="scroll-mt-8 border-t border-slate-400/[0.07] pt-6">
         <PanelHeader
           eyebrow="Evidence package"
           title="What this is based on"
           description="Investor-friendly numbers should be simple, but the assumptions must remain inspectable. These are the references and caveats behind the pitch view."
         />
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+          <div className="border-y border-slate-400/[0.10] py-5">
             <h3 className="text-base font-semibold text-slate-950">Reference case</h3>
             <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
               <li>{formatNumber(asNumber(caseStudy.physical_cells_in_paper))} physical test articles in the reference dataset; {formatNumber(asNumber(caseStudy.physical_cells_in_repo))} extracted in this repo.</li>
@@ -347,7 +347,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
               <li>~{formatNumber(asNumber(caseStudy.virtual_candidates_per_screen))} virtual candidates can be screened before committing lab work.</li>
             </ul>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+          <div className="border-y border-slate-400/[0.10] py-5">
             <h3 className="text-base font-semibold text-slate-950">Caveats for a credible pitch</h3>
             <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600">
               {summary.caveats.map((caveat) => (
@@ -358,7 +358,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         </div>
       </section>
 
-      <section id="impact-references" className="scroll-mt-8 border-t border-white/[0.07] pt-6">
+      <section id="impact-references" className="scroll-mt-8 border-t border-slate-400/[0.07] pt-6">
         <PanelHeader
           eyebrow="References"
           title="Meaningful sources used for the impact model"
@@ -366,7 +366,7 @@ export function BusinessImpactPage({ schema }: { schema: ProjectSchema }) {
         />
         <div className="mt-5 space-y-3">
           {summary.sources.map((source) => (
-            <div key={source.label} className="rounded-lg border border-slate-200 bg-white p-4">
+            <div key={source.label} className="border-t border-slate-400/[0.07] pt-4">
               <div className="text-sm font-semibold text-slate-950">{source.label}</div>
               <div className="mt-1 text-sm leading-6 text-slate-600">{source.claim}</div>
               <div className="mt-1 break-all text-xs text-[#74C7F5]">{source.url}</div>

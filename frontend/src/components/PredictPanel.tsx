@@ -22,7 +22,7 @@ export function PredictPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-[#0B1220]/55 p-5">
+    <section className="border-y border-slate-400/[0.10] py-5">
       <PanelHeader
         eyebrow="Single experiment"
         title="Predict outcomes"
@@ -73,7 +73,7 @@ export function PredictPanel({
           <h3 className="text-sm font-semibold tracking-normal text-slate-500">
             Predicted KPIs
           </h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-6 sm:grid-cols-2">
             {schema.outputs.map((output) => (
               <KpiCard
                 key={output.name}

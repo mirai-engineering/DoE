@@ -123,7 +123,7 @@ function Meta({ children, className = '' }: { children: string; className?: stri
 }
 
 function MiraiLogo({ className = '' }: { className?: string }) {
-  return <img src="/assets/mirai-mark.png" alt="Mirai" className={`h-7 w-7 rounded-md border border-slate-600 bg-[#050914] object-cover ${className}`} />
+  return <img src="/assets/mirai-mark.png" alt="Mirai" className={`h-9 w-9 rounded-lg border border-cyan-300/20 bg-[#050914] object-cover ring-1 ring-white/10 ${className}`} />
 }
 
 function Navbar() {
@@ -147,9 +147,9 @@ function Navbar() {
   return (
     <header className={`fixed left-0 right-0 top-0 z-50 transition-all duration-300 ${scrolled ? 'border-b border-cyan-300/15 bg-[#030716]/85 backdrop-blur-lg' : 'bg-transparent'}`}>
       <nav className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6">
-        <a href="#" onClick={handleNav} className="flex items-center gap-2.5" aria-label="Mirai home">
+        <a href="#" onClick={handleNav} className="flex items-center gap-3" aria-label="Mirai home">
           <MiraiLogo />
-          <span className="text-sm font-medium tracking-tight text-[#F6F4EA]">Mirai</span>
+          <span className="text-base font-semibold tracking-tight text-[#F6F4EA]">Mirai</span>
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -520,7 +520,7 @@ function DataScientist() {
           <div className="overflow-hidden rounded-xl border border-cyan-300/15 bg-[#0A1630] shadow-[0_0_30px_rgba(99,215,255,0.04)]">
             <div className="flex items-center gap-3 border-b border-cyan-300/15 bg-[#0D1D3D]/60 px-5 py-3">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#63D7FF]/15"><span className="h-2 w-2 rounded-full bg-[#63D7FF]" /></div>
-              <div className="flex-1"><p className="text-sm font-medium text-[#F6F4EA]">Mirai Engineering Agent</p><p className="font-mono text-[10px] tracking-wider text-[#63D7FF]">Active · Project-scoped</p></div>
+              <div className="flex-1"><p className="text-sm font-medium text-[#F3F7FF]">Mirai Engineering Agent</p><p className="font-mono text-[10px] tracking-wider text-[#8FD3FF]">Active · Project-scoped</p></div>
               <span className="rounded-full border border-cyan-300/15 px-2.5 py-0.5 font-mono text-[8px] tracking-wider text-[#8899BB]">REQ-042</span>
             </div>
             <div className="space-y-5 p-5">
@@ -541,7 +541,7 @@ function DataScientist() {
                 </div>
               </div>
             </div>
-            <div className="border-t border-cyan-300/15 px-4 py-3"><div className="flex items-center gap-2 rounded-lg border border-cyan-300/15 bg-[#0D1D3D] px-3 py-2.5"><span className="flex-1 text-xs text-[#8899BB]">Ask about requirements, limits, assets, or source conflicts...</span><span className="font-mono text-[9px] tracking-wider text-[#63D7FF]/60">AGENT READY</span></div></div>
+            <div className="border-t border-slate-400/[0.12] px-4 py-3"><div className="flex items-center gap-2 rounded-lg border border-slate-400/[0.16] bg-[#0B1220] px-3 py-2.5"><span className="flex-1 text-xs text-[#6F7A90]">Ask about requirements, limits, assets, or source conflicts...</span><span className="font-mono text-[9px] tracking-wider text-[#63D69A]"><span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[#63D69A]" />READY</span></div></div>
             <div className="border-t border-cyan-300/15 bg-[#0D1D3D]/30 px-5 py-3"><p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-[#8899BB]">Tool activity</p>{ACTIVITY_LOG.map((item, index) => <div key={item.action} className="flex items-center gap-2 text-[10px]"><div className={`h-1 w-1 rounded-full ${index < ACTIVITY_LOG.length - 1 ? 'bg-[#63D7FF]/30' : 'bg-[#63D7FF]'}`} /><span className="text-[#C5D0E6]">{item.action}</span><span className="ml-auto text-[#8899BB]/60">{item.meta}</span></div>)}</div>
           </div>
 
@@ -669,7 +669,7 @@ function Footer() {
     { title: 'Company', color: 'text-[#3B82F6]', links: [{ label: 'Security & governance', href: '#cta' }, { label: 'Contact', href: `mailto:${CONTACT_EMAIL}` }] },
   ]
   return (
-    <footer className="border-t border-cyan-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#63D7FF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a demo</a><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{CONTACT_EMAIL}</a></div><div className="mt-6 flex items-center gap-2"><MiraiLogo className="opacity-60" /><span className="text-[10px] text-[#8899BB]">Mirai</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
+    <footer className="border-t border-cyan-300/15 bg-[#030716] py-16"><div className="mx-auto max-w-[1400px] px-6"><div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">{linkGroups.map((group) => <div key={group.title}><Meta className={`mb-3 ${group.color}`}>{group.title}</Meta><div className="flex flex-col gap-2">{group.links.map((link) => <a key={link.label} href={link.href} onClick={link.href.startsWith('#') ? (event) => { event.preventDefault(); scrollToHash(link.href) } : undefined} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{link.label}</a>)}</div></div>)}<div><Meta className="mb-3 text-[#63D7FF]">Get in touch</Meta><div className="flex flex-col gap-2"><a href={`mailto:${CONTACT_EMAIL}?subject=Mirai%20%E2%80%94%20Demo%20Request`} onClick={showDemoContactMessage} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">Request a demo</a><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-[#8899BB] transition-colors hover:text-[#C5D0E6]">{CONTACT_EMAIL}</a></div><div className="mt-6 flex items-center gap-3"><MiraiLogo className="opacity-85" /><span className="text-xs font-medium text-[#AEBBDD]">Mirai</span></div></div></div><div className="const-divider mb-4 mt-12" /><div className="flex flex-col gap-2 text-[10px] text-[#8899BB] sm:flex-row sm:items-center sm:justify-between"><span>&copy; 2026 Mirai. All rights reserved.</span><span className="font-mono uppercase tracking-[0.08em]">Data-to-Decision for industrial R&amp;D</span></div></div></footer>
   )
 }
 

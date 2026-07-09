@@ -242,16 +242,16 @@ function App() {
   return (
     <main className="mirai-auth-shell min-h-screen overflow-x-hidden bg-[#050914] text-[#F8FAFC]">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,#08111F_0%,#050914_46%,#07101D_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(91,168,255,0.055),transparent_360px),linear-gradient(180deg,#08111F_0%,#050914_46%,#07101D_100%)]" />
         <div className="absolute inset-0 opacity-[0.055] constellation-grid" />
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-400/30 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#050914] to-transparent" />
       </div>
 
-      <div className={`relative mx-auto grid max-w-[98rem] gap-4 px-4 py-4 transition-[grid-template-columns] duration-200 sm:px-6 lg:px-7 ${sidebarCollapsed ? 'lg:grid-cols-[4.75rem_minmax(0,1fr)]' : 'lg:grid-cols-[15.75rem_minmax(0,1fr)]'}`}>
-        <Tabs activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+      <Tabs activeTab={activeTab} onTabChange={setActiveTab} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        <div className="min-w-0 space-y-6">
+      <div className={`relative min-h-screen transition-[padding-left] duration-200 ${sidebarCollapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-[15.75rem]'}`}>
+        <div className="mx-auto min-w-0 max-w-[90rem] space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
           <ProjectHeader
             projects={projects}
             selectedProjectId={selectedProjectId}
@@ -273,14 +273,14 @@ function App() {
           )}
 
           {projectsLoading || (schemaLoading && activeTab !== 'preprocessing-review') ? (
-          <div className="rounded-xl border border-white/[0.08] bg-[#0B1220]/72 p-5 text-slate-300 backdrop-blur-xl">
+          <div className="border-y border-white/[0.08] py-5 text-slate-300">
             Loading project schema...
           </div>
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
               <div className="space-y-8">
-                <section className="border-b border-white/[0.07] pb-5">
+                <section className="border-b border-slate-400/[0.10] pb-5">
                   <p className="text-sm font-medium text-[#74C7F5]">
                     Batch Search
                   </p>
@@ -301,7 +301,7 @@ function App() {
                         type="button"
                         onClick={() => setBatchView(view.id as 'configure' | 'results' | 'visuals')}
                         className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
-                          batchView === view.id ? 'bg-[#2F6BFF] text-white shadow-sm shadow-black/20' : 'border border-slate-700 bg-[#080D18] text-slate-300 hover:border-slate-500 hover:bg-[#0E1729] hover:text-white'
+                          batchView === view.id ? 'bg-[#2F6BFF] text-white' : 'text-slate-300 hover:bg-white/[0.035] hover:text-white'
                         }`}
                       >
                         {view.label}

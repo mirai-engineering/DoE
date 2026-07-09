@@ -142,7 +142,7 @@ function DistributionTable({ title, rows }: { title: string; rows?: Record<strin
   const entries = Object.entries(rows ?? {})
   if (!entries.length) return null
   return (
-    <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+    <div className="border-t border-slate-400/[0.07] pt-4">
       <h3 className="font-semibold text-white">{title}</h3>
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-left text-xs">
@@ -178,6 +178,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [metadataDraft, setMetadataDraft] = useState<ProjectDomainMetadata | null>(null)
   const [appendFiles, setAppendFiles] = useState<File[]>([])
   const [busy, setBusy] = useState<string | null>(null)
+  const [mlAgentScopeCollapsed, setMLAgentScopeCollapsed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const selectedSession = useMemo(
@@ -543,7 +544,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <label className="text-sm font-semibold text-slate-300">
             Session
-            <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-white outline-none focus:border-[#74C7F5]">
+            <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full border-y border-slate-400/[0.10] px-4 py-3 text-sm text-white outline-none focus:border-[#74C7F5]">
               <option value="">No sessions found</option>
               {sessions.map((session) => (
                 <option key={session.ingestion_session_id} value={session.ingestion_session_id}>{session.project_name} · {session.ingestion_session_id}</option>
@@ -555,10 +556,10 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
         {selectedSession && (
           <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Project</div><div className="mt-1 truncate font-semibold text-white">{selectedSession.project_name}</div></div>
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Files</div><div className="mt-1 font-semibold text-white">{selectedSession.files.length}</div></div>
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Columns</div><div className="mt-1 font-semibold text-white">{validation?.column_count ?? '—'}</div></div>
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Rows</div><div className="mt-1 font-semibold text-white">{modelRows ?? 'Pending'}</div></div>
+            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Project</div><div className="mt-1 truncate font-semibold text-white">{selectedSession.project_name}</div></div>
+            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Files</div><div className="mt-1 font-semibold text-white">{selectedSession.files.length}</div></div>
+            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Columns</div><div className="mt-1 font-semibold text-white">{validation?.column_count ?? '—'}</div></div>
+            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Rows</div><div className="mt-1 font-semibold text-white">{modelRows ?? 'Pending'}</div></div>
           </div>
         )}
 
@@ -616,7 +617,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {metadataSummary.map(([label, value]) => (
-              <div key={label as string} className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+              <div key={label as string} className="border-t border-slate-400/[0.07] pt-4">
                 <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{value}</div>
               </div>
@@ -624,13 +625,13 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+            <div className="border-t border-slate-400/[0.07] pt-4">
               <div className="font-semibold text-white">Inputs</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {inputOrSweepVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-full bg-[#10203A] px-3 py-1 text-xs font-semibold text-slate-300">{variable.label || variable.name}</span>)}
               </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+            <div className="border-t border-slate-400/[0.07] pt-4">
               <div className="font-semibold text-white">Outputs</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {outputVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-md border border-slate-700 bg-[#0D1B2D] px-3 py-1 text-xs font-semibold text-slate-200">{variable.label || variable.name}</span>)}
@@ -643,18 +644,18 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-sm font-semibold text-slate-300">
                   X variable
-                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
+                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full border-y border-slate-400/[0.10] px-3 py-2 text-sm disabled:opacity-50">
                     {inputOrSweepVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-300">
                   Y variable
-                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full rounded-lg border border-slate-200 bg-[#0B1220] px-3 py-2 text-sm disabled:opacity-50">
+                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full border-y border-slate-400/[0.10] px-3 py-2 text-sm disabled:opacity-50">
                     {outputVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
                   </select>
                 </label>
               </div>
-              <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-[#0B1220]">
+              <div className="mt-4 overflow-x-auto border-y border-slate-400/[0.10]">
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-[#0B1220] text-xs tracking-normal text-slate-500">
                     <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
@@ -680,7 +681,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               {!!provenanceVariableEntries.length && (
                 <DisclosurePanel title={`Internal/provenance fields (${provenanceVariableEntries.length})`} defaultOpen={false}>
                   <p className="text-sm leading-6 text-slate-300">These IDs, joins, split columns, and source metadata are kept read-only so they cannot accidentally become training inputs.</p>
-                  <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-[#0B1220]">
+                  <div className="mt-3 max-h-80 overflow-auto border-y border-slate-400/[0.10]">
                     <table className="min-w-full text-left text-xs">
                       <thead className="bg-[#0D1B2D] tracking-normal text-slate-500">
                         <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Role</th></tr>
@@ -726,7 +727,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               ['Inputs', validation?.input_count],
               ['Outputs', validation?.output_count],
             ].map(([label, value]) => (
-              <div key={label as string} className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+              <div key={label as string} className="border-t border-slate-400/[0.07] pt-4">
                 <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
                 <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{formatNumber(value, 0)}</div>
               </div>
@@ -750,21 +751,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           <div className="mt-5 space-y-3">
             <DisclosurePanel title="Diagnostics and artifact links">
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+                <div className="border-t border-slate-400/[0.07] pt-4">
                   <h3 className="font-semibold text-white">Split plan</h3>
                   <p className="mt-1 text-sm text-slate-300">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="rounded-xl border border-slate-700 bg-[#0B1220] px-3 py-2"><span className="font-semibold text-white">{split}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
+                    {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="border-l border-slate-400/[0.10] px-3 py-2"><span className="font-semibold text-white">{split}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
                   </div>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+                <div className="border-t border-slate-400/[0.07] pt-4">
                   <h3 className="font-semibold text-white">Rejected-row reasons</h3>
                   <div className="mt-3 space-y-2 text-sm">
-                    {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="rounded-xl border border-slate-700 bg-[#0B1220] px-3 py-2"><span className="font-semibold text-white">{reason}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
+                    {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="border-l border-slate-400/[0.10] px-3 py-2"><span className="font-semibold text-white">{reason}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
                   </div>
                 </div>
               </div>
-              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-xs text-slate-300">
+              <div className="mt-4 border-t border-slate-400/[0.07] pt-4 text-xs text-slate-300">
                 {selectedSession && <button type="button" onClick={handleOpenYdataReport} disabled={busy === 'open-ydata-report'} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-50">{busy === 'open-ydata-report' ? 'Opening HTML EDA…' : 'Open HTML EDA ↗'}</button>}
                 <div className="mt-3 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
                 <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
@@ -785,7 +786,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
             <StatusPill tone={mlPreprocessingReady ? 'green' : mlPreprocessingStarted ? 'amber' : 'slate'}>{mlPreprocessingReady ? 'ready' : mlPreprocessingStarted ? 'in review' : 'not started'}</StatusPill>
           </div>
-          <div className="mt-5 rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+          <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="max-w-2xl text-sm leading-6 text-slate-300">
                 <div className="font-semibold text-white">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : mlPreprocessingStarted ? 'Review ML preprocessing plan before applying' : 'Draft ML preprocessing plan'}</div>
@@ -811,61 +812,73 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                 </div>
               </div>
             )}
-            <div className="mt-5 overflow-hidden rounded-xl border border-[#263654] bg-[#0B1220] shadow-sm shadow-black/20">
-              <div className="border-b border-[#263654] bg-[#0D1730] px-5 py-4">
+            <div className="mt-5 overflow-hidden border-y border-slate-400/[0.12]">
+              <div className="border-b border-slate-400/[0.08] bg-[linear-gradient(90deg,rgba(139,92,246,0.10),rgba(91,168,255,0.045))] px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#251F63] shadow-sm shadow-[#7C5CFF]/20">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#7C5CFF]" />
+                    <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#8B5CF6]/20 text-[#A78BFA]">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#A78BFA]" />
                     </div>
                     <div>
-                      <p className="font-mono text-xs font-bold tracking-normal text-[#74C7F5]">ML preprocessing agent</p>
-                      <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-white">Ask about preprocessing choices</h3>
-                      <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">Discuss the draft or completed preprocessing before/after applying it. The agent reads scoped ML preprocessing artifacts, not cross-workspace files or raw storage paths.</p>
+                      <p className="font-mono text-xs font-bold tracking-normal text-[#A78BFA]">ML preprocessing agent</p>
+                      <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-[#F3F7FF]">Ask about preprocessing choices</h3>
+                      <p className="mt-1 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Discuss the draft or completed preprocessing before/after applying it. The agent reads scoped ML preprocessing artifacts, not cross-workspace files or raw storage paths.</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void askMLPreprocessingAgent('Explain what happened during ML preprocessing and list the exported files.')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-2 text-xs font-semibold text-[#D8E3F8] transition hover:border-[#74C7F5]/50 hover:bg-[#132344] disabled:opacity-45">What happened?</button>
-                    <button type="button" onClick={() => void askMLPreprocessingAgent('x7 looks binary. Why was it not one-hot encoded? Should we change that before training?')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-[#7C5CFF]/45 bg-[#201F55]/80 px-3 py-2 text-xs font-semibold text-white transition hover:border-[#9E8CFF] disabled:opacity-45">Ask about x7</button>
+                    <button type="button" onClick={() => void askMLPreprocessingAgent('Explain what happened during ML preprocessing and list the exported files.')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-slate-400/[0.10] bg-[#101A2C]/60 px-3 py-2 text-xs font-semibold text-[#D7DEEA] transition hover:border-[#5BA8FF]/30 hover:bg-[#121F35]/90 hover:text-[#F3F7FF] disabled:opacity-45">What happened?</button>
+                    <button type="button" onClick={() => void askMLPreprocessingAgent('x7 looks binary. Why was it not one-hot encoded? Should we change that before training?')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-[#5BA8FF]/35 bg-[#5BA8FF]/[0.11] px-3 py-2 text-xs font-semibold text-[#F3F7FF] transition hover:border-[#5BA8FF]/45 disabled:opacity-45">Ask about x7</button>
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_16rem]">
+              <div className={`grid gap-0 transition-[grid-template-columns] duration-200 ${mlAgentScopeCollapsed ? 'lg:grid-cols-[minmax(0,1fr)_2.75rem]' : 'lg:grid-cols-[minmax(0,1fr)_16rem]'}`}>
                 <div className="flex min-h-[20rem] flex-col">
                   <div className="max-h-80 flex-1 space-y-4 overflow-y-auto px-5 py-5">
                     {mlPreprocessingChat.length === 0 ? (
-                      <div className="rounded-xl border border-[#263654] bg-[#101D3A] p-6 text-center">
-                        <p className="text-sm font-semibold text-white">Ask before approving/running, or after completion to explain the report.</p>
-                        <p className="mt-2 text-xs leading-5 text-slate-400">Answers remain project-scoped and grounded in preprocessing artifacts.</p>
+                      <div className="border-y border-slate-400/[0.12] bg-[#101A2C]/65 py-6 text-center">
+                        <p className="text-sm font-semibold text-[#F3F7FF]">Ask before approving/running, or after completion to explain the report.</p>
+                        <p className="mt-2 text-xs leading-5 text-[#AAB6C8]">Answers remain project-scoped and grounded in preprocessing artifacts.</p>
                       </div>
                     ) : mlPreprocessingChat.map((message, index) => (
                       <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 shadow-sm ${message.role === 'user' ? 'border border-[#7C5CFF]/45 bg-[#26245F] text-white shadow-[#7C5CFF]/10' : 'border border-[#263654] bg-[#101D3A] text-[#D8E3F8] shadow-black/20'}`}>
-                          {message.role === 'assistant' && <div className="mb-2 inline-flex rounded-full border border-[#74C7F5]/35 bg-[#12304A] px-3 py-1 font-mono text-[0.65rem] font-bold tracking-normal text-[#74C7F5]">Cited from preprocessing</div>}
+                        <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'border border-[#5BA8FF]/32 bg-[#5BA8FF]/[0.11] text-[#F3F7FF]' : 'border border-slate-400/[0.14] bg-[#101A2C]/90 text-[#D7DEEA]'}`}>
+                          {message.role === 'assistant' && <div className="mb-2 inline-flex rounded-full border border-[#D9C27E]/20 bg-[#D9C27E]/10 px-3 py-1 font-mono text-[0.65rem] font-bold tracking-normal text-[#D8C98F]">Cited from preprocessing</div>}
                           <p className="whitespace-pre-wrap">{message.content}</p>
                         </div>
                       </div>
                     ))}
-                    {busy === 'ml-preprocessing-chat' && <div className="rounded-xl border border-[#263654] bg-[#101D3A] p-4 text-sm text-slate-300">Checking scoped ML preprocessing artifacts…</div>}
+                    {busy === 'ml-preprocessing-chat' && <div className="border-l border-slate-400/[0.10] pl-4 text-sm text-slate-300">Checking scoped ML preprocessing artifacts…</div>}
                   </div>
 
-                  <form onSubmit={(event) => { event.preventDefault(); void askMLPreprocessingAgent() }} className="border-t border-[#263654] bg-[#0D1730] p-4">
-                    <div className="flex flex-col gap-3 rounded-lg border border-[#2D3F63] bg-[#101D3A] p-3 sm:flex-row sm:items-center">
-                      <input value={mlPreprocessingQuestion} onChange={(event) => setMLPreprocessingQuestion(event.target.value)} maxLength={1200} placeholder="Ask about tool choices, one-hot encoding, leakage, or exports…" className="min-h-11 flex-1 border-0 bg-transparent px-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-0" />
-                      <span className="hidden font-mono text-xs font-semibold tracking-normal text-[#7C5CFF] sm:inline">Agent ready</span>
-                      <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-45">Ask</button>
+                  <form onSubmit={(event) => { event.preventDefault(); void askMLPreprocessingAgent() }} className="border-t border-slate-400/[0.12] bg-[#0B1220] p-4">
+                    <div className="flex flex-col gap-3 rounded-lg border border-slate-400/[0.16] bg-[#0B1220] p-3 sm:flex-row sm:items-center">
+                      <input value={mlPreprocessingQuestion} onChange={(event) => setMLPreprocessingQuestion(event.target.value)} maxLength={1200} placeholder="Ask about tool choices, one-hot encoding, leakage, or exports…" className="min-h-11 flex-1 rounded-md border border-slate-400/[0.18] bg-[#050914] px-3 text-sm text-[#F3F7FF] outline-none placeholder:text-[#6F7A90] focus:border-[#5BA8FF]/40 focus:ring-0" />
+                      <span className="hidden text-xs font-semibold tracking-normal text-[#63D69A] sm:inline"><span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#63D69A]" />Ready</span>
+                      <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-md bg-[#2563EB] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#3478FF] disabled:opacity-45">Ask</button>
                     </div>
                   </form>
                 </div>
 
-                <aside className="border-t border-[#263654] bg-[#0D1730] p-5 lg:border-l lg:border-t-0">
-                  <p className="font-mono text-xs font-bold tracking-normal text-slate-400">Agent scope</p>
-                  <div className="mt-4 space-y-3">
-                    <div className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-[#7C5CFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#7C5CFF]" />Project-scoped</div>
-                    <div className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-[#5DA8FF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#5DA8FF]" />Read-only tools</div>
-                    <div className="rounded-lg border border-[#263654] bg-[#0F1B35] px-3 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-[#CDBF8A]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#CDBF8A]" />No raw paths</div>
-                  </div>
+                <aside className={`border-t border-slate-400/[0.07] bg-[#0B1220] ${mlAgentScopeCollapsed ? 'flex items-center justify-center p-3' : 'p-5'} lg:border-l-0 lg:border-t-0`}>
+                  {mlAgentScopeCollapsed ? (
+                    <button type="button" onClick={() => setMLAgentScopeCollapsed(false)} className="inline-flex h-full min-h-40 flex-col items-center justify-center gap-3 rounded-md text-[#9FB0C8] transition hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label="Show agent scope" title="Show agent scope">
+                      <span className="text-sm font-semibold">‹</span>
+                      <span className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] [writing-mode:vertical-rl]">Scope</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-mono text-xs font-bold tracking-normal text-[#7E8AA0]">Agent scope</p>
+                        <button type="button" onClick={() => setMLAgentScopeCollapsed(true)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label="Hide agent scope" title="Hide scope">›</button>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        <div className="rounded-lg border border-[#8B5CF6]/20 bg-[#8B5CF6]/[0.11] px-3 py-3 text-xs font-medium text-[#B89CFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#8B5CF6]/70" />Project-scoped</div>
+                        <div className="rounded-lg border border-[#5BA8FF]/20 bg-[#5BA8FF]/10 px-3 py-3 text-xs font-medium text-[#8FCBFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#5BA8FF]/75" />Read-only tools</div>
+                        <div className="rounded-lg border border-[#D9C27E]/20 bg-[#D9C27E]/10 px-3 py-3 text-xs font-medium text-[#D8C98F]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#D9C27E]/75" />No raw paths</div>
+                      </div>
+                    </>
+                  )}
                 </aside>
               </div>
             </div>
@@ -884,7 +897,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">1. Create training request</span><StatusPill tone={trainingRequest ? 'green' : mlPreprocessingReady ? 'amber' : 'slate'}>{trainingRequest ? 'ready' : mlPreprocessingReady ? 'available' : 'waiting'}</StatusPill></div>
@@ -912,7 +925,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">3. Optional in-app training</span><StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : 'slate'}>{trainingCompleted ? 'done' : trainingRequest ? 'available' : 'waiting'}</StatusPill></div>
@@ -924,7 +937,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">4. Load promoted MLflow champion</span><StatusPill tone={championActive ? 'green' : canUseProjectChampionLoader ? 'amber' : 'slate'}>{championActive ? 'active' : canUseProjectChampionLoader ? 'available' : 'waiting'}</StatusPill></div>
@@ -935,7 +948,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         </div>
 
         {canUseProjectChampionLoader && (
-          <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-300">
+          <div className="mt-4 border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold tracking-normal text-amber-800">App dev step</span></div>
@@ -977,7 +990,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
               <label className="text-sm font-semibold text-slate-300">Seeds<input value={trainingConfig.mlp.seeds.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
             </div>
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+              <div className="border-t border-slate-400/[0.07] pt-4">
                 <h3 className="font-semibold text-white">Linear baselines</h3>
                 <div className="mt-3 grid gap-3">
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-300"><input type="checkbox" checked={trainingConfig.linear.include_mvlr} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include MVLR</label>
@@ -985,7 +998,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
                   <label className="text-sm font-semibold text-slate-300">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
                 </div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4">
+              <div className="border-t border-slate-400/[0.07] pt-4">
                 <h3 className="font-semibold text-white">MLP</h3>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <label className="text-sm font-semibold text-slate-300">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
@@ -1004,12 +1017,12 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
           {selectedSession ? (
             <div>
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Project ID</div><div className="mt-1 break-all text-slate-300">{selectedSession.project_id}</div></div>
-                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Dataset</div><div className="mt-1 break-all text-slate-300">{selectedSession.dataset_id}</div></div>
-                <div className="rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm"><div className="font-semibold text-white">Session</div><div className="mt-1 break-all text-slate-300">{selectedSession.ingestion_session_id}</div></div>
+                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Project ID</div><div className="mt-1 break-all text-slate-300">{selectedSession.project_id}</div></div>
+                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Dataset</div><div className="mt-1 break-all text-slate-300">{selectedSession.dataset_id}</div></div>
+                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Session</div><div className="mt-1 break-all text-slate-300">{selectedSession.ingestion_session_id}</div></div>
               </div>
               <div className="mt-4 flex flex-wrap gap-3">
-                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 rounded-lg border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm text-slate-300" />
+                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 border-y border-slate-400/[0.10] px-4 py-3 text-sm text-slate-300" />
                 <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'append-files' ? 'Appending...' : 'Append files'}</button>
               </div>
             </div>

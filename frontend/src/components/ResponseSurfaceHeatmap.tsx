@@ -163,7 +163,7 @@ export function ResponseSurfaceHeatmap({
       </form>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
-        <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+        <div className="border-t border-white/[0.07] pt-4">
           <p className="text-xs font-semibold tracking-normal text-slate-400">
             Varied variables
           </p>
@@ -171,7 +171,7 @@ export function ResponseSurfaceHeatmap({
             {variedX?.label ?? xAxis} vs {variedY?.label ?? yAxis}
           </p>
         </div>
-        <div className="rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+        <div className="border-t border-white/[0.07] pt-4">
           <p className="text-xs font-semibold tracking-normal text-slate-400">
             Fixed variables
           </p>
@@ -197,7 +197,7 @@ export function ResponseSurfaceHeatmap({
           currentInputs={toNumberMap(inputValues)}
         />
       ) : (
-        <div className="mt-6 rounded-xl border border-dashed border-white/10 bg-[#0B1220]/45 p-8 text-center text-sm text-slate-400">
+        <div className="mt-6 border-y border-dashed border-white/10 py-8 text-center text-sm text-slate-400">
           Generate a response surface to compare local tradeoffs around the current console inputs.
         </div>
       )}
@@ -286,7 +286,7 @@ function HeatmapPlot({
   })
 
   return (
-    <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-[#0B1220] p-3">
+    <div className="mt-6 overflow-hidden border-y border-white/[0.08] py-3">
       <Plot
         data={traces}
         layout={layout}

@@ -100,8 +100,8 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
         </div>
       )}
 
-      <section className="grid gap-8 border-t border-white/[0.07] pt-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="rounded-xl border border-white/10 bg-[#0B1220]/82 p-5 shadow-[0_14px_36px_rgba(2,6,23,0.16)] sm:p-6">
+      <section className="grid gap-8 border-t border-slate-400/[0.07] pt-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="border-y border-slate-400/[0.10] py-5 sm:py-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold tracking-[-0.035em] text-white">Upload package</h2>
@@ -110,7 +110,7 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
             <span className="text-sm font-medium text-[#74C7F5]">{selectedFileLabel}</span>
           </div>
 
-          <div className="mt-5 inline-flex rounded-md bg-[#050914] p-1 ring-1 ring-white/10">
+          <div className="mt-5 inline-flex border-b border-slate-400/[0.10]">
             <button
               type="button"
               onClick={() => setIntakeMode('new_project')}
@@ -179,7 +179,7 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
           </div>
         </div>
 
-        <aside className="space-y-6 lg:border-l lg:border-white/[0.07] lg:pl-6">
+        <aside className="space-y-6 lg:border-l lg:border-slate-400/[0.07] lg:pl-6">
           <div>
             <h2 className="text-base font-semibold text-white">Package requirements</h2>
             <p className="mt-2 text-sm leading-6 text-[#9BA8C0]">Upload one ZIP, or select these files together.</p>
@@ -197,8 +197,8 @@ export function DataIntakePage({ schema, projects, workspaces, account, onReview
           <DisclosurePanel title="Download templates">
             <div className="flex flex-wrap gap-2">
               <a href="/templates/mirai_manifest_multitable_template.json" download className="rounded-md bg-[#2F6BFF] px-3 py-2 text-sm font-semibold text-white">Manifest</a>
-              <a href="/templates/data_dictionary_template.csv" download className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.04]">Dictionary</a>
-              <a href="/templates/data_dictionary_multitable_example.csv" download className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.04]">Example CSV</a>
+              <a href="/templates/data_dictionary_template.csv" download className="rounded-md px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.04]">Dictionary</a>
+              <a href="/templates/data_dictionary_multitable_example.csv" download className="rounded-md px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.04]">Example CSV</a>
             </div>
           </DisclosurePanel>
 

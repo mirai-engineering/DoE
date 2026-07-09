@@ -56,7 +56,7 @@ export function KpiComparisonChart({
         title="Top candidate comparison"
         description="Bars are normalized per KPI. For minimize metrics, the normalization is reversed so taller remains better."
       />
-      <div className="mt-5 overflow-hidden rounded-lg border border-white/[0.07] bg-[#0B1220]/70 p-2">
+      <div className="mt-5 overflow-hidden border-y border-white/[0.07] py-2">
         <Plot
           data={traces}
           layout={layout}

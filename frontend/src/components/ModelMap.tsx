@@ -305,7 +305,7 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
       <div ref={wrapperRef} className="relative mt-6">
         <ConnectionOverlay wrapperRef={wrapperRef} inputPorts={inputPorts} outputPorts={outputPorts} firstHiddenNodes={firstHiddenNodes} latentNodes={latentNodes} />
         <div className="relative z-20 grid gap-5 xl:grid-cols-[0.9fr_1.45fr_0.95fr] xl:items-stretch">
-          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+          <div className="border-y border-white/[0.08] py-5">
             <div className="text-[0.72rem] font-bold tracking-normal text-[#74C7F5]">Controlled variables</div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{inputs.length} variables</div>
             <p className="mt-2 text-sm leading-6 text-slate-300">Project-specific settings defined by the active schema.</p>
@@ -342,7 +342,7 @@ export function ModelMap({ inputs, outputs, modelName, modelRuntime = 'ONNX Runt
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-5">
+          <div className="border-y border-white/[0.08] py-5">
             <div className="text-[0.72rem] font-bold tracking-normal text-[#74C7F5]">Predicted response</div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">{outputs.length} KPIs</div>
             <p className="mt-2 text-sm leading-6 text-slate-300">Schema-defined model outputs used for scoring, search, and tradeoff review.</p>

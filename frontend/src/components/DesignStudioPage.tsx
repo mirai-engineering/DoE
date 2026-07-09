@@ -563,7 +563,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border border-white/70 bg-white/90 p-6 shadow-sm shadow-slate-900/10 backdrop-blur">
+      <section className="border-b border-slate-400/[0.10] pb-6">
         <PanelHeader
           eyebrow="Design Studio"
           title="Interactive surrogate-model playground"
@@ -577,7 +577,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Schema bounds enforced</span>
           {prediction?.warnings?.length ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</span> : null}
         </div>
-        <details className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm text-slate-600">
+        <details className="mt-4 border-t border-slate-400/[0.07] pt-4 text-sm text-slate-600">
           <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {[
@@ -602,7 +602,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         </details>
       </section>
 
-      <nav className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-2 shadow-sm shadow-black/20" aria-label="Design Studio workflows">
+      <nav className="border-b border-slate-400/[0.10] pb-2" aria-label="Design Studio workflows">
         <div className="grid gap-2 md:grid-cols-5">
           {[
             ['single_result', 'Single result', 'Edit the current design point and generate KPIs'],
@@ -615,7 +615,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               key={id}
               type="button"
               onClick={() => setActiveWorkflow(id as DesignWorkflow)}
-              className={`rounded-md border px-4 py-3 text-left transition ${activeWorkflow === id ? 'border-[#2F6BFF]/70 bg-[#10203A] text-white shadow-sm shadow-black/20' : 'border-slate-700 bg-[#070C16] text-slate-300 hover:border-[#74C7F5]/50 hover:bg-[#0D1524] hover:text-white'}`}
+              className={`rounded-md border px-4 py-3 text-left transition ${activeWorkflow === id ? 'bg-[#2F6BFF] text-white' : 'border-transparent text-slate-300 hover:bg-white/[0.035] hover:text-white'}`}
             >
               <div className="font-semibold">{label}</div>
               <div className={`mt-1 text-xs ${activeWorkflow === id ? 'text-white/80' : 'text-slate-500'}`}>{description}</div>
@@ -625,7 +625,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       </nav>
 
       {activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
-        <section className="rounded-lg border border-slate-700/80 bg-[#0B1220] p-4 shadow-sm shadow-black/20">
+        <section className="border-y border-slate-400/[0.10] py-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(16rem,0.7fr)_minmax(0,1.1fr)] lg:items-start">
             <label className="min-w-0 text-sm font-semibold text-slate-700">
               Visualisation type
@@ -662,7 +662,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               )}
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mt-4 border-y border-slate-400/[0.10] py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
@@ -721,7 +721,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <span>{sweepRangeIssue}</span>
                 {sweepMeta && <button type="button" onClick={() => { setSweepRangeMin(String(sweepMeta.min)); setSweepRangeMax(String(sweepMeta.max)); setVisualisationStale(true) }} className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900">Use schema range</button>}
               </div>}
-              <div className="mt-5 rounded-xl border border-slate-200 bg-[#0B1220] p-4">
+              <div className="mt-5 border-y border-slate-400/[0.10] py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
@@ -768,7 +768,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </table>
                 </div>
               </div>
-              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="mt-5 border-y border-slate-400/[0.10] py-4">
                 <div className="grid gap-3 lg:grid-cols-[minmax(14rem,0.45fr)_minmax(0,1fr)_auto] lg:items-end">
                   <label className="min-w-0 text-sm font-semibold text-slate-700">
                     Plot label
@@ -799,7 +799,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </button>
                 </div>
               </div>
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mt-4 border-y border-slate-400/[0.10] py-4">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-slate-950">Measured training overlay</h3>
@@ -842,7 +842,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
               </div>
 
-              <details className="mt-4 rounded-xl border border-slate-200 bg-[#0B1220] p-4">
+              <details className="mt-4 border-y border-slate-400/[0.10] py-4">
                 <summary className="cursor-pointer select-none font-semibold text-slate-950">Refine matching / Advanced filters</summary>
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
                   <label className="flex items-center gap-2 font-semibold text-slate-700">
@@ -856,7 +856,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 {overlayColumns.length === 0 && <p className="mt-3 text-sm text-slate-500">No filterable predictions.csv columns were found for this loaded champion.</p>}
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                   {visibleOverlayColumns.map((column) => column.filter_kind === 'range' ? (
-                    <div key={column.name} className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div key={column.name} className="border-t border-slate-400/[0.07] pt-3">
                       <div className="text-sm font-semibold text-slate-800">{column.label}{column.unit ? ` / ${column.unit}` : ''}</div>
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         <input type="number" value={trainingOverlayRanges[column.name]?.min ?? ''} onChange={(event) => setTrainingOverlayRanges((current) => ({ ...current, [column.name]: { ...(current[column.name] ?? {}), min: event.target.value } }))} placeholder={column.min !== undefined ? `min ${formatNumber(column.min)}` : 'min'} className="rounded-xl border border-slate-200 px-2 py-1 text-sm" />
@@ -864,13 +864,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       </div>
                     </div>
                   ) : (
-                    <label key={column.name} className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                    <label key={column.name} className="border-t border-slate-400/[0.07] pt-3 text-sm font-semibold text-slate-700">
                       {column.label}{column.unit ? ` / ${column.unit}` : ''}
                       <input list={`overlay-${column.name}`} value={trainingOverlayFilters[column.name] ?? ''} onChange={(event) => setTrainingOverlayFilters((current) => ({ ...current, [column.name]: event.target.value }))} placeholder="Any" className="mt-2 w-full rounded-xl border border-slate-200 px-2 py-1 font-normal" />
                       <datalist id={`overlay-${column.name}`}>{(column.values ?? []).map((value) => <option key={`${column.name}-${String(value)}`} value={String(value)} />)}</datalist>
                     </label>
                   ))}
-                  <label className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-700">
+                  <label className="border-t border-slate-400/[0.07] pt-3 text-sm font-semibold text-slate-700">
                     Color/group by
                     <select value={trainingOverlayGroupBy} onChange={(event) => setTrainingOverlayGroupBy(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-2 py-1 font-normal">
                       <option value="">No grouping</option>
@@ -893,7 +893,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       {!loading && state && (
         <>
           <section id="design-workspace" className="scroll-mt-8 space-y-6">
-            {activeWorkflow === 'model_map' && <section className="rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
+            {activeWorkflow === 'model_map' && <section className="border-y border-slate-400/[0.10] py-6">
               <PanelHeader eyebrow="Model map" title="From experiment settings to predicted response" description="A schema view of the loaded model inputs and outputs. This is separated from Experiment visualisation so it does not interrupt plot setup." />
               <div className="mt-4">
                 <ModelMap
@@ -904,7 +904,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
+            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <PanelHeader eyebrow="Current design point" title="Tune one design point" description="Adjust the current composition/test values, then generate one model result. Experiment visualisation can sweep one input around this same design point." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -923,7 +923,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
                 {schema.inputs.map((input) => (
-                  <label key={input.name} className="block rounded-xl border border-slate-200 bg-[#0B1220] p-4 shadow-sm">
+                  <label key={input.name} className="block border-t border-slate-400/[0.07] pt-4">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-900">{input.label}</span>
                       <span className="rounded-full bg-white px-2 py-1 text-[0.68rem] font-semibold tracking-normal text-slate-400">{input.unit}</span>
@@ -986,7 +986,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. Loading a candidate updates the current design point and the visualisation fixed conditions together." />
                 <div className="flex flex-wrap gap-2">
@@ -1030,7 +1030,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   {selectedObjective?.description && <p className="mt-2 text-xs leading-5 text-[#BDEAFF]">{selectedObjective.description}</p>}
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-[#0B1220] p-4">
+                <div className="border-y border-slate-400/[0.10] py-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold text-slate-950">Objective mix</h3>
                     <span className="text-xs font-semibold tracking-normal text-slate-400">custom tradeoffs</span>
@@ -1072,7 +1072,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="mt-5 border-y border-slate-400/[0.10] py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
@@ -1085,7 +1085,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     const mode = searchSpaceModes[input.name] || 'free'
                     const range = searchSpaceRanges[input.name] || { min: String(input.min), max: String(input.max) }
                     return (
-                      <div key={input.name} className="rounded-lg border border-slate-200 bg-[#0B1220] p-3">
+                      <div key={input.name} className="border-y border-slate-400/[0.10] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
                           <div className="text-xs text-slate-500">Current design point: {formatNumber(Number(currentDesignPoint[input.name]))}</div>
@@ -1106,7 +1106,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
+            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the experiment visualisation settings." />
               <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
@@ -1119,7 +1119,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </section>}
           </section>
 
-          {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-900/5">
+          {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <PanelHeader eyebrow="Experiment visualisation" title={plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response'} description={selectedExperimentVisualisationConfig?.description || 'Sweep one variable, keep fixed inputs constant, and plot predicted response points.'} />
               <button
@@ -1142,7 +1142,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             )}
             {curveRows.length > 0 && (
-              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0B1220] p-4 text-sm leading-6 text-slate-600">
+              <div className="mt-4 border-t border-slate-400/[0.07] pt-4 text-sm leading-6 text-slate-600">
                 <div><strong className="text-slate-900">Sweep:</strong> {sweepRangeLabel}</div>
                 <div><strong className="text-slate-900">Fixed conditions:</strong> {visualisationFixedConditionLabels.length ? visualisationFixedConditionLabels.join(' · ') : 'Only the swept variable is varied.'}</div>
                 {visualisationGroupLabels.length > 0 && <div><strong className="text-slate-900">Grouped curves:</strong> {visualisationGroupLabels.join(' · ')}</div>}
@@ -1163,7 +1163,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
           </section>}
 
           {activeWorkflow === 'optimize' && paretoResults && (
-            <section id="design-tradeoffs" className="scroll-mt-8 rounded-xl border border-slate-200 bg-white/90 p-6 shadow-sm">
+            <section id="design-tradeoffs" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <PanelHeader
                 eyebrow="Find alternatives"
                 title="Tradeoff candidates"
@@ -1174,7 +1174,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
-                  <article key={candidate.rank} className="rounded-lg border border-slate-200 bg-[#0B1220] p-3">
+                  <article key={candidate.rank} className="border-y border-slate-400/[0.10] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="font-semibold text-slate-950">{candidate.label}</h3>
@@ -1209,7 +1209,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 ))}
               </div>
               {paretoResults.objectives.length >= 2 && (
-                <details className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+                <details className="mt-4 border-t border-slate-400/[0.07] pt-4">
                   <summary className="cursor-pointer select-none text-sm font-semibold text-slate-800">Show Pareto scatter plot</summary>
                   <div className="mt-4">
                   <Plot

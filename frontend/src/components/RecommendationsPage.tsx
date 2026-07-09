@@ -22,7 +22,7 @@ export function RecommendationsPage({
 
   return (
     <div className="space-y-8">
-      <section className="border-b border-white/[0.07] pb-5">
+      <section className="border-b border-slate-400/[0.07] pb-5">
         <PanelHeader
           eyebrow="Recommended experiments"
           title="Ranked design points"

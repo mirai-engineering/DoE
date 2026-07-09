@@ -10,7 +10,7 @@ export type LifecycleStep = {
 
 export function LifecycleStepper({ steps }: { steps: LifecycleStep[] }) {
   return (
-    <div className="border-y border-white/[0.07] py-4">
+    <div className="border-y border-slate-400/[0.07] py-4">
       <div className="grid gap-3 md:grid-cols-5">
         {steps.map((step, index) => {
           const isDone = step.status === 'done'
@@ -42,13 +42,13 @@ export function SectionCard({
   density?: 'compact' | 'normal'
 }) {
   const variants = {
-    glass: 'border-white/[0.08] bg-[#0B1220]/72 shadow-[0_12px_32px_rgba(2,6,23,0.14)] backdrop-blur-xl',
-    solid: 'border-slate-700/60 bg-[#0B1220]',
-    subtle: 'border-slate-700/45 bg-[#08111F]/70',
-    flat: 'border-white/[0.07] bg-transparent',
+    glass: 'border-slate-400/[0.10] bg-[#081526]/45',
+    solid: 'border-slate-400/[0.10] bg-[#081526]/55',
+    subtle: 'border-slate-400/[0.07] bg-transparent',
+    flat: 'border-slate-400/[0.07] bg-transparent',
   }
-  const padding = density === 'compact' ? 'p-4 sm:p-5' : 'p-5 sm:p-6'
-  return <section className={`rounded-xl border ${variants[variant]} ${padding} ${className}`}>{children}</section>
+  const padding = density === 'compact' ? 'py-4 sm:py-5' : 'py-5 sm:py-6'
+  return <section className={`border-y ${variants[variant]} ${padding} ${className}`}>{children}</section>
 }
 
 export function DisclosurePanel({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -69,7 +69,7 @@ export function Metadata({ label, value, inline = false }: { label: string; valu
     return <span className="whitespace-nowrap text-sm text-[#9FB0C8]"><span className="text-slate-200">{value}</span> {label}</span>
   }
   return (
-    <div className="rounded-md border border-white/[0.07] bg-white/[0.025] px-3 py-2">
+    <div className="border-l border-slate-400/[0.10] pl-3">
       <div className="text-[0.68rem] font-medium text-[#9FB0C8]">
         {label}
       </div>
@@ -210,7 +210,7 @@ export function WeightField({
   onChange: (value: string) => void
 }) {
   return (
-    <label htmlFor={id} className="block rounded-md border border-slate-700 bg-[#070C16] p-3">
+    <label htmlFor={id} className="block border-t border-slate-400/[0.07] pt-3">
       <span className="flex items-center justify-between gap-3 text-sm font-semibold text-white/90">
         {label}
         <span className="text-xs font-medium text-white/45">
@@ -243,7 +243,7 @@ export function FixedInputField({
   onValueChange: (value: string) => void
 }) {
   return (
-    <div className="rounded-md border border-slate-700 bg-[#070C16] p-3">
+    <div className="border-t border-slate-400/[0.07] pt-3">
       <label className="flex items-center gap-3 text-sm font-semibold text-white/90">
         <input
           type="checkbox"
@@ -282,18 +282,18 @@ export function KpiCard({
   direction: 'maximize' | 'minimize'
 }) {
   return (
-    <div className="rounded-lg border border-slate-300 bg-[#0B1220] p-4">
+    <div className="border-l border-slate-400/[0.10] pl-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-slate-700">{label}</p>
+        <p className="text-sm font-semibold text-slate-200">{label}</p>
         <span className="rounded bg-[#2F6BFF]/10 px-2 py-1 text-[0.68rem] font-semibold text-[#74C7F5]">
           {direction}
         </span>
       </div>
       <div className="mt-4 flex items-baseline gap-2">
-        <span className="text-3xl font-semibold tracking-[-0.05em] text-slate-950">
+        <span className="text-3xl font-semibold tracking-[-0.05em] text-white">
           {formatNumber(value)}
         </span>
-        <span className="text-sm text-slate-400">{unit}</span>
+        <span className="text-sm text-slate-500">{unit}</span>
       </div>
     </div>
   )
@@ -310,11 +310,11 @@ export function Alert({
 }) {
   const className =
     tone === 'error'
-      ? 'border-red-200 bg-red-50 text-red-950'
-      : 'border-amber-200 bg-amber-50 text-amber-950'
+      ? 'bg-red-500/10 text-red-100'
+      : 'bg-amber-500/10 text-amber-100'
 
   return (
-    <div className={`rounded-lg border p-4 ${className}`}>
+    <div className={`px-3 py-2 ${className}`}>
       <p className="font-semibold">{title}</p>
       <ul className="mt-2 space-y-1 text-sm">
         {messages.map((message) => (
@@ -327,7 +327,7 @@ export function Alert({
 
 export function EmptyRecommendationsState({ onGoHome }: { onGoHome: () => void }) {
   return (
-    <section className="rounded-xl border border-dashed border-white/10 bg-[#0B1220]/60 p-10 text-center">
+    <section className="border-y border-dashed border-white/10 py-10 text-center">
       <p className="text-sm font-medium text-[#74C7F5]">
         Awaiting candidate search
       </p>

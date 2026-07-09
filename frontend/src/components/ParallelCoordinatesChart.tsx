@@ -160,7 +160,7 @@ export function ParallelCoordinatesChart({
         the plot readable while the key maps each code to its variable and unit.
       </p>
       <AxisKey entries={axisKey} />
-      <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.07] bg-[#0B1220]/70 p-2">
+      <div className="mt-6 overflow-hidden border-y border-white/[0.07] py-2">
         <Plot
           data={[trace]}
           layout={layout}
@@ -181,7 +181,7 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
   ]
 
   return (
-    <div className="mt-6 rounded-lg border border-white/[0.07] bg-[#0B1220]/55 p-4">
+    <div className="mt-6 border-y border-white/[0.07] py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold tracking-normal text-slate-500">
           Axis key
@@ -218,7 +218,7 @@ function AxisKeyPill({ entry }: { entry: AxisKeyEntry }) {
   const direction = entry.direction === 'maximize' ? '↑' : entry.direction === 'minimize' ? '↓' : ''
 
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm">
+    <div className="inline-flex max-w-full items-center gap-2 rounded-full bg-white/[0.06] px-3 py-2 text-sm">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white">
         {entry.code}
       </span>

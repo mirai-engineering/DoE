@@ -65,6 +65,8 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const [tableName, setTableName] = useState('experiments.csv')
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [showFullMapping, setShowFullMapping] = useState(false)
+  const [sourcesCollapsed, setSourcesCollapsed] = useState(false)
+  const [resultsCollapsed, setResultsCollapsed] = useState(false)
 
   const activeSession = useMemo(() => sessions.find((session) => session.id === activeSessionId) ?? null, [sessions, activeSessionId])
 
@@ -261,7 +263,7 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const sourceSummary = getSourceSummary(activeSession?.files ?? [], availableColumns.length)
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <KnowledgeIntakeHeader
         schema={schema}
         targetLabel={targetLabel}
@@ -273,13 +275,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       />
 
       {(error || notice) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {error && <div className="rounded-xl border border-red-300/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div>}
-          {notice && <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">{notice}</div>}
+        <div className="space-y-2">
+          {error && <div className="flex items-start gap-2 bg-red-500/10 px-3 py-2 text-sm text-red-100"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red-300" />{error}</div>}
+          {notice && <div className="flex items-start gap-2 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />{notice}</div>}
         </div>
       )}
 
-      <section className="grid min-h-[calc(100vh-270px)] gap-4 xl:grid-cols-[minmax(250px,0.8fr)_minmax(420px,1.55fr)_minmax(320px,1.1fr)] lg:grid-cols-[minmax(360px,1.15fr)_minmax(330px,0.85fr)]">
+      <section className={`grid min-h-[calc(100vh-270px)] gap-5 transition-[grid-template-columns] duration-200 ${sourcesCollapsed && resultsCollapsed ? 'xl:grid-cols-[2.75rem_minmax(620px,1fr)_2.75rem]' : sourcesCollapsed ? 'xl:grid-cols-[2.75rem_minmax(560px,1fr)_minmax(320px,0.82fr)]' : resultsCollapsed ? 'xl:grid-cols-[minmax(250px,0.72fr)_minmax(560px,1fr)_2.75rem]' : 'xl:grid-cols-[minmax(250px,0.78fr)_minmax(420px,1.55fr)_minmax(320px,1.05fr)]'} lg:grid-cols-[minmax(360px,1.15fr)_minmax(330px,0.85fr)]`}>
+        
         <SourcesPanel
           sessions={sessions}
           activeSession={activeSession}
@@ -293,6 +296,8 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
           onUploadTargetContract={handleUploadTargetContract}
           onFilesChange={setSelectedFiles}
           onUpload={handleUpload}
+          collapsed={sourcesCollapsed}
+          onCollapsedChange={setSourcesCollapsed}
         />
 
         <MappingAgentPanel
@@ -327,6 +332,8 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
           onReject={handleReject}
           onExport={handleExport}
           onGoToDataIntake={onGoToDataIntake}
+          collapsed={resultsCollapsed}
+          onCollapsedChange={setResultsCollapsed}
         />
       </section>
     </div>
@@ -335,14 +342,14 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
 
 function KnowledgeIntakeHeader({ schema, targetLabel, fileCount, sessionStatus, validationLabel, onCreateSession, loading }: { schema: ProjectSchema; targetLabel: string; fileCount: number; sessionStatus: string; validationLabel: string; onCreateSession: () => void; loading: boolean }) {
   return (
-    <section className="rounded-2xl border border-white/[0.08] bg-[#081526]/88 p-5 shadow-[0_22px_70px_rgba(2,8,23,0.24)]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <section className="border-b border-slate-400/[0.10] pb-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">{schema.workspace_name ?? schema.workspace_id ?? 'Workspace'} / {schema.display_name}</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">Knowledge Intake</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{targetLabel} · {fileCount} source {fileCount === 1 ? 'file' : 'files'} · {formatStatus(sessionStatus)} · Validation {validationLabel.toLowerCase()}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">{targetLabel} · {fileCount} source {fileCount === 1 ? 'file' : 'files'} · {formatStatus(sessionStatus)} · Validation {validationLabel.toLowerCase()}</p>
         </div>
-        <button type="button" onClick={onCreateSession} disabled={loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-950/30 transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-60">
+        <button type="button" onClick={onCreateSession} disabled={loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-60">
           New session
         </button>
       </div>
@@ -350,57 +357,65 @@ function KnowledgeIntakeHeader({ schema, targetLabel, fileCount, sessionStatus, 
   )
 }
 
-function SourcesPanel({ sessions, activeSession, activeSessionId, selectedFiles, selectedTargetFiles, sourceSummary, loading, onSelectSession, onTargetFilesChange, onUploadTargetContract, onFilesChange, onUpload }: { sessions: KnowledgeIntakeSession[]; activeSession: KnowledgeIntakeSession | null; activeSessionId: string; selectedFiles: File[]; selectedTargetFiles: File[]; sourceSummary: SourceSummary; loading: boolean; onSelectSession: (sessionId: string) => Promise<void>; onTargetFilesChange: (files: File[]) => void; onUploadTargetContract: (event: FormEvent) => Promise<void>; onFilesChange: (files: File[]) => void; onUpload: (event: FormEvent) => Promise<void> }) {
+function SourcesPanel({ sessions, activeSession, activeSessionId, selectedFiles, selectedTargetFiles, sourceSummary, loading, onSelectSession, onTargetFilesChange, onUploadTargetContract, onFilesChange, onUpload, collapsed, onCollapsedChange }: { sessions: KnowledgeIntakeSession[]; activeSession: KnowledgeIntakeSession | null; activeSessionId: string; selectedFiles: File[]; selectedTargetFiles: File[]; sourceSummary: SourceSummary; loading: boolean; onSelectSession: (sessionId: string) => Promise<void>; onTargetFilesChange: (files: File[]) => void; onUploadTargetContract: (event: FormEvent) => Promise<void>; onFilesChange: (files: File[]) => void; onUpload: (event: FormEvent) => Promise<void>; collapsed: boolean; onCollapsedChange: (collapsed: boolean) => void }) {
   const targetContract = activeSession?.target_contract
   return (
-    <aside className="flex min-h-0 flex-col gap-4 lg:col-span-1">
+    <aside className={`flex min-h-0 flex-col border-y border-slate-400/[0.10] ${collapsed ? 'items-center py-4' : 'gap-6 py-4'} lg:col-span-1`}>
+      <div className={`flex w-full items-center ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
+        {!collapsed && <p className="text-sm font-semibold text-[#F3F7FF]">Sources</p>}
+        <button type="button" onClick={() => onCollapsedChange(!collapsed)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label={collapsed ? 'Show sources panel' : 'Hide sources panel'} title={collapsed ? 'Show sources' : 'Hide sources'}>
+          {collapsed ? '›' : '‹'}
+        </button>
+      </div>
+      {collapsed ? <div className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#7E8AA0] [writing-mode:vertical-rl]">Sources</div> : <>
       <WorkspaceCard title="Sessions" aside={`${sessions.length}`}>
-        <div className="max-h-52 space-y-2 overflow-auto pr-1">
+        <div className="max-h-56 divide-y divide-white/[0.06] overflow-auto pr-1">
           {sessions.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-white/10 p-3 text-sm text-slate-400">Create a session to start uploading source files.</p>
+            <p className="py-3 text-sm text-slate-500">Create a session to start uploading source files.</p>
           ) : sessions.map((session) => (
-            <button key={session.id} type="button" onClick={() => { void onSelectSession(session.id) }} className={`w-full rounded-lg border px-3 py-2 text-left transition ${session.id === activeSessionId ? 'border-[#74C7F5]/50 bg-[#2F6BFF]/10' : 'border-white/[0.07] bg-white/[0.025] hover:bg-white/[0.045]'}`}>
-              <span className="block truncate text-sm font-medium text-white">{session.title || session.id}</span>
-              <span className="mt-1 block text-xs text-slate-400">{formatStatus(session.status)} · {session.file_count ?? 0} files</span>
-              {(session.updated_at || session.created_at) && <span className="mt-1 block text-[11px] text-slate-500">{formatDate(session.updated_at ?? session.created_at)}</span>}
+            <button key={session.id} type="button" onClick={() => { void onSelectSession(session.id) }} className={`relative w-full px-3 py-3 text-left transition ${session.id === activeSessionId ? 'rounded-lg bg-[#2F6BFF]/10 text-white before:absolute before:bottom-2 before:left-0 before:top-2 before:w-px before:bg-[#74C7F5]' : 'text-slate-300 hover:bg-white/[0.035]'}`}>
+              <span className="block truncate text-sm font-medium">{session.title || session.id}</span>
+              <span className="mt-1 block text-xs text-slate-500">{formatStatus(session.status)} · {session.file_count ?? 0} files</span>
+              {(session.updated_at || session.created_at) && <span className="mt-1 block text-[11px] text-slate-600">{formatDate(session.updated_at ?? session.created_at)}</span>}
             </button>
           ))}
         </div>
       </WorkspaceCard>
 
       <WorkspaceCard title="Uploaded sources" aside={`${activeSession?.files?.length ?? 0}`}>
-        <form onSubmit={onUpload} className="space-y-3">
-          <input type="file" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
-          <button type="submit" disabled={!activeSessionId || selectedFiles.length === 0 || loading} className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload selected files</button>
+        <form onSubmit={onUpload} className="space-y-2">
+          <input type="file" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
+          <button type="submit" disabled={!activeSessionId || selectedFiles.length === 0 || loading} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload selected files</button>
         </form>
-        <div className="mt-3 max-h-44 space-y-2 overflow-auto pr-1">
+        <div className="mt-3 max-h-44 divide-y divide-white/[0.06] overflow-auto pr-1">
           {(activeSession?.files ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">No files uploaded yet.</p>
+            <p className="py-3 text-sm text-slate-500">No files uploaded yet.</p>
           ) : activeSession?.files?.map((file) => <SourceFileRow key={file.id} file={file} />)}
         </div>
       </WorkspaceCard>
 
       <WorkspaceCard title="Target Mirai contract">
-        <form onSubmit={onUploadTargetContract} className="space-y-3">
-          <input type="file" multiple accept=".zip,.json,.csv" onChange={(event) => onTargetFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-white/[0.08] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
-          <button type="submit" disabled={!activeSessionId || selectedTargetFiles.length === 0 || loading} className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload target contract</button>
+        <form onSubmit={onUploadTargetContract} className="space-y-2">
+          <input type="file" multiple accept=".zip,.json,.csv" onChange={(event) => onTargetFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
+          <button type="submit" disabled={!activeSessionId || selectedTargetFiles.length === 0 || loading} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload target contract</button>
         </form>
-        <div className="mt-3 rounded-lg border border-white/[0.07] bg-[#050B16] p-3">
+        <div className="mt-4 border-t border-slate-400/[0.07] pt-3">
           <p className="text-sm font-medium text-white">{targetContract ? `${targetContract.contract_id ?? 'generic_tabular_doe'} · ${targetContract.package_style ?? 'package'}` : 'No target uploaded'}</p>
-          <p className="mt-1 text-xs text-slate-400">{targetContract ? `Required files: ${(targetContract.required_files ?? []).join(', ')}` : 'Upload a Mirai package ZIP or manifest/data_dictionary/package CSV files. Fraunhofer packages are examples, not product target options.'}</p>
-          {targetContract?.fields && <p className="mt-1 text-xs text-slate-500">{targetContract.fields.length} contract columns · {(targetContract.tables ?? []).length} tables</p>}
+          <p className="mt-1 text-xs leading-5 text-slate-500">{targetContract ? `Required files: ${(targetContract.required_files ?? []).join(', ')}` : 'Upload a Mirai package ZIP or manifest/data_dictionary/package CSV files. Fraunhofer packages are examples, not product target options.'}</p>
+          {targetContract?.fields && <p className="mt-1 text-xs text-slate-600">{targetContract.fields.length} contract columns · {(targetContract.tables ?? []).length} tables</p>}
         </div>
       </WorkspaceCard>
 
       <WorkspaceCard title="Source indexing">
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <MetricPill label="Indexed" value={`${sourceSummary.indexedFiles} files`} />
           <MetricPill label="Containers" value={`${sourceSummary.containers}`} />
           <MetricPill label="Tabular columns" value={`${sourceSummary.tabularColumns}`} />
           <MetricPill label="CSV/XLSX" value={`${sourceSummary.csvFiles + sourceSummary.xlsxFiles}`} />
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-400">Detected: {sourceSummary.csvFiles} CSV · {sourceSummary.xlsxFiles} XLSX · {sourceSummary.pdfFiles} PDF · {sourceSummary.docxFiles} DOCX</p>
+        <p className="mt-3 border-t border-slate-400/[0.07] pt-3 text-xs leading-5 text-slate-500">Detected: {sourceSummary.csvFiles} CSV · {sourceSummary.xlsxFiles} XLSX · {sourceSummary.pdfFiles} PDF · {sourceSummary.docxFiles} DOCX</p>
       </WorkspaceCard>
+      </>}
     </aside>
   )
 }
@@ -408,26 +423,26 @@ function SourcesPanel({ sessions, activeSession, activeSessionId, selectedFiles,
 function MappingAgentPanel({ activeSessionId, loading, loadingLabel, draft, conversation, instruction, issues, mappingBoardLength, onInstructionChange, onAskAgent, showFullNotes, onToggleNotes }: { activeSessionId: string; loading: boolean; loadingLabel: string; draft: KnowledgeIntakeDraft | null; conversation: Array<{ role: string; content: string; created_at?: string }>; instruction: string; issues: string; mappingBoardLength: number; onInstructionChange: (value: string) => void; onAskAgent: (instruction?: string) => Promise<void>; showFullNotes: boolean; onToggleNotes: () => void }) {
   const agentStatus = getAgentStatusText(loading, loadingLabel, draft, mappingBoardLength)
   return (
-    <main className="flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-[#081526]/80 p-4 lg:col-span-1">
-      <div className="rounded-xl border border-[#74C7F5]/25 bg-[#74C7F5]/10 p-3 text-sm text-[#D9F3FF]">
-        <div className="flex items-center gap-3">
-          {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#74C7F5]/30 border-t-[#74C7F5]" />}
-          <span className="font-semibold">{agentStatus}</span>
+    <main className="flex min-h-0 flex-col lg:col-span-1">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-400/[0.12] bg-[linear-gradient(90deg,rgba(139,92,246,0.10),rgba(91,168,255,0.04))] px-3 pb-3 pt-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[#F3F7FF]">Mapping Agent</h3>
+          <p className="mt-1 text-xs text-[#7E8AA0]">Map uploaded sources into the selected Mirai contract.</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-medium text-[#63D69A]">
+          {loading && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5BA8FF]/30 border-t-[#5BA8FF]" />}
+          <span>{agentStatus}</span>
         </div>
       </div>
 
-      <div className="mt-4 flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#050B16]">
-        <div className="border-b border-white/[0.07] px-4 py-3">
-          <h3 className="text-sm font-semibold text-white">Mapping Agent</h3>
-          <p className="mt-1 text-xs text-slate-400">Ask how source files should map into the selected Mirai contract.</p>
-        </div>
-        <div className="flex-1 space-y-3 overflow-auto p-4">
+      <div className="mt-4 flex min-h-[300px] flex-1 flex-col overflow-hidden">
+        <div className="flex-1 space-y-3 overflow-auto py-2">
           {conversation.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 p-4 text-sm leading-6 text-slate-400">Run the agent to inspect uploaded sources and propose a source-to-contract mapping.</div>
+            <div className="border-y border-slate-400/[0.12] bg-[#101A2C]/65 py-8 text-center text-sm leading-6 text-[#AAB6C8]">Run the agent to inspect uploaded sources and propose a source-to-contract mapping.</div>
           ) : conversation.slice(-12).map((turn, index) => (
             <div key={`${turn.role}-${index}`} className={turn.role === 'user' ? 'text-right' : 'text-left'}>
-              <div className={`inline-block max-w-[88%] rounded-xl px-3 py-2 text-sm leading-6 ${turn.role === 'user' ? 'bg-[#2F6BFF]/25 text-blue-50' : 'bg-white/[0.055] text-slate-200'}`}>
-                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{turn.role === 'user' ? 'You' : 'Mapping agent'}</span>
+              <div className={`inline-block max-w-[88%] rounded-lg border px-3 py-2 text-sm leading-6 ${turn.role === 'user' ? 'border-[#5BA8FF]/32 bg-[#5BA8FF]/[0.11] text-[#F3F7FF]' : 'border-slate-400/[0.14] bg-[#101A2C]/90 text-[#D7DEEA]'}`}>
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.10em] text-[#7E8AA0]">{turn.role === 'user' ? 'You' : 'Mapping agent'}</span>
                 {turn.content}
               </div>
             </div>
@@ -435,95 +450,112 @@ function MappingAgentPanel({ activeSessionId, loading, loadingLabel, draft, conv
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#050B16] p-3">
-        <textarea value={instruction} onChange={(event) => onInstructionChange(event.target.value)} rows={4} placeholder="Ask the agent, e.g. 'Use voltage and RH as inputs and current density/ECSA as outputs' or 'approve suggested mapping'." className="w-full rounded-lg border border-white/[0.08] bg-[#081526] px-3 py-2 text-sm leading-6 text-slate-100 outline-none ring-[#74C7F5]/30 focus:ring-2" />
+      <div className="mt-4 border-t border-slate-400/[0.12] bg-[#0B1220] pt-4">
+        <textarea value={instruction} onChange={(event) => onInstructionChange(event.target.value)} rows={4} placeholder="Ask the agent, e.g. 'Use voltage and RH as inputs and current density/ECSA as outputs' or 'approve suggested mapping'." className="w-full rounded-lg border border-slate-400/[0.18] bg-[#050914] px-3 py-2 text-sm leading-6 text-[#F3F7FF] outline-none placeholder:text-[#6F7A90] focus:border-[#5BA8FF]/40 focus:ring-0" />
         <div className="mt-3 flex flex-wrap gap-3">
-          <button type="button" onClick={() => { void onAskAgent() }} disabled={!activeSessionId || loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-50">Ask agent / update mapping</button>
-          <button type="button" onClick={() => { void onAskAgent('approve suggested mapping') }} disabled={!activeSessionId || loading || mappingBoardLength === 0} className="rounded-lg border border-[#74C7F5]/35 px-4 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10 disabled:cursor-not-allowed disabled:opacity-50">Approve suggested mapping</button>
+          <button type="button" onClick={() => { void onAskAgent() }} disabled={!activeSessionId || loading} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#3478FF] disabled:cursor-not-allowed disabled:opacity-50">Ask agent / update mapping</button>
+          <button type="button" onClick={() => { void onAskAgent('approve suggested mapping') }} disabled={!activeSessionId || loading || mappingBoardLength === 0} className="rounded-lg px-4 py-2 text-sm font-semibold text-[#8FCBFF] hover:bg-[#5BA8FF]/10 disabled:cursor-not-allowed disabled:opacity-50">Approve suggested mapping</button>
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#050B16] p-3">
+      <div className="mt-5 border-t border-slate-400/[0.12] pt-4">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-white">Agent notes</h4>
-          <button type="button" onClick={onToggleNotes} className="text-xs font-semibold text-[#BDEAFF] hover:text-white">{showFullNotes ? 'Hide full notes' : 'View full notes'}</button>
+          <h4 className="text-sm font-semibold text-[#F3F7FF]">Agent notes</h4>
+          <button type="button" onClick={onToggleNotes} className="text-xs font-semibold text-[#8FCBFF] hover:text-[#F3F7FF]">{showFullNotes ? 'Hide full notes' : 'View full notes'}</button>
         </div>
         <AgentNotesPreview issues={issues} draft={draft} />
-        {showFullNotes && <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg border border-white/[0.07] bg-[#081526] p-3 text-xs leading-5 text-slate-300">{issues || 'Run the mapping agent to generate notes.'}</pre>}
+        {showFullNotes && <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-400/[0.14] bg-[#050914] p-3 text-xs leading-5 text-[#B8C2D4]">{issues || 'Run the mapping agent to generate notes.'}</pre>}
       </div>
     </main>
   )
 }
 
-function LiveResultsPanel({ draft, tableName, tableOptions, currentTable, mappingBoard, mappingStats, blockers, validationSummary, loading, showFullMapping, onToggleMapping, onTableNameChange, onApprove, onReject, onExport, onGoToDataIntake }: { draft: KnowledgeIntakeDraft | null; tableName: string; tableOptions: string[]; currentTable: { columns: string[]; preview_rows: string[]; total_rows: number } | null; mappingBoard: KnowledgeIntakeMappingRow[]; mappingStats: MappingStats; blockers: string[]; validationSummary: ValidationSummary; loading: boolean; showFullMapping: boolean; onToggleMapping: () => void; onTableNameChange: (value: string) => void; onApprove: () => Promise<void>; onReject: () => Promise<void>; onExport: () => Promise<void>; onGoToDataIntake: () => void }) {
+function LiveResultsPanel({ draft, tableName, tableOptions, currentTable, mappingBoard, mappingStats, blockers, validationSummary, loading, showFullMapping, onToggleMapping, onTableNameChange, onApprove, onReject, onExport, onGoToDataIntake, collapsed, onCollapsedChange }: { draft: KnowledgeIntakeDraft | null; tableName: string; tableOptions: string[]; currentTable: { columns: string[]; preview_rows: string[]; total_rows: number } | null; mappingBoard: KnowledgeIntakeMappingRow[]; mappingStats: MappingStats; blockers: string[]; validationSummary: ValidationSummary; loading: boolean; showFullMapping: boolean; onToggleMapping: () => void; onTableNameChange: (value: string) => void; onApprove: () => Promise<void>; onReject: () => Promise<void>; onExport: () => Promise<void>; onGoToDataIntake: () => void; collapsed: boolean; onCollapsedChange: (collapsed: boolean) => void }) {
   const missingRows = mappingBoard.filter((row) => isMissingMapping(row))
   const transformBlocker = blockers.find((blocker) => blocker.toLowerCase().includes('deterministic transform'))
   return (
-    <aside className="flex min-h-0 flex-col gap-4 lg:col-span-1">
-      <WorkspaceCard title="Mapping progress" aside={draft ? formatStatus(draft.status) : 'Not run'}>
-        <div className="flex items-end justify-between gap-4">
+    <aside className={`flex min-h-0 flex-col border-y border-slate-400/[0.10] ${collapsed ? 'items-center py-4' : 'gap-6 py-4'} lg:col-span-1`}>
+      <div className={`flex w-full items-center ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
+        {!collapsed && <p className="text-sm font-semibold text-[#F3F7FF]">Inspector</p>}
+        <button type="button" onClick={() => onCollapsedChange(!collapsed)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label={collapsed ? 'Show inspector panel' : 'Hide inspector panel'} title={collapsed ? 'Show inspector' : 'Hide inspector'}>
+          {collapsed ? '‹' : '›'}
+        </button>
+      </div>
+      {collapsed ? <div className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#7E8AA0] [writing-mode:vertical-rl]">Inspector</div> : <>
+      <section className="bg-[#081526]/55 p-4">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-3xl font-semibold text-white">{mappingStats.mappedFields} / {mappingStats.totalFields || 0}</p>
-            <p className="mt-1 text-sm text-slate-400">fields mapped</p>
+            <h3 className="text-sm font-semibold text-white">Mapping status</h3>
+            <p className="mt-1 text-xs text-slate-500">{draft ? formatStatus(draft.status) : 'Not run'}</p>
           </div>
           <StatusChip label={validationSummary.label} tone={validationSummary.label === 'Ready' ? 'green' : validationSummary.label === 'Blocked' ? 'amber' : 'blue'} />
         </div>
-        <div className="mt-4 space-y-2">
+
+        <div className="mt-5 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-3xl font-semibold text-white">{mappingStats.mappedFields} / {mappingStats.totalFields || 0}</p>
+            <p className="mt-1 text-sm text-slate-500">fields mapped</p>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3 border-t border-slate-400/[0.07] pt-4">
           <ProgressLine label="Inputs" value={mappingStats.inputMapped} total={mappingStats.inputTotal} />
           <ProgressLine label="Outputs" value={mappingStats.outputMapped} total={mappingStats.outputTotal} />
+          {(mappingStats.highConfidence + mappingStats.mediumConfidence + mappingStats.lowConfidence) > 0 && (
+            <p className="text-xs text-slate-500">Confidence: {mappingStats.highConfidence} high · {mappingStats.mediumConfidence} medium · {mappingStats.lowConfidence} low</p>
+          )}
         </div>
-        {(mappingStats.highConfidence + mappingStats.mediumConfidence + mappingStats.lowConfidence) > 0 && (
-          <p className="mt-3 text-xs text-slate-400">Confidence: {mappingStats.highConfidence} high · {mappingStats.mediumConfidence} medium · {mappingStats.lowConfidence} low</p>
-        )}
-      </WorkspaceCard>
 
-      <WorkspaceCard title="Needs mapping" aside={`${missingRows.length}`}>
-        {missingRows.length === 0 ? (
-          <p className="text-sm text-emerald-200">No missing fields in the current mapping board.</p>
-        ) : (
-          <div className="flex max-h-40 flex-wrap gap-2 overflow-auto pr-1">
-            {missingRows.map((row) => <span key={row.field} className="rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-xs text-amber-100">{row.field}</span>)}
+        <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Missing fields</span>
+            <span className="text-xs text-slate-500">{missingRows.length}</span>
           </div>
-        )}
-      </WorkspaceCard>
+          {missingRows.length === 0 ? (
+            <p className="text-sm text-emerald-200">None</p>
+          ) : (
+            <div className="flex max-h-32 flex-wrap gap-2 overflow-auto pr-1">
+              {missingRows.map((row) => <span key={row.field} className="rounded-full bg-amber-300/10 px-2.5 py-1 text-xs text-amber-100">{row.field}</span>)}
+            </div>
+          )}
+        </div>
 
-      <WorkspaceCard title="Validation / manual gates">
-        <div className="space-y-3 text-sm">
+        <div className="mt-5 space-y-3 border-t border-slate-400/[0.07] pt-4 text-sm">
           <div>
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Validation</span>
             <p className="mt-1 font-semibold text-white">{validationSummary.label}</p>
           </div>
           <div>
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reason</span>
-            <p className="mt-1 leading-6 text-slate-300">{transformBlocker ?? validationSummary.reason}</p>
+            <p className="mt-1 leading-6 text-slate-400">{transformBlocker ?? validationSummary.reason}</p>
           </div>
           <div>
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Required next step</span>
-            <p className="mt-1 leading-6 text-slate-300">{validationSummary.nextStep}</p>
+            <p className="mt-1 leading-6 text-slate-400">{validationSummary.nextStep}</p>
           </div>
         </div>
-      </WorkspaceCard>
 
-      <WorkspaceCard title="Export readiness">
-        <p className="text-sm leading-6 text-slate-300">{draft?.validation_passed ? 'Validated package can be approved and exported after manual approval.' : 'Export package blocked until contract validation passes.'}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => { void onApprove() }} disabled={loading || !draft || draft.status === 'approved_persistent' || !draft.validation_passed} className="rounded-lg bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve validated draft</button>
-          <button type="button" onClick={() => { void onReject() }} disabled={loading || !draft} className="rounded-lg border border-red-300/30 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50">Reject/delete draft</button>
-          <button type="button" onClick={() => { void onExport() }} disabled={loading || !draft || draft.status !== 'approved_persistent' || !draft.validation_passed} className="rounded-lg border border-white/[0.12] px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Export package ZIP</button>
-          <button type="button" onClick={onGoToDataIntake} className="rounded-lg border border-[#74C7F5]/35 px-3 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10">Go to Data Intake</button>
+        <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
+          <p className="text-sm leading-6 text-slate-400">{draft?.validation_passed ? 'Validated package can be approved and exported after manual approval.' : 'Export package blocked until contract validation passes.'}</p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { void onApprove() }} disabled={loading || !draft || draft.status === 'approved_persistent' || !draft.validation_passed} className="rounded-lg bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve draft</button>
+            <button type="button" onClick={() => { void onReject() }} disabled={loading || !draft} className="rounded-lg px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50">Reject/delete</button>
+            <button type="button" onClick={() => { void onExport() }} disabled={loading || !draft || draft.status !== 'approved_persistent' || !draft.validation_passed} className="rounded-lg px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Export ZIP</button>
+            <button type="button" onClick={onGoToDataIntake} className="rounded-lg px-3 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10">Data Intake</button>
+          </div>
         </div>
-      </WorkspaceCard>
+      </section>
 
       <WorkspaceCard title="Detailed mapping" aside={mappingBoard.length ? `${mappingBoard.length} rows` : undefined}>
-        <button type="button" onClick={onToggleMapping} disabled={!draft} className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">{showFullMapping ? 'Hide full mapping table' : 'View full mapping table'}</button>
+        <button type="button" onClick={onToggleMapping} disabled={!draft} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">{showFullMapping ? 'Hide full mapping table' : 'View full mapping table'}</button>
         {showFullMapping && draft && (
-          <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-white/[0.07]">
+          <div className="mt-3 max-h-80 overflow-auto rounded-lg bg-[#050B16]">
             {mappingBoard.length > 0 && <MappingTable rows={mappingBoard} />}
             {currentTable && (
-              <div className="border-t border-white/[0.07] p-3">
+              <div className="border-t border-slate-400/[0.07] p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Package preview</span>
-                  {tableOptions.length > 0 && <select value={tableName} onChange={(event) => onTableNameChange(event.target.value)} className="rounded-lg border border-white/[0.08] bg-[#050B16] px-2 py-1 text-xs text-slate-100">{tableOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select>}
+                  {tableOptions.length > 0 && <select value={tableName} onChange={(event) => onTableNameChange(event.target.value)} className="rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-2 py-1 text-xs text-slate-100">{tableOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select>}
                 </div>
                 <PackagePreview tableName={tableName} table={currentTable} />
               </div>
@@ -531,16 +563,17 @@ function LiveResultsPanel({ draft, tableName, tableOptions, currentTable, mappin
           </div>
         )}
       </WorkspaceCard>
+      </>}
     </aside>
   )
 }
 
 function WorkspaceCard({ title, aside, children }: { title: string; aside?: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-white/[0.08] bg-[#081526]/80 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-400/[0.10] pb-2">
         <h3 className="text-sm font-semibold text-white">{title}</h3>
-        {aside && <span className="rounded-full border border-white/[0.08] bg-white/[0.035] px-2 py-0.5 text-xs text-slate-400">{aside}</span>}
+        {aside && <span className="text-xs text-slate-500">{aside}</span>}
       </div>
       {children}
     </section>
@@ -549,25 +582,25 @@ function WorkspaceCard({ title, aside, children }: { title: string; aside?: stri
 
 function SourceFileRow({ file }: { file: KnowledgeIntakeFile }) {
   return (
-    <div className="rounded-lg border border-white/[0.07] bg-[#050B16] px-3 py-2">
+    <div className="px-1 py-2.5">
       <p className="truncate text-sm font-medium text-slate-100" title={file.filename}>{file.filename}</p>
-      <p className="mt-1 text-xs text-slate-400">{file.file_type?.toUpperCase()} · {formatStatus(file.parse_status ?? 'uploaded')}</p>
+      <p className="mt-1 text-xs text-slate-500">{file.file_type?.toUpperCase()} · {formatStatus(file.parse_status ?? 'uploaded')}</p>
     </div>
   )
 }
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/[0.07] bg-[#050B16] p-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-100">{value}</p>
     </div>
   )
 }
 
 function StatusChip({ label, tone }: { label: string; tone: 'green' | 'amber' | 'blue' }) {
-  const classes = tone === 'green' ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100' : tone === 'amber' ? 'border-amber-300/30 bg-amber-500/10 text-amber-100' : 'border-[#74C7F5]/30 bg-[#74C7F5]/10 text-[#D9F3FF]'
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>
+  const classes = tone === 'green' ? 'bg-emerald-500/10 text-emerald-100' : tone === 'amber' ? 'bg-amber-500/10 text-amber-100' : 'bg-[#74C7F5]/10 text-[#D9F3FF]'
+  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>
 }
 
 function ProgressLine({ label, value, total }: { label: string; value: number; total: number }) {
@@ -585,11 +618,11 @@ function AgentNotesPreview({ issues, draft }: { issues: string; draft: Knowledge
   const plannerLine = lines.find((line) => line.toLowerCase().startsWith('agent planner:'))
   const targetLine = lines.find((line) => line.toLowerCase().startsWith('target contract:'))
   return (
-    <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-      <div className="rounded-lg border border-white/[0.07] bg-[#081526] p-2"><dt className="text-slate-500">Target contract</dt><dd className="mt-1 text-slate-200">{targetLine?.replace('Target contract:', '').trim() || String(draft?.schema?.template_id ?? 'Not selected')}</dd></div>
-      <div className="rounded-lg border border-white/[0.07] bg-[#081526] p-2"><dt className="text-slate-500">Planner</dt><dd className="mt-1 text-slate-200">{plannerLine?.replace('Agent planner:', '').trim() || 'Not run'}</dd></div>
-      <div className="rounded-lg border border-white/[0.07] bg-[#081526] p-2"><dt className="text-slate-500">Mode</dt><dd className="mt-1 text-slate-200">Contract-driven mapping</dd></div>
-      <div className="rounded-lg border border-white/[0.07] bg-[#081526] p-2"><dt className="text-slate-500">Transform</dt><dd className="mt-1 text-slate-200">{draft?.validation_passed ? 'Validated package' : 'None executed'}</dd></div>
+    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+      <div><dt className="text-slate-600">Target contract</dt><dd className="mt-1 text-slate-300">{targetLine?.replace('Target contract:', '').trim() || String(draft?.schema?.template_id ?? 'Not selected')}</dd></div>
+      <div><dt className="text-slate-600">Planner</dt><dd className="mt-1 text-slate-300">{plannerLine?.replace('Agent planner:', '').trim() || 'Not run'}</dd></div>
+      <div><dt className="text-slate-600">Mode</dt><dd className="mt-1 text-slate-300">Contract-driven mapping</dd></div>
+      <div><dt className="text-slate-600">Transform</dt><dd className="mt-1 text-slate-300">{draft?.validation_passed ? 'Validated package' : 'None executed'}</dd></div>
     </dl>
   )
 }
