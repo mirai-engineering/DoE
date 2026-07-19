@@ -260,6 +260,7 @@ function App() {
             workspaces={workspaces}
             projectsLoading={projectsLoading}
             onProjectChange={handleProjectChange}
+            compact={activeTab === 'knowledge-intake' || activeTab === 'preprocessing-review' || activeTab === 'data-scientist'}
           />
 
           {appError && <Alert tone="error" title="Backend connection issue" messages={[appError]} />}

@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectSchema } from '../lib/api'
 import {
   approveKnowledgeIntakeDraft,
@@ -18,8 +18,14 @@ import {
   uploadKnowledgeIntakeFiles,
   uploadKnowledgeIntakeTargetContract,
 } from '../lib/api'
+import { knowledgeIntakeContractLabel, knowledgeIntakeStatusLabel } from '../lib/knowledgeIntakePresentation'
 
 const defaultInstruction = 'Inspect these sources against the uploaded target Mirai contract, infer a candidate source-to-contract mapping, list missing fields/questions, and run only approved Knowledge Intake transforms that validate as a Mirai package.'
+
+type PendingAction = 'create' | 'upload-contract' | 'upload-sources' | 'mapping' | 'approve' | 'reject' | 'export' | null
+type PanelTab = 'sessions' | 'sources'
+type Tone = 'neutral' | 'active' | 'success' | 'warning' | 'error'
+type PrimaryAction = 'create' | 'show-contract' | 'show-sources' | 'mapping' | 'approve' | 'export'
 
 type MappingStats = {
   totalFields: number
@@ -29,25 +35,17 @@ type MappingStats = {
   inputMapped: number
   outputTotal: number
   outputMapped: number
-  highConfidence: number
-  mediumConfidence: number
-  lowConfidence: number
 }
 
-type ValidationSummary = {
-  label: 'Ready' | 'Blocked' | 'Needs user input' | 'Unknown'
-  reason: string
-  nextStep: string
-}
-
-type SourceSummary = {
-  indexedFiles: number
-  containers: number
-  tabularColumns: number
-  csvFiles: number
-  xlsxFiles: number
-  pdfFiles: number
-  docxFiles: number
+type IntakeViewModel = {
+  status: string
+  explanation: string
+  tone: Tone
+  action: PrimaryAction
+  actionLabel: string
+  actionEnabled: boolean
+  actionHelp?: string
+  stages: Array<{ label: string; state: 'complete' | 'current' | 'upcoming' | 'blocked' }>
 }
 
 export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: ProjectSchema; onGoToDataIntake: () => void }) {
@@ -58,21 +56,35 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
   const [instruction, setInstruction] = useState(defaultInstruction)
   const [draft, setDraft] = useState<KnowledgeIntakeDraft | null>(null)
   const [issues, setIssues] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [loadingLabel, setLoadingLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [panelTab, setPanelTab] = useState<PanelTab>('sessions')
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<KnowledgeIntakeFile | null>(null)
+  const [showMapping, setShowMapping] = useState(false)
   const [tableName, setTableName] = useState('experiments.csv')
-  const [showFullNotes, setShowFullNotes] = useState(false)
-  const [showFullMapping, setShowFullMapping] = useState(false)
-  const [sourcesCollapsed, setSourcesCollapsed] = useState(false)
-  const [resultsCollapsed, setResultsCollapsed] = useState(false)
+  const contractInputRef = useRef<HTMLInputElement>(null)
+  const sourceInputRef = useRef<HTMLInputElement>(null)
+  const loading = pendingAction !== null
 
   const activeSession = useMemo(() => sessions.find((session) => session.id === activeSessionId) ?? null, [sessions, activeSessionId])
 
   useEffect(() => {
     void refreshSessions()
+    // The project id is the lifecycle boundary; session refresh intentionally resets with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema.project_id])
+
+  useEffect(() => {
+    if (!inspectorOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setInspectorOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [inspectorOpen])
 
   async function refreshSessions(selectId?: string) {
     setError(null)
@@ -80,144 +92,103 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       const next = await listKnowledgeIntakeSessions(schema.project_id)
       const preferred = selectId || activeSessionId || next[0]?.id || ''
       let selected = next.find((session) => session.id === preferred) ?? null
-      if (preferred) {
-        selected = await getKnowledgeIntakeSession(schema.project_id, preferred)
-      }
+      if (preferred) selected = await getKnowledgeIntakeSession(schema.project_id, preferred)
       setSessions(selected ? next.map((session) => session.id === selected?.id ? { ...session, ...selected } : session) : next)
-      setActiveSessionId(preferred)
-      setDraft(selected?.draft ?? null)
+      setActiveSessionId(selected?.id ?? '')
+      setDraft(isUsableDraft(selected?.draft) ? selected?.draft ?? null : null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load sessions')
     }
   }
 
-  async function handleCreateSession() {
-    setLoading(true)
-    setLoadingLabel('Creating intake loop session…')
+  async function runAction(action: Exclude<PendingAction, null>, label: string, work: () => Promise<void>) {
+    if (loading) return
+    setPendingAction(action)
+    setLoadingLabel(label)
     setNotice(null)
     setError(null)
     try {
-      const session = await createKnowledgeIntakeSession(schema.project_id, 'Knowledge intake → uploaded Mirai contract', 'generic_tabular_doe')
-      setNotice('Knowledge intake session created. Upload the target Mirai contract package next.')
-      await refreshSessions(session.id)
+      await work()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to create session')
+      setError(err instanceof Error ? err.message : 'The action could not be completed')
     } finally {
-      setLoading(false)
+      setPendingAction(null)
       setLoadingLabel('')
     }
+  }
+
+  async function handleCreateSession() {
+    await runAction('create', 'Creating a new session…', async () => {
+      const session = await createKnowledgeIntakeSession(schema.project_id, 'Knowledge intake → uploaded Mirai contract', 'generic_tabular_doe')
+      setNotice('Session created. Add the target contract and source files to continue.')
+      setPanelTab('sources')
+      await refreshSessions(session.id)
+    })
   }
 
   async function handleUploadTargetContract(event: FormEvent) {
     event.preventDefault()
     if (!activeSessionId || selectedTargetFiles.length === 0) return
-    setLoading(true)
-    setLoadingLabel('Uploading and validating target Mirai contract…')
-    setNotice(null)
-    setError(null)
-    try {
+    await runAction('upload-contract', 'Uploading and validating the target contract…', async () => {
       await uploadKnowledgeIntakeTargetContract(schema.project_id, activeSessionId, selectedTargetFiles)
       setSelectedTargetFiles([])
-      setNotice('Target Mirai contract uploaded and parsed. Now upload source files to populate it.')
+      if (contractInputRef.current) contractInputRef.current.value = ''
+      setNotice('Target contract uploaded and parsed.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Target contract upload failed')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
-  async function handleUpload(event: FormEvent) {
+  async function handleUploadSources(event: FormEvent) {
     event.preventDefault()
     if (!activeSessionId || selectedFiles.length === 0) return
-    setLoading(true)
-    setLoadingLabel('Uploading and indexing source files…')
-    setNotice(null)
-    setError(null)
-    try {
+    await runAction('upload-sources', 'Uploading and indexing source files…', async () => {
       await uploadKnowledgeIntakeFiles(schema.project_id, activeSessionId, selectedFiles)
       setSelectedFiles([])
-      setNotice('Files uploaded and indexed.')
+      if (sourceInputRef.current) sourceInputRef.current.value = ''
+      setNotice('Source files uploaded and indexed.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
   async function handleMatch(nextInstruction?: string) {
     if (!activeSessionId) return
     const message = nextInstruction ?? instruction
     setInstruction(message)
-    setLoading(true)
-    setLoadingLabel('Agent planner is inspecting sources and drafting the contract mapping…')
-    setNotice(null)
-    setError(null)
-    try {
+    await runAction('mapping', 'Inspecting sources and updating the mapping…', async () => {
       await saveKnowledgeIntakeInstruction(schema.project_id, activeSessionId, message)
       const result = await matchKnowledgeIntakeMiraiContract(schema.project_id, activeSessionId)
       setDraft(result.draft)
-      const text = await getKnowledgeIntakeIssues(schema.project_id, activeSessionId)
-      setIssues(text)
-      setNotice(result.draft.validation_passed ? 'Validated contract draft is ready for review.' : 'Loop iteration recorded. Review questions/issues before approval/export can continue.')
+      setIssues(await getKnowledgeIntakeIssues(schema.project_id, activeSessionId))
+      setNotice(result.draft.validation_passed ? 'Mapping complete and validation passed.' : 'Mapping updated. Review the remaining requirements.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to match Mirai contract')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
   async function handleApprove() {
     if (!activeSessionId) return
-    setLoading(true)
-    setLoadingLabel('Persisting approval for the validated draft…')
-    setNotice(null)
-    setError(null)
-    try {
+    await runAction('approve', 'Approving the validated mapping…', async () => {
       const result = await approveKnowledgeIntakeDraft(schema.project_id, activeSessionId)
       setDraft(result.draft)
-      setNotice('Draft approved for persistent storage.')
+      setNotice('Mapping approved.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Approval failed')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
   async function handleReject() {
-    if (!activeSessionId) return
-    setLoading(true)
-    setLoadingLabel('Rejecting and deleting the current draft…')
-    setNotice(null)
-    setError(null)
-    try {
+    if (!activeSessionId || !window.confirm('Reject and delete the current mapping draft? This cannot be undone.')) return
+    await runAction('reject', 'Rejecting the current draft…', async () => {
       await rejectKnowledgeIntakeDraft(schema.project_id, activeSessionId)
       setDraft(null)
       setIssues('')
-      setNotice('Draft rejected and deleted for this demo.')
+      setInspectorOpen(false)
+      setNotice('Mapping draft rejected and deleted.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reject failed')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
   async function handleExport() {
     if (!activeSessionId) return
-    setLoading(true)
-    setLoadingLabel('Exporting the validated Mirai package ZIP…')
-    setNotice(null)
-    setError(null)
-    try {
+    await runAction('export', 'Preparing the Mirai package…', async () => {
       await exportKnowledgeIntakePackage(schema.project_id, activeSessionId)
       const blob = await downloadKnowledgeIntakePackage(schema.project_id, activeSessionId)
       const url = URL.createObjectURL(blob)
@@ -226,520 +197,410 @@ export function KnowledgeIntakePage({ schema, onGoToDataIntake }: { schema: Proj
       link.download = 'mirai_package.zip'
       link.click()
       URL.revokeObjectURL(url)
-      setNotice('Mirai package downloaded. Manually upload this ZIP in Data Intake to continue through the existing preprocessing/review flow.')
+      setNotice('Mirai package downloaded. Continue in Data Intake when you are ready.')
       await refreshSessions(activeSessionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export failed')
-    } finally {
-      setLoading(false)
-      setLoadingLabel('')
-    }
+    })
   }
 
   async function handleSelectSession(sessionId: string) {
     setActiveSessionId(sessionId)
     setIssues('')
+    setSelectedFile(null)
     try {
       const detail = await getKnowledgeIntakeSession(schema.project_id, sessionId)
-      setSessions((prev) => prev.map((session) => session.id === sessionId ? { ...session, ...detail } : session))
-      setDraft(detail.draft ?? null)
+      setSessions((previous) => previous.map((session) => session.id === sessionId ? { ...session, ...detail } : session))
+      setDraft(isUsableDraft(detail.draft) ? detail.draft ?? null : null)
     } catch {
-      const selected = sessions.find((session) => session.id === sessionId)
-      setDraft(selected?.draft ?? null)
+      const fallbackDraft = sessions.find((session) => session.id === sessionId)?.draft
+      setDraft(isUsableDraft(fallbackDraft) ? fallbackDraft ?? null : null)
     }
   }
 
+  const files = activeSession?.files ?? []
+  const mappingBoard = draft?.mapping_board ?? []
+  const blockers = Array.isArray(draft?.validation_result?.blockers) ? draft.validation_result.blockers as string[] : []
+  const stats = getMappingStats(mappingBoard)
+  const viewModel = getIntakeViewModel(activeSession, draft, stats, blockers)
+  const contractName = activeSession?.target_contract ? knowledgeIntakeContractLabel(activeSession.target_contract.contract_id ?? activeSession.target_contract_id) : 'Contract not selected'
   const tableOptions = Object.keys(draft?.tables ?? {})
   const effectiveTableName = tableOptions.includes(tableName) ? tableName : tableOptions[0] ?? tableName
-  const currentTable = draft?.tables?.[effectiveTableName] ?? null
-  const availableColumns = draft?.available_columns ?? []
-  const mappingBoard = draft?.mapping_board ?? []
-  const conversation = draft?.conversation ?? activeSession?.messages ?? []
-  const blockers = Array.isArray(draft?.validation_result?.blockers) ? draft?.validation_result?.blockers as string[] : []
-  const targetContract = activeSession?.target_contract
-  const targetLabel = targetContract ? `${targetContract.contract_id ?? 'generic_tabular_doe'} · ${targetContract.package_style ?? 'uploaded package'}` : 'No target Mirai contract uploaded'
-  const mappingStats = getMappingStats(mappingBoard)
-  const validationSummary = getValidationSummary(draft, blockers)
-  const sourceSummary = getSourceSummary(activeSession?.files ?? [], availableColumns.length)
+  const currentTable = draft?.tables?.[effectiveTableName]
+
+  function runPrimaryAction() {
+    if (loading || !viewModel.actionEnabled) return
+    if (viewModel.action === 'create') void handleCreateSession()
+    if (viewModel.action === 'show-contract') {
+      setPanelTab('sources')
+      window.setTimeout(() => contractInputRef.current?.focus(), 0)
+    }
+    if (viewModel.action === 'show-sources') {
+      setPanelTab('sources')
+      window.setTimeout(() => sourceInputRef.current?.focus(), 0)
+    }
+    if (viewModel.action === 'mapping') void handleMatch()
+    if (viewModel.action === 'approve') void handleApprove()
+    if (viewModel.action === 'export') void handleExport()
+  }
 
   return (
-    <div className="space-y-4">
-      <KnowledgeIntakeHeader
-        schema={schema}
-        targetLabel={targetLabel}
-        fileCount={activeSession?.file_count ?? activeSession?.files?.length ?? 0}
-        sessionStatus={activeSession?.status ?? 'No session'}
-        validationLabel={validationSummary.label}
-        onCreateSession={handleCreateSession}
-        loading={loading}
-      />
+    <div className="min-w-0 space-y-5">
+      <header className="border-b border-white/[0.10] pb-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white">Knowledge Intake</h1>
+            <p className="mt-2 truncate text-sm text-[#AAB6C8]" title={`${files.length} source files · ${viewModel.status} · ${draft?.validation_passed ? 'Validation passed' : 'Validation pending'}`}>
+              {files.length} source {files.length === 1 ? 'file' : 'files'} · {viewModel.status} · {draft?.validation_passed ? 'Validation passed' : 'Validation pending'}
+            </p>
+          </div>
+          <button type="button" onClick={() => void handleCreateSession()} disabled={loading} className="self-start rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto">
+            {pendingAction === 'create' ? 'Creating…' : 'New session'}
+          </button>
+        </div>
+      </header>
 
-      {(error || notice) && (
-        <div className="space-y-2">
-          {error && <div className="flex items-start gap-2 bg-red-500/10 px-3 py-2 text-sm text-red-100"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red-300" />{error}</div>}
-          {notice && <div className="flex items-start gap-2 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />{notice}</div>}
+      {(error || notice || loadingLabel) && (
+        <div aria-live="polite" className="space-y-2">
+          {error && <Message tone="error">{error}</Message>}
+          {notice && <Message tone="success">{notice}</Message>}
+          {loadingLabel && <Message tone="active"><span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#74C7F5]/30 border-t-[#74C7F5]" />{loadingLabel}</Message>}
         </div>
       )}
 
-      <section className={`grid min-h-[calc(100vh-270px)] gap-5 transition-[grid-template-columns] duration-200 ${sourcesCollapsed && resultsCollapsed ? 'xl:grid-cols-[2.75rem_minmax(620px,1fr)_2.75rem]' : sourcesCollapsed ? 'xl:grid-cols-[2.75rem_minmax(560px,1fr)_minmax(320px,0.82fr)]' : resultsCollapsed ? 'xl:grid-cols-[minmax(250px,0.72fr)_minmax(560px,1fr)_2.75rem]' : 'xl:grid-cols-[minmax(250px,0.78fr)_minmax(420px,1.55fr)_minmax(320px,1.05fr)]'} lg:grid-cols-[minmax(360px,1.15fr)_minmax(330px,0.85fr)]`}>
-        
-        <SourcesPanel
-          sessions={sessions}
-          activeSession={activeSession}
-          activeSessionId={activeSessionId}
-          selectedFiles={selectedFiles}
-          selectedTargetFiles={selectedTargetFiles}
-          sourceSummary={sourceSummary}
-          loading={loading}
-          onSelectSession={handleSelectSession}
-          onTargetFilesChange={setSelectedTargetFiles}
-          onUploadTargetContract={handleUploadTargetContract}
-          onFilesChange={setSelectedFiles}
-          onUpload={handleUpload}
-          collapsed={sourcesCollapsed}
-          onCollapsedChange={setSourcesCollapsed}
-        />
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="min-w-0 border-r-0 border-white/[0.10] lg:border-r lg:pr-5">
+          <div className="grid grid-cols-2 rounded-md bg-white/[0.035] p-1" role="tablist" aria-label="Knowledge intake navigation">
+            {(['sessions', 'sources'] as PanelTab[]).map((tab) => (
+              <button key={tab} type="button" role="tab" aria-selected={panelTab === tab} onClick={() => setPanelTab(tab)} className={`rounded px-3 py-2 text-sm font-semibold transition ${panelTab === tab ? 'bg-[#17335E] text-white' : 'text-[#AAB6C8] hover:text-white'}`}>
+                {tab === 'sessions' ? `Sessions (${sessions.length})` : `Sources (${files.length})`}
+              </button>
+            ))}
+          </div>
 
-        <MappingAgentPanel
-          activeSessionId={activeSessionId}
-          loading={loading}
-          loadingLabel={loadingLabel}
+          {panelTab === 'sessions' ? (
+            <div className="mt-4 max-h-[calc(100vh-330px)] min-h-48 space-y-1 overflow-y-auto pr-1">
+              {sessions.length === 0 ? <EmptyText>Create a session to begin.</EmptyText> : sessions.map((session, index) => {
+                const sessionNumber = sessions.length - index
+                const selected = session.id === activeSessionId
+                return (
+                  <button key={session.id} type="button" onClick={() => void handleSelectSession(session.id)} className={`w-full rounded-md border px-3 py-3 text-left transition ${selected ? 'border-[#5BA8FF]/35 bg-[#17335E]/55' : 'border-transparent hover:bg-white/[0.035]'}`}>
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm font-semibold text-white" title={session.title || session.id}>Session {sessionNumber}</span>
+                      <span className="shrink-0 text-xs text-[#9FB0C8]">{session.file_count ?? session.files?.length ?? 0} files</span>
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-[#9FB0C8]">{knowledgeIntakeStatusLabel(session.status)}{(session.updated_at || session.created_at) ? ` · ${formatDate(session.updated_at ?? session.created_at)}` : ''}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="mt-5 space-y-6">
+              <UploadSection title="Target contract" description={activeSession?.target_contract ? contractName : 'Upload a ZIP, manifest, data dictionary, or contract CSV.'}>
+                <form onSubmit={handleUploadTargetContract} className="space-y-2">
+                  <input ref={contractInputRef} type="file" multiple accept=".zip,.json,.csv" onChange={(event) => setSelectedTargetFiles(Array.from(event.target.files ?? []))} className="block w-full min-w-0 text-xs text-slate-300 file:mr-2 file:rounded file:border-0 file:bg-[#17335E] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
+                  <UploadButton disabled={!activeSessionId || selectedTargetFiles.length === 0 || loading} active={pendingAction === 'upload-contract'}>Upload contract</UploadButton>
+                </form>
+              </UploadSection>
+
+              <UploadSection title="Source files" description={`${files.length} file${files.length === 1 ? '' : 's'} available to the mapping workflow.`}>
+                <form onSubmit={handleUploadSources} className="space-y-2">
+                  <input ref={sourceInputRef} type="file" multiple onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))} className="block w-full min-w-0 text-xs text-slate-300 file:mr-2 file:rounded file:border-0 file:bg-[#17335E] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
+                  <UploadButton disabled={!activeSessionId || selectedFiles.length === 0 || loading} active={pendingAction === 'upload-sources'}>Upload sources</UploadButton>
+                </form>
+                <div className="mt-3 max-h-[38vh] divide-y divide-white/[0.08] overflow-y-auto">
+                  {files.length === 0 ? <EmptyText>No source files uploaded.</EmptyText> : files.map((file) => (
+                    <button key={file.id} type="button" onClick={() => { setSelectedFile(file); setInspectorOpen(true) }} className="block w-full py-2.5 text-left hover:bg-white/[0.025]">
+                      <span className="block truncate text-sm font-medium text-slate-100" title={file.filename}>{file.filename}</span>
+                      <span className="mt-1 block text-xs text-[#9FB0C8]">{file.file_type?.toUpperCase()} · {knowledgeIntakeStatusLabel(file.parse_status ?? 'uploaded')}</span>
+                    </button>
+                  ))}
+                </div>
+              </UploadSection>
+            </div>
+          )}
+        </aside>
+
+        <main className="min-w-0 space-y-6">
+          <section className="rounded-lg border border-white/[0.10] bg-[#0B1424]/75 p-5 sm:p-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge tone={viewModel.tone}>{viewModel.status}</StatusBadge>
+                  {activeSession && <span className="text-xs text-[#9FB0C8]">Selected session</span>}
+                </div>
+                <h2 className="mt-4 text-xl font-semibold text-white">{activeSession ? contractName : 'Start a knowledge intake session'}</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#B8C2D4]">{viewModel.explanation}</p>
+              </div>
+              <div className="w-full shrink-0 xl:w-64">
+                <button type="button" onClick={runPrimaryAction} disabled={loading || !viewModel.actionEnabled} className="w-full rounded-md bg-[#2F6BFF] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-50">
+                  {isPrimaryPending(viewModel.action, pendingAction) ? 'Working…' : viewModel.actionLabel}
+                </button>
+                {viewModel.actionHelp && <p className="mt-2 text-xs leading-5 text-[#9FB0C8]">{viewModel.actionHelp}</p>}
+              </div>
+            </div>
+
+            <ol className="mt-7 grid gap-2 sm:grid-cols-4" aria-label="Knowledge intake progress">
+              {viewModel.stages.map((stage, index) => <WorkflowStage key={stage.label} index={index + 1} {...stage} />)}
+            </ol>
+          </section>
+
+          <section className="grid gap-x-6 gap-y-5 border-y border-white/[0.10] py-5 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryItem label="Contract" value={contractName} title={contractName} />
+            <SummaryItem label="Sources" value={`${files.length} file${files.length === 1 ? '' : 's'}`} />
+            <SummaryItem label="Mapping" value={mappingLabel(stats, Boolean(draft), Boolean(activeSession?.target_contract))} />
+            <SummaryItem label="Validation" value={draft?.validation_passed ? 'Passed' : draft ? knowledgeIntakeStatusLabel(draft.status) : 'Not run'} />
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
+            <div className="min-w-0">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Mapping workspace</h2>
+                  <p className="mt-1 text-sm text-[#9FB0C8]">Give the mapping agent context or ask it to update the contract mapping.</p>
+                </div>
+                <button type="button" onClick={() => { setSelectedFile(null); setInspectorOpen(true) }} disabled={!activeSession} className="self-start text-sm font-semibold text-[#8FCBFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-50">View details</button>
+              </div>
+              <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={5} disabled={!activeSession || loading} className="mt-4 w-full rounded-md border border-white/[0.12] bg-[#050914] px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-[#74839B] disabled:opacity-60" />
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button type="button" onClick={() => void handleMatch()} disabled={!activeSession || loading} className="rounded-md border border-[#5BA8FF]/35 px-4 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#5BA8FF]/10 disabled:cursor-not-allowed disabled:opacity-50">{pendingAction === 'mapping' ? 'Updating…' : draft ? 'Update mapping' : 'Run mapping'}</button>
+                <button type="button" onClick={() => void handleMatch('approve suggested mapping')} disabled={!activeSession || loading || mappingBoard.length === 0} className="rounded-md px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-50">Approve suggested mapping</button>
+              </div>
+            </div>
+
+            <div className="border-t border-white/[0.10] pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+              <h3 className="text-sm font-semibold text-white">What needs attention</h3>
+              {blockers.length ? (
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-100">{blockers.slice(0, 3).map((blocker) => <li key={blocker}>• {blocker}</li>)}</ul>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-[#B8C2D4]">{draft?.validation_passed ? 'All required fields have been validated.' : viewModel.explanation}</p>
+              )}
+              <p className="mt-4 text-xs leading-5 text-[#9FB0C8]">Required next step: {viewModel.actionLabel}</p>
+            </div>
+          </section>
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.10] pt-5">
+            {draft && <button type="button" onClick={() => void handleReject()} disabled={loading} className="rounded-md px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-50">{pendingAction === 'reject' ? 'Rejecting…' : 'Reject draft'}</button>}
+            {activeSession?.latest_export_key && <button type="button" onClick={onGoToDataIntake} className="rounded-md px-3 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10">Continue to Data Intake</button>}
+          </div>
+        </main>
+      </div>
+
+      {inspectorOpen && (
+        <Inspector
+          session={activeSession}
+          file={selectedFile}
           draft={draft}
-          conversation={conversation}
-          instruction={instruction}
           issues={issues}
-          mappingBoardLength={mappingBoard.length}
-          onInstructionChange={setInstruction}
-          onAskAgent={handleMatch}
-          showFullNotes={showFullNotes}
-          onToggleNotes={() => setShowFullNotes((value) => !value)}
-        />
-
-        <LiveResultsPanel
-          draft={draft}
+          stats={stats}
+          mappingBoard={mappingBoard}
+          showMapping={showMapping}
           tableName={effectiveTableName}
           tableOptions={tableOptions}
           currentTable={currentTable}
-          mappingBoard={mappingBoard}
-          mappingStats={mappingStats}
-          blockers={blockers}
-          validationSummary={validationSummary}
-          loading={loading}
-          showFullMapping={showFullMapping}
-          onToggleMapping={() => setShowFullMapping((value) => !value)}
+          onToggleMapping={() => setShowMapping((value) => !value)}
           onTableNameChange={setTableName}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onExport={handleExport}
-          onGoToDataIntake={onGoToDataIntake}
-          collapsed={resultsCollapsed}
-          onCollapsedChange={setResultsCollapsed}
+          onClose={() => setInspectorOpen(false)}
         />
-      </section>
+      )}
     </div>
   )
 }
 
-function KnowledgeIntakeHeader({ schema, targetLabel, fileCount, sessionStatus, validationLabel, onCreateSession, loading }: { schema: ProjectSchema; targetLabel: string; fileCount: number; sessionStatus: string; validationLabel: string; onCreateSession: () => void; loading: boolean }) {
+function Inspector({ session, file, draft, issues, stats, mappingBoard, showMapping, tableName, tableOptions, currentTable, onToggleMapping, onTableNameChange, onClose }: {
+  session: KnowledgeIntakeSession | null
+  file: KnowledgeIntakeFile | null
+  draft: KnowledgeIntakeDraft | null
+  issues: string
+  stats: MappingStats
+  mappingBoard: KnowledgeIntakeMappingRow[]
+  showMapping: boolean
+  tableName: string
+  tableOptions: string[]
+  currentTable?: { columns: string[]; preview_rows: string[]; total_rows: number }
+  onToggleMapping: () => void
+  onTableNameChange: (value: string) => void
+  onClose: () => void
+}) {
   return (
-    <section className="border-b border-slate-400/[0.10] pb-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#74C7F5]">{schema.workspace_name ?? schema.workspace_id ?? 'Workspace'} / {schema.display_name}</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">Knowledge Intake</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{targetLabel} · {fileCount} source {fileCount === 1 ? 'file' : 'files'} · {formatStatus(sessionStatus)} · Validation {validationLabel.toLowerCase()}</p>
+    <div className="fixed inset-0 z-[100] flex justify-end bg-black/45" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <aside role="dialog" aria-modal="true" aria-label="Knowledge intake details" className="h-full w-full max-w-xl overflow-y-auto border-l border-white/[0.12] bg-[#08111F] p-5 shadow-2xl sm:p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-white/[0.10] pb-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold text-white" title={file?.filename}>{file ? file.filename : 'Session details'}</h2>
+            <p className="mt-1 text-xs text-[#9FB0C8]">Press Escape to close</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close details" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/[0.12] text-xl text-slate-200 hover:bg-white/[0.06]">×</button>
         </div>
-        <button type="button" onClick={onCreateSession} disabled={loading} className="rounded-lg bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-60">
-          New session
-        </button>
-      </div>
-    </section>
-  )
-}
 
-function SourcesPanel({ sessions, activeSession, activeSessionId, selectedFiles, selectedTargetFiles, sourceSummary, loading, onSelectSession, onTargetFilesChange, onUploadTargetContract, onFilesChange, onUpload, collapsed, onCollapsedChange }: { sessions: KnowledgeIntakeSession[]; activeSession: KnowledgeIntakeSession | null; activeSessionId: string; selectedFiles: File[]; selectedTargetFiles: File[]; sourceSummary: SourceSummary; loading: boolean; onSelectSession: (sessionId: string) => Promise<void>; onTargetFilesChange: (files: File[]) => void; onUploadTargetContract: (event: FormEvent) => Promise<void>; onFilesChange: (files: File[]) => void; onUpload: (event: FormEvent) => Promise<void>; collapsed: boolean; onCollapsedChange: (collapsed: boolean) => void }) {
-  const targetContract = activeSession?.target_contract
-  return (
-    <aside className={`flex min-h-0 flex-col border-y border-slate-400/[0.10] ${collapsed ? 'items-center py-4' : 'gap-6 py-4'} lg:col-span-1`}>
-      <div className={`flex w-full items-center ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
-        {!collapsed && <p className="text-sm font-semibold text-[#F3F7FF]">Sources</p>}
-        <button type="button" onClick={() => onCollapsedChange(!collapsed)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label={collapsed ? 'Show sources panel' : 'Hide sources panel'} title={collapsed ? 'Show sources' : 'Hide sources'}>
-          {collapsed ? '›' : '‹'}
-        </button>
-      </div>
-      {collapsed ? <div className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#7E8AA0] [writing-mode:vertical-rl]">Sources</div> : <>
-      <WorkspaceCard title="Sessions" aside={`${sessions.length}`}>
-        <div className="max-h-56 divide-y divide-white/[0.06] overflow-auto pr-1">
-          {sessions.length === 0 ? (
-            <p className="py-3 text-sm text-slate-500">Create a session to start uploading source files.</p>
-          ) : sessions.map((session) => (
-            <button key={session.id} type="button" onClick={() => { void onSelectSession(session.id) }} className={`relative w-full px-3 py-3 text-left transition ${session.id === activeSessionId ? 'rounded-lg bg-[#2F6BFF]/10 text-white before:absolute before:bottom-2 before:left-0 before:top-2 before:w-px before:bg-[#74C7F5]' : 'text-slate-300 hover:bg-white/[0.035]'}`}>
-              <span className="block truncate text-sm font-medium">{session.title || session.id}</span>
-              <span className="mt-1 block text-xs text-slate-500">{formatStatus(session.status)} · {session.file_count ?? 0} files</span>
-              {(session.updated_at || session.created_at) && <span className="mt-1 block text-[11px] text-slate-600">{formatDate(session.updated_at ?? session.created_at)}</span>}
-            </button>
-          ))}
-        </div>
-      </WorkspaceCard>
+        {file ? (
+          <dl className="mt-6 grid grid-cols-2 gap-5 text-sm">
+            <Detail label="Type" value={file.file_type?.toUpperCase() || 'Unknown'} />
+            <Detail label="Status" value={knowledgeIntakeStatusLabel(file.parse_status)} />
+            <Detail label="Size" value={formatBytes(file.size_bytes)} />
+            <Detail label="File ID" value={file.id} />
+          </dl>
+        ) : (
+          <div className="mt-6 space-y-7">
+            <dl className="grid grid-cols-2 gap-5 text-sm">
+              <Detail label="Session" value={session ? knowledgeIntakeStatusLabel(session.status) : 'Not selected'} />
+              <Detail label="Contract" value={session?.target_contract ? knowledgeIntakeContractLabel(session.target_contract.contract_id) : 'Not selected'} />
+              <Detail label="Mapped fields" value={stats.totalFields ? `${stats.mappedFields} of ${stats.totalFields}` : draft ? 'No fields available to map' : 'Not run'} />
+              <Detail label="Missing fields" value={`${stats.missingFields}`} />
+            </dl>
 
-      <WorkspaceCard title="Uploaded sources" aside={`${activeSession?.files?.length ?? 0}`}>
-        <form onSubmit={onUpload} className="space-y-2">
-          <input type="file" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
-          <button type="submit" disabled={!activeSessionId || selectedFiles.length === 0 || loading} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload selected files</button>
-        </form>
-        <div className="mt-3 max-h-44 divide-y divide-white/[0.06] overflow-auto pr-1">
-          {(activeSession?.files ?? []).length === 0 ? (
-            <p className="py-3 text-sm text-slate-500">No files uploaded yet.</p>
-          ) : activeSession?.files?.map((file) => <SourceFileRow key={file.id} file={file} />)}
-        </div>
-      </WorkspaceCard>
-
-      <WorkspaceCard title="Target Mirai contract">
-        <form onSubmit={onUploadTargetContract} className="space-y-2">
-          <input type="file" multiple accept=".zip,.json,.csv" onChange={(event) => onTargetFilesChange(Array.from(event.target.files ?? []))} className="block w-full rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-3 py-2 text-xs text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-[#1C2B45] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100" />
-          <button type="submit" disabled={!activeSessionId || selectedTargetFiles.length === 0 || loading} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Upload target contract</button>
-        </form>
-        <div className="mt-4 border-t border-slate-400/[0.07] pt-3">
-          <p className="text-sm font-medium text-white">{targetContract ? `${targetContract.contract_id ?? 'generic_tabular_doe'} · ${targetContract.package_style ?? 'package'}` : 'No target uploaded'}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">{targetContract ? `Required files: ${(targetContract.required_files ?? []).join(', ')}` : 'Upload a Mirai package ZIP or manifest/data_dictionary/package CSV files. Fraunhofer packages are examples, not product target options.'}</p>
-          {targetContract?.fields && <p className="mt-1 text-xs text-slate-600">{targetContract.fields.length} contract columns · {(targetContract.tables ?? []).length} tables</p>}
-        </div>
-      </WorkspaceCard>
-
-      <WorkspaceCard title="Source indexing">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-          <MetricPill label="Indexed" value={`${sourceSummary.indexedFiles} files`} />
-          <MetricPill label="Containers" value={`${sourceSummary.containers}`} />
-          <MetricPill label="Tabular columns" value={`${sourceSummary.tabularColumns}`} />
-          <MetricPill label="CSV/XLSX" value={`${sourceSummary.csvFiles + sourceSummary.xlsxFiles}`} />
-        </div>
-        <p className="mt-3 border-t border-slate-400/[0.07] pt-3 text-xs leading-5 text-slate-500">Detected: {sourceSummary.csvFiles} CSV · {sourceSummary.xlsxFiles} XLSX · {sourceSummary.pdfFiles} PDF · {sourceSummary.docxFiles} DOCX</p>
-      </WorkspaceCard>
-      </>}
-    </aside>
-  )
-}
-
-function MappingAgentPanel({ activeSessionId, loading, loadingLabel, draft, conversation, instruction, issues, mappingBoardLength, onInstructionChange, onAskAgent, showFullNotes, onToggleNotes }: { activeSessionId: string; loading: boolean; loadingLabel: string; draft: KnowledgeIntakeDraft | null; conversation: Array<{ role: string; content: string; created_at?: string }>; instruction: string; issues: string; mappingBoardLength: number; onInstructionChange: (value: string) => void; onAskAgent: (instruction?: string) => Promise<void>; showFullNotes: boolean; onToggleNotes: () => void }) {
-  const agentStatus = getAgentStatusText(loading, loadingLabel, draft, mappingBoardLength)
-  return (
-    <main className="flex min-h-0 flex-col lg:col-span-1">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-400/[0.12] bg-[linear-gradient(90deg,rgba(139,92,246,0.10),rgba(91,168,255,0.04))] px-3 pb-3 pt-3">
-        <div>
-          <h3 className="text-sm font-semibold text-[#F3F7FF]">Mapping Agent</h3>
-          <p className="mt-1 text-xs text-[#7E8AA0]">Map uploaded sources into the selected Mirai contract.</p>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-medium text-[#63D69A]">
-          {loading && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#5BA8FF]/30 border-t-[#5BA8FF]" />}
-          <span>{agentStatus}</span>
-        </div>
-      </div>
-
-      <div className="mt-4 flex min-h-[300px] flex-1 flex-col overflow-hidden">
-        <div className="flex-1 space-y-3 overflow-auto py-2">
-          {conversation.length === 0 ? (
-            <div className="border-y border-slate-400/[0.12] bg-[#101A2C]/65 py-8 text-center text-sm leading-6 text-[#AAB6C8]">Run the agent to inspect uploaded sources and propose a source-to-contract mapping.</div>
-          ) : conversation.slice(-12).map((turn, index) => (
-            <div key={`${turn.role}-${index}`} className={turn.role === 'user' ? 'text-right' : 'text-left'}>
-              <div className={`inline-block max-w-[88%] rounded-lg border px-3 py-2 text-sm leading-6 ${turn.role === 'user' ? 'border-[#5BA8FF]/32 bg-[#5BA8FF]/[0.11] text-[#F3F7FF]' : 'border-slate-400/[0.14] bg-[#101A2C]/90 text-[#D7DEEA]'}`}>
-                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.10em] text-[#7E8AA0]">{turn.role === 'user' ? 'You' : 'Mapping agent'}</span>
-                {turn.content}
+            <section className="border-t border-white/[0.10] pt-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-white">Detailed mapping</h3>
+                <button type="button" onClick={onToggleMapping} disabled={!draft} className="text-sm font-semibold text-[#8FCBFF] disabled:opacity-50">{showMapping ? 'Hide' : 'Show'}</button>
               </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 border-t border-slate-400/[0.12] bg-[#0B1220] pt-4">
-        <textarea value={instruction} onChange={(event) => onInstructionChange(event.target.value)} rows={4} placeholder="Ask the agent, e.g. 'Use voltage and RH as inputs and current density/ECSA as outputs' or 'approve suggested mapping'." className="w-full rounded-lg border border-slate-400/[0.18] bg-[#050914] px-3 py-2 text-sm leading-6 text-[#F3F7FF] outline-none placeholder:text-[#6F7A90] focus:border-[#5BA8FF]/40 focus:ring-0" />
-        <div className="mt-3 flex flex-wrap gap-3">
-          <button type="button" onClick={() => { void onAskAgent() }} disabled={!activeSessionId || loading} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#3478FF] disabled:cursor-not-allowed disabled:opacity-50">Ask agent / update mapping</button>
-          <button type="button" onClick={() => { void onAskAgent('approve suggested mapping') }} disabled={!activeSessionId || loading || mappingBoardLength === 0} className="rounded-lg px-4 py-2 text-sm font-semibold text-[#8FCBFF] hover:bg-[#5BA8FF]/10 disabled:cursor-not-allowed disabled:opacity-50">Approve suggested mapping</button>
-        </div>
-      </div>
-
-      <div className="mt-5 border-t border-slate-400/[0.12] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-[#F3F7FF]">Agent notes</h4>
-          <button type="button" onClick={onToggleNotes} className="text-xs font-semibold text-[#8FCBFF] hover:text-[#F3F7FF]">{showFullNotes ? 'Hide full notes' : 'View full notes'}</button>
-        </div>
-        <AgentNotesPreview issues={issues} draft={draft} />
-        {showFullNotes && <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-400/[0.14] bg-[#050914] p-3 text-xs leading-5 text-[#B8C2D4]">{issues || 'Run the mapping agent to generate notes.'}</pre>}
-      </div>
-    </main>
-  )
-}
-
-function LiveResultsPanel({ draft, tableName, tableOptions, currentTable, mappingBoard, mappingStats, blockers, validationSummary, loading, showFullMapping, onToggleMapping, onTableNameChange, onApprove, onReject, onExport, onGoToDataIntake, collapsed, onCollapsedChange }: { draft: KnowledgeIntakeDraft | null; tableName: string; tableOptions: string[]; currentTable: { columns: string[]; preview_rows: string[]; total_rows: number } | null; mappingBoard: KnowledgeIntakeMappingRow[]; mappingStats: MappingStats; blockers: string[]; validationSummary: ValidationSummary; loading: boolean; showFullMapping: boolean; onToggleMapping: () => void; onTableNameChange: (value: string) => void; onApprove: () => Promise<void>; onReject: () => Promise<void>; onExport: () => Promise<void>; onGoToDataIntake: () => void; collapsed: boolean; onCollapsedChange: (collapsed: boolean) => void }) {
-  const missingRows = mappingBoard.filter((row) => isMissingMapping(row))
-  const transformBlocker = blockers.find((blocker) => blocker.toLowerCase().includes('deterministic transform'))
-  return (
-    <aside className={`flex min-h-0 flex-col border-y border-slate-400/[0.10] ${collapsed ? 'items-center py-4' : 'gap-6 py-4'} lg:col-span-1`}>
-      <div className={`flex w-full items-center ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
-        {!collapsed && <p className="text-sm font-semibold text-[#F3F7FF]">Inspector</p>}
-        <button type="button" onClick={() => onCollapsedChange(!collapsed)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label={collapsed ? 'Show inspector panel' : 'Hide inspector panel'} title={collapsed ? 'Show inspector' : 'Hide inspector'}>
-          {collapsed ? '‹' : '›'}
-        </button>
-      </div>
-      {collapsed ? <div className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#7E8AA0] [writing-mode:vertical-rl]">Inspector</div> : <>
-      <section className="bg-[#081526]/55 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Mapping status</h3>
-            <p className="mt-1 text-xs text-slate-500">{draft ? formatStatus(draft.status) : 'Not run'}</p>
-          </div>
-          <StatusChip label={validationSummary.label} tone={validationSummary.label === 'Ready' ? 'green' : validationSummary.label === 'Blocked' ? 'amber' : 'blue'} />
-        </div>
-
-        <div className="mt-5 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-3xl font-semibold text-white">{mappingStats.mappedFields} / {mappingStats.totalFields || 0}</p>
-            <p className="mt-1 text-sm text-slate-500">fields mapped</p>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-3 border-t border-slate-400/[0.07] pt-4">
-          <ProgressLine label="Inputs" value={mappingStats.inputMapped} total={mappingStats.inputTotal} />
-          <ProgressLine label="Outputs" value={mappingStats.outputMapped} total={mappingStats.outputTotal} />
-          {(mappingStats.highConfidence + mappingStats.mediumConfidence + mappingStats.lowConfidence) > 0 && (
-            <p className="text-xs text-slate-500">Confidence: {mappingStats.highConfidence} high · {mappingStats.mediumConfidence} medium · {mappingStats.lowConfidence} low</p>
-          )}
-        </div>
-
-        <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Missing fields</span>
-            <span className="text-xs text-slate-500">{missingRows.length}</span>
-          </div>
-          {missingRows.length === 0 ? (
-            <p className="text-sm text-emerald-200">None</p>
-          ) : (
-            <div className="flex max-h-32 flex-wrap gap-2 overflow-auto pr-1">
-              {missingRows.map((row) => <span key={row.field} className="rounded-full bg-amber-300/10 px-2.5 py-1 text-xs text-amber-100">{row.field}</span>)}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-5 space-y-3 border-t border-slate-400/[0.07] pt-4 text-sm">
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Validation</span>
-            <p className="mt-1 font-semibold text-white">{validationSummary.label}</p>
-          </div>
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reason</span>
-            <p className="mt-1 leading-6 text-slate-400">{transformBlocker ?? validationSummary.reason}</p>
-          </div>
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Required next step</span>
-            <p className="mt-1 leading-6 text-slate-400">{validationSummary.nextStep}</p>
-          </div>
-        </div>
-
-        <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
-          <p className="text-sm leading-6 text-slate-400">{draft?.validation_passed ? 'Validated package can be approved and exported after manual approval.' : 'Export package blocked until contract validation passes.'}</p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { void onApprove() }} disabled={loading || !draft || draft.status === 'approved_persistent' || !draft.validation_passed} className="rounded-lg bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve draft</button>
-            <button type="button" onClick={() => { void onReject() }} disabled={loading || !draft} className="rounded-lg px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50">Reject/delete</button>
-            <button type="button" onClick={() => { void onExport() }} disabled={loading || !draft || draft.status !== 'approved_persistent' || !draft.validation_passed} className="rounded-lg px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">Export ZIP</button>
-            <button type="button" onClick={onGoToDataIntake} className="rounded-lg px-3 py-2 text-sm font-semibold text-[#BDEAFF] hover:bg-[#74C7F5]/10">Data Intake</button>
-          </div>
-        </div>
-      </section>
-
-      <WorkspaceCard title="Detailed mapping" aside={mappingBoard.length ? `${mappingBoard.length} rows` : undefined}>
-        <button type="button" onClick={onToggleMapping} disabled={!draft} className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50">{showFullMapping ? 'Hide full mapping table' : 'View full mapping table'}</button>
-        {showFullMapping && draft && (
-          <div className="mt-3 max-h-80 overflow-auto rounded-lg bg-[#050B16]">
-            {mappingBoard.length > 0 && <MappingTable rows={mappingBoard} />}
-            {currentTable && (
-              <div className="border-t border-slate-400/[0.07] p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Package preview</span>
-                  {tableOptions.length > 0 && <select value={tableName} onChange={(event) => onTableNameChange(event.target.value)} className="rounded-lg border border-slate-400/[0.10] bg-[#050B16] px-2 py-1 text-xs text-slate-100">{tableOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select>}
+              {showMapping && (
+                <div className="mt-3 overflow-x-auto rounded-md border border-white/[0.10]">
+                  {mappingBoard.length ? <MappingTable rows={mappingBoard} /> : <EmptyText>No contract fields available to map.</EmptyText>}
                 </div>
-                <PackagePreview tableName={tableName} table={currentTable} />
-              </div>
+              )}
+            </section>
+
+            {currentTable && (
+              <section className="border-t border-white/[0.10] pt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-white">Package preview</h3>
+                  <select value={tableName} onChange={(event) => onTableNameChange(event.target.value)} className="max-w-52 truncate rounded-md border border-white/[0.12] bg-[#050914] px-2 py-1 text-xs text-white" title={tableName}>{tableOptions.map((name) => <option key={name}>{name}</option>)}</select>
+                </div>
+                <div className="mt-3 overflow-x-auto"><PackagePreview tableName={tableName} table={currentTable} /></div>
+              </section>
             )}
+
+            <section className="border-t border-white/[0.10] pt-5">
+              <h3 className="text-sm font-semibold text-white">Agent notes</h3>
+              <pre className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#B8C2D4]">{issues || draft?.agent_response || 'No agent notes available.'}</pre>
+            </section>
           </div>
         )}
-      </WorkspaceCard>
-      </>}
-    </aside>
-  )
-}
-
-function WorkspaceCard({ title, aside, children }: { title: string; aside?: string; children: ReactNode }) {
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-400/[0.10] pb-2">
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
-        {aside && <span className="text-xs text-slate-500">{aside}</span>}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function SourceFileRow({ file }: { file: KnowledgeIntakeFile }) {
-  return (
-    <div className="px-1 py-2.5">
-      <p className="truncate text-sm font-medium text-slate-100" title={file.filename}>{file.filename}</p>
-      <p className="mt-1 text-xs text-slate-500">{file.file_type?.toUpperCase()} · {formatStatus(file.parse_status ?? 'uploaded')}</p>
+      </aside>
     </div>
   )
 }
 
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-100">{value}</p>
-    </div>
-  )
+function getIntakeViewModel(session: KnowledgeIntakeSession | null, draft: KnowledgeIntakeDraft | null, stats: MappingStats, blockers: string[]): IntakeViewModel {
+  const hasContract = Boolean(session?.target_contract)
+  const fileCount = session?.file_count ?? session?.files?.length ?? 0
+  const approved = draft?.status === 'approved_persistent'
+  const exported = Boolean(session?.latest_export_key || session?.export || session?.status === 'exported')
+  let model: Omit<IntakeViewModel, 'stages'>
+
+  if (!session) model = { status: 'No session selected', explanation: 'Create a session to collect source files and map them into a Mirai contract.', tone: 'neutral', action: 'create', actionLabel: 'Create session', actionEnabled: true }
+  else if (!hasContract) model = { status: 'Contract needed', explanation: 'Choose the Mirai contract that these source files should populate.', tone: 'warning', action: 'show-contract', actionLabel: 'Add target contract', actionEnabled: true }
+  else if (fileCount === 0) model = { status: 'Sources needed', explanation: 'Add source files before the mapping agent can inspect and validate the data.', tone: 'warning', action: 'show-sources', actionLabel: 'Add source files', actionEnabled: true }
+  else if (!draft) model = { status: 'Ready to map', explanation: 'The contract and source files are ready for the mapping agent.', tone: 'active', action: 'mapping', actionLabel: 'Run mapping', actionEnabled: true }
+  else if (!draft.validation_passed) model = { status: draft.status === 'needs_user_input' ? 'Needs your input' : knowledgeIntakeStatusLabel(draft.status), explanation: blockers[0] ?? `${stats.missingFields} contract field${stats.missingFields === 1 ? '' : 's'} still require attention.`, tone: blockers.length ? 'warning' : 'active', action: 'mapping', actionLabel: 'Update mapping', actionEnabled: true }
+  else if (!approved) model = { status: 'Mapping complete', explanation: 'All required fields have been validated. Review and approve the mapping to continue.', tone: 'success', action: 'approve', actionLabel: 'Review & approve mapping', actionEnabled: true }
+  else model = { status: exported ? 'Exported' : 'Approved', explanation: exported ? 'The approved Mirai package is ready for the Data Intake workflow.' : 'The validated mapping is approved and ready to export.', tone: 'success', action: 'export', actionLabel: exported ? 'Download package again' : 'Export package', actionEnabled: true }
+
+  return {
+    ...model,
+    stages: [
+      { label: 'Sources', state: !session || fileCount === 0 ? 'current' : 'complete' },
+      { label: 'Mapping', state: !session || fileCount === 0 ? 'upcoming' : !draft ? 'current' : draft.validation_passed ? 'complete' : 'blocked' },
+      { label: 'Validation', state: !draft ? 'upcoming' : draft.validation_passed ? 'complete' : 'current' },
+      { label: 'Approval & export', state: approved && exported ? 'complete' : draft?.validation_passed ? 'current' : 'upcoming' },
+    ],
+  }
 }
 
-function StatusChip({ label, tone }: { label: string; tone: 'green' | 'amber' | 'blue' }) {
-  const classes = tone === 'green' ? 'bg-emerald-500/10 text-emerald-100' : tone === 'amber' ? 'bg-amber-500/10 text-amber-100' : 'bg-[#74C7F5]/10 text-[#D9F3FF]'
-  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>
+function getMappingStats(rows: KnowledgeIntakeMappingRow[]): MappingStats {
+  return rows.reduce<MappingStats>((stats, row) => {
+    const mapped = !isMissingMapping(row)
+    stats.totalFields += 1
+    if (mapped) stats.mappedFields += 1
+    else stats.missingFields += 1
+    if (row.role === 'input') { stats.inputTotal += 1; if (mapped) stats.inputMapped += 1 }
+    if (row.role === 'output') { stats.outputTotal += 1; if (mapped) stats.outputMapped += 1 }
+    return stats
+  }, { totalFields: 0, mappedFields: 0, missingFields: 0, inputTotal: 0, inputMapped: 0, outputTotal: 0, outputMapped: 0 })
 }
 
-function ProgressLine({ label, value, total }: { label: string; value: number; total: number }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-slate-400"><span>{label}</span><span>{value} / {total}</span></div>
-      <div className="h-2 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full rounded-full bg-[#74C7F5]" style={{ width: `${pct}%` }} /></div>
-    </div>
-  )
+function isMissingMapping(row: KnowledgeIntakeMappingRow) {
+  const source = String(row.source_column ?? '').trim()
+  return row.status === 'missing' || !source || source === '—' || source === '-'
 }
 
-function AgentNotesPreview({ issues, draft }: { issues: string; draft: KnowledgeIntakeDraft | null }) {
-  const lines = issues.split('\n').map((line) => line.trim()).filter(Boolean)
-  const plannerLine = lines.find((line) => line.toLowerCase().startsWith('agent planner:'))
-  const targetLine = lines.find((line) => line.toLowerCase().startsWith('target contract:'))
-  return (
-    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-      <div><dt className="text-slate-600">Target contract</dt><dd className="mt-1 text-slate-300">{targetLine?.replace('Target contract:', '').trim() || String(draft?.schema?.template_id ?? 'Not selected')}</dd></div>
-      <div><dt className="text-slate-600">Planner</dt><dd className="mt-1 text-slate-300">{plannerLine?.replace('Agent planner:', '').trim() || 'Not run'}</dd></div>
-      <div><dt className="text-slate-600">Mode</dt><dd className="mt-1 text-slate-300">Contract-driven mapping</dd></div>
-      <div><dt className="text-slate-600">Transform</dt><dd className="mt-1 text-slate-300">{draft?.validation_passed ? 'Validated package' : 'None executed'}</dd></div>
-    </dl>
-  )
+function mappingLabel(stats: MappingStats, hasDraft: boolean, hasContract: boolean) {
+  if (!hasContract) return 'Contract not selected'
+  if (!hasDraft) return 'Not run'
+  if (stats.totalFields === 0) return 'No contract fields required'
+  return `${stats.mappedFields} of ${stats.totalFields} fields`
+}
+
+function isPrimaryPending(action: PrimaryAction, pending: PendingAction) {
+  return (action === 'create' && pending === 'create') || (action === 'mapping' && pending === 'mapping') || (action === 'approve' && pending === 'approve') || (action === 'export' && pending === 'export')
+}
+
+function Message({ tone, children }: { tone: 'error' | 'success' | 'active'; children: ReactNode }) {
+  const classes = tone === 'error' ? 'bg-red-500/10 text-red-100' : tone === 'success' ? 'bg-emerald-500/10 text-emerald-100' : 'bg-[#5BA8FF]/10 text-[#D9F3FF]'
+  return <div className={`px-3 py-2 text-sm ${classes}`}>{children}</div>
+}
+
+function StatusBadge({ tone, children }: { tone: Tone; children: ReactNode }) {
+  const classes: Record<Tone, string> = { neutral: 'bg-white/[0.07] text-slate-200', active: 'bg-[#5BA8FF]/12 text-[#D9F3FF]', success: 'bg-emerald-500/10 text-emerald-100', warning: 'bg-amber-500/10 text-amber-100', error: 'bg-red-500/10 text-red-100' }
+  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${classes[tone]}`}>{children}</span>
+}
+
+function WorkflowStage({ label, state, index }: { label: string; state: 'complete' | 'current' | 'upcoming' | 'blocked'; index: number }) {
+  const classes = state === 'complete' ? 'border-emerald-400/20 bg-emerald-500/[0.07] text-emerald-100' : state === 'current' ? 'border-[#5BA8FF]/35 bg-[#5BA8FF]/10 text-white' : state === 'blocked' ? 'border-amber-400/25 bg-amber-500/[0.07] text-amber-100' : 'border-white/[0.08] text-[#8493AA]'
+  return <li className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-xs font-semibold ${classes}`}><span>{state === 'complete' ? '✓' : index}</span><span>{label}</span></li>
+}
+
+function SummaryItem({ label, value, title }: { label: string; value: string; title?: string }) {
+  return <div className="min-w-0"><p className="text-xs font-medium text-[#9FB0C8]">{label}</p><p className="mt-1 truncate text-sm font-semibold text-white" title={title ?? value}>{value}</p></div>
+}
+
+function UploadSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return <section><h3 className="text-sm font-semibold text-white">{title}</h3><p className="mt-1 text-xs leading-5 text-[#9FB0C8]">{description}</p><div className="mt-3">{children}</div></section>
+}
+
+function UploadButton({ disabled, active, children }: { disabled: boolean; active: boolean; children: ReactNode }) {
+  return <button type="submit" disabled={disabled} className="w-full rounded-md border border-white/[0.12] px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-50">{active ? 'Uploading…' : children}</button>
+}
+
+function EmptyText({ children }: { children: ReactNode }) {
+  return <p className="px-2 py-5 text-sm leading-6 text-[#9FB0C8]">{children}</p>
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0"><dt className="text-xs text-[#9FB0C8]">{label}</dt><dd className="mt-1 break-words font-medium text-white" title={value}>{value}</dd></div>
 }
 
 function MappingTable({ rows }: { rows: KnowledgeIntakeMappingRow[] }) {
   return (
-    <table className="min-w-full divide-y divide-white/[0.06] text-xs">
-      <thead className="bg-white/[0.035] text-slate-300">
-        <tr>
-          <th className="px-3 py-2 text-left font-semibold">Contract field</th>
-          <th className="px-3 py-2 text-left font-semibold">Role</th>
-          <th className="px-3 py-2 text-left font-semibold">Suggested source</th>
-          <th className="px-3 py-2 text-left font-semibold">Confidence</th>
-          <th className="px-3 py-2 text-left font-semibold">Status</th>
-          <th className="px-3 py-2 text-left font-semibold">Rationale</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-white/[0.06] text-slate-300">
-        {rows.map((row) => (
-          <tr key={row.field}>
-            <td className="px-3 py-2 font-medium text-slate-100">{row.field}</td>
-            <td className="px-3 py-2">{row.role}</td>
-            <td className="max-w-[240px] truncate px-3 py-2">{row.source_column ? `${row.source_column}${row.source_table ? ` · ${row.source_table}` : ''}` : '—'}</td>
-            <td className="px-3 py-2">{row.confidence ?? 'none'}</td>
-            <td className={`px-3 py-2 ${isMissingMapping(row) ? 'text-amber-300' : 'text-emerald-300'}`}>{row.status}</td>
-            <td className="max-w-[300px] px-3 py-2 text-slate-400">{row.rationale}</td>
-          </tr>
-        ))}
-      </tbody>
+    <table className="min-w-full divide-y divide-white/[0.08] text-xs">
+      <thead className="text-[#BDEAFF]"><tr><th className="px-3 py-2 text-left">Contract field</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-left">Status</th></tr></thead>
+      <tbody className="divide-y divide-white/[0.08] text-slate-300">{rows.map((row) => <tr key={row.field}><td className="px-3 py-2 font-medium text-white">{row.ui_label || row.field}</td><td className="max-w-56 truncate px-3 py-2" title={row.source_column ?? undefined}>{row.source_column || '—'}</td><td className={`px-3 py-2 ${isMissingMapping(row) ? 'text-amber-200' : 'text-emerald-200'}`}>{knowledgeIntakeStatusLabel(row.status)}</td></tr>)}</tbody>
     </table>
   )
 }
 
 function PackagePreview({ tableName, table }: { tableName: string; table: { columns: string[]; preview_rows: string[]; total_rows: number } }) {
   return (
-    <table className="min-w-full divide-y divide-white/[0.06] text-xs">
-      <thead className="bg-white/[0.035] text-slate-300">
-        <tr>{table.columns.slice(0, 10).map((column) => <th key={`${tableName}-${column}`} className="px-3 py-2 text-left font-semibold">{column}</th>)}</tr>
-      </thead>
-      <tbody className="divide-y divide-white/[0.06] text-slate-300">
-        {table.preview_rows.slice(0, 10).map((row, index) => (
-          <tr key={`${tableName}-${index}`}>{row.split(',').slice(0, 10).map((cell, cellIndex) => <td key={cellIndex} className="max-w-[220px] truncate px-3 py-2">{cell}</td>)}</tr>
-        ))}
-      </tbody>
+    <table className="min-w-full divide-y divide-white/[0.08] text-xs">
+      <thead><tr>{table.columns.slice(0, 8).map((column) => <th key={`${tableName}-${column}`} className="px-3 py-2 text-left text-[#BDEAFF]">{column}</th>)}</tr></thead>
+      <tbody className="divide-y divide-white/[0.08] text-slate-300">{table.preview_rows.slice(0, 8).map((row, index) => <tr key={`${tableName}-${index}`}>{row.split(',').slice(0, 8).map((cell, cellIndex) => <td key={cellIndex} className="max-w-48 truncate px-3 py-2">{cell}</td>)}</tr>)}</tbody>
     </table>
   )
 }
 
-function getMappingStats(mappingRows: KnowledgeIntakeMappingRow[]): MappingStats {
-  return mappingRows.reduce<MappingStats>((stats, row) => {
-    const mapped = !isMissingMapping(row)
-    stats.totalFields += 1
-    if (mapped) stats.mappedFields += 1
-    else stats.missingFields += 1
-    if (row.role === 'input') {
-      stats.inputTotal += 1
-      if (mapped) stats.inputMapped += 1
-    }
-    if (row.role === 'output') {
-      stats.outputTotal += 1
-      if (mapped) stats.outputMapped += 1
-    }
-    if (row.confidence === 'high') stats.highConfidence += 1
-    if (row.confidence === 'medium') stats.mediumConfidence += 1
-    if (row.confidence === 'low') stats.lowConfidence += 1
-    return stats
-  }, { totalFields: 0, mappedFields: 0, missingFields: 0, inputTotal: 0, inputMapped: 0, outputTotal: 0, outputMapped: 0, highConfidence: 0, mediumConfidence: 0, lowConfidence: 0 })
-}
-
-function getValidationSummary(draft: KnowledgeIntakeDraft | null, blockers: string[]): ValidationSummary {
-  if (!draft) {
-    return { label: 'Unknown', reason: 'No mapping run has been created yet.', nextStep: 'Create or select a session, upload sources, then ask the mapping agent.' }
-  }
-  if (draft.validation_passed) {
-    return { label: 'Ready', reason: 'Selected contract validation passed.', nextStep: 'Approve the validated draft, then export the package ZIP.' }
-  }
-  if (draft.status === 'needs_user_input') {
-    return { label: 'Needs user input', reason: blockers[0] ?? 'The agent needs missing field mappings or source context.', nextStep: 'Upload CSV/XLSX files, or describe where the contract variables are located.' }
-  }
-  return { label: 'Blocked', reason: blockers[0] ?? 'Contract validation has not passed.', nextStep: 'Resolve missing mappings and rerun the mapping agent.' }
-}
-
-function getSourceSummary(files: KnowledgeIntakeFile[], tabularColumns: number): SourceSummary {
-  return files.reduce<SourceSummary>((summary, file) => {
-    const type = `${file.file_type || file.filename.split('.').pop() || ''}`.toLowerCase()
-    summary.indexedFiles += file.parse_status ? 1 : 0
-    if (type.includes('zip')) summary.containers += 1
-    if (type.includes('csv')) summary.csvFiles += 1
-    if (type.includes('xlsx')) summary.xlsxFiles += 1
-    if (type.includes('pdf')) summary.pdfFiles += 1
-    if (type.includes('docx')) summary.docxFiles += 1
-    summary.tabularColumns = tabularColumns
-    return summary
-  }, { indexedFiles: 0, containers: 0, tabularColumns, csvFiles: 0, xlsxFiles: 0, pdfFiles: 0, docxFiles: 0 })
-}
-
-function isMissingMapping(row: KnowledgeIntakeMappingRow): boolean {
-  const source = String(row.source_column ?? '').trim()
-  return row.status === 'missing' || !source || source === '—' || source === '-'
-}
-
-function getAgentStatusText(loading: boolean, loadingLabel: string, draft: KnowledgeIntakeDraft | null, mappingBoardLength: number): string {
-  if (loading) return loadingLabel || 'Agent is working…'
-  if (!draft) return 'Agent waiting for sources'
-  if (draft.validation_passed) return 'Validation passed'
-  if (mappingBoardLength > 0 && draft.status !== 'needs_user_input') return 'Mapping draft ready for review'
-  if (draft.status === 'needs_user_input') return 'Agent needs user input'
-  return 'Mapping draft available'
-}
-
-function formatStatus(value: string): string {
-  return value.replace(/_/g, ' ')
-}
-
-function formatDate(value?: string): string {
+function formatDate(value?: string) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+}
+
+function formatBytes(value?: number) {
+  if (value === undefined) return 'Unknown'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isUsableDraft(value?: KnowledgeIntakeDraft | null): value is KnowledgeIntakeDraft {
+  return Boolean(value?.id && value.status !== 'deleted')
 }

@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { DomainMetadataStatus, MiraiContractValidation, IngestionSessionResponse, MLPreprocessingReport, MLPreprocessingStatus, PreprocessingEdaSummary, PreprocessingStatus, ProjectDomainMetadata, ProjectSchema, TrainingConfiguration, TrainingRequestResponse, VariableMetadata } from '../lib/api'
+import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react'
+import type {
+  DomainMetadataStatus,
+  IngestionSessionResponse,
+  MLPreprocessingReport,
+  MLPreprocessingStatus,
+  MiraiContractValidation,
+  PreprocessingEdaSummary,
+  PreprocessingStatus,
+  ProjectDomainMetadata,
+  ProjectSchema,
+  TrainingConfiguration,
+  TrainingRequestResponse,
+  VariableMetadata,
+} from '../lib/api'
 import {
   appendIngestionFiles,
   approveDomainMetadata,
-  approvePreprocessing,
   approveMLPreprocessing,
-  askDataScientist,
+  approvePreprocessing,
   createTrainingRequest,
   executeMLPreprocessing,
   exportApprovedTrainingPackage,
@@ -15,54 +27,31 @@ import {
   getMLPreprocessingReport,
   getMLPreprocessingStatus,
   getPreprocessingEdaSummary,
-  loadChampionModel,
   getPreprocessingReport,
   getPreprocessingStatus,
   getPreprocessingYdataReportBlob,
   getTrainingStatus,
   listIngestionSessions,
   listTrainingRequests,
-  startMiraiPreprocessing,
+  loadChampionModel,
   startMLPreprocessing,
+  startMiraiPreprocessing,
   startTrainingRequest,
   updateDomainMetadata,
   validateMiraiContract,
 } from '../lib/api'
-import { DisclosurePanel, LifecycleStepper, SectionCard } from './ui'
-
-function StatusPill({ children, tone = 'slate' }: { children: string; tone?: 'slate' | 'amber' | 'green' | 'rose' }) {
-  const classes = tone === 'green'
-    ? 'border-[#74C7F5]/30 bg-[#0D1B2D] text-[#BDEAFF]'
-    : tone === 'amber'
-      ? 'border-amber-200 bg-amber-50 text-amber-700'
-      : tone === 'rose'
-        ? 'border-rose-200 bg-rose-50 text-rose-700'
-        : 'border-slate-200 bg-[#0D1B2D] text-slate-300'
-  return <span className={`rounded-full border px-3 py-1 text-xs font-bold tracking-normal ${classes}`}>{children}</span>
-}
-
-function actionTone(status?: string): 'slate' | 'amber' | 'green' | 'rose' {
-  if (!status || status === 'not_started') return 'slate'
-  if (status.includes('failed')) return 'rose'
-  if (status.includes('approved') || status.includes('complete') || status === 'completed') return 'green'
-  return 'amber'
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function formatNumber(value: unknown, digits = 3): string {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
-}
-
-function cloneMetadata(metadata: ProjectDomainMetadata): ProjectDomainMetadata {
-  return JSON.parse(JSON.stringify(metadata)) as ProjectDomainMetadata
-}
-
-function variableLabel(variable?: VariableMetadata) {
-  return variable ? `${variable.label || variable.name}${variable.unit ? ` / ${variable.unit}` : ''}` : 'Select variable'
-}
+import {
+  artifactDisplayName,
+  derivePreparationViewModel,
+  preparationStatusLabel,
+  preparationStatusTone,
+  type PreparationFacts,
+  type PreparationTab,
+  type PreparationTone,
+} from '../lib/preparationPresentation'
+import { AskMiraiWorkspace } from './preparation/AskMiraiWorkspace'
+import { PreparationTabs } from './preparation/PreparationTabs'
+import { DisclosurePanel } from './ui'
 
 const EDITABLE_METADATA_ROLES = new Set<VariableMetadata['role']>(['input', 'output', 'group', 'sweep', 'time', 'cycle', 'sequence', 'curve_axis'])
 const INTERNAL_NAME_PATTERNS = [
@@ -70,6 +59,18 @@ const INTERNAL_NAME_PATTERNS = [
   /(^|_)(experiment|condition|result|row|source|file|path|provenance)(_id|_index|_name|_path|_hash)?$/i,
   /^(experiment_id|condition_id|result_id|row_index|source_file|source_path|split)$/i,
 ]
+
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function formatNumber(value: unknown, digits = 0): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
+}
+
+function cloneMetadata(metadata: ProjectDomainMetadata): ProjectDomainMetadata {
+  return JSON.parse(JSON.stringify(metadata)) as ProjectDomainMetadata
+}
 
 function isInternalVariable(variable: VariableMetadata) {
   if (['id', 'metadata', 'context', 'ignore'].includes(variable.role)) return true
@@ -89,9 +90,7 @@ function buildPrimaryRecipe(metadata: ProjectDomainMetadata, xVariable: string, 
   return {
     id: metadata.template_id === 'fuel_cell' ? 'fuel_cell_polarization_curve' : `response_${xVariable}_${yVariable}`,
     label: metadata.template_id === 'fuel_cell' ? 'Dynamic response curve' : `${y?.label || yVariable} vs ${x?.label || xVariable}`,
-    description: metadata.template_id === 'fuel_cell'
-      ? 'Uses the observed voltage grid and predicts BoL/EoL current density at each voltage.'
-      : `Safe response plot using ${variableLabel(x)} on the x-axis and ${variableLabel(y)} on the y-axis.`,
+    description: `Safe response plot using ${x?.label || xVariable} on the x-axis and ${y?.label || yVariable} on the y-axis.`,
     kind,
     template_id: metadata.template_id,
     safe: true,
@@ -134,26 +133,7 @@ function defaultTrainingConfiguration(schema: ProjectSchema): TrainingConfigurat
 }
 
 function parseNumberList(value: string): number[] {
-  return value.split(',').map((item) => Number(item.trim())).filter((value) => Number.isFinite(value))
-}
-
-
-function DistributionTable({ title, rows }: { title: string; rows?: Record<string, Record<string, number>> }) {
-  const entries = Object.entries(rows ?? {})
-  if (!entries.length) return null
-  return (
-    <div className="border-t border-slate-400/[0.07] pt-4">
-      <h3 className="font-semibold text-white">{title}</h3>
-      <div className="mt-3 overflow-x-auto">
-        <table className="min-w-full text-left text-xs">
-          <thead className="text-slate-500"><tr><th className="py-2 pr-4">Variable</th><th className="py-2 pr-4">Min</th><th className="py-2 pr-4">Mean</th><th className="py-2 pr-4">Max</th><th className="py-2 pr-4">Missing</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">
-            {entries.map(([name, stats]) => <tr key={name}><td className="py-2 pr-4 font-medium text-slate-100">{name}</td><td className="py-2 pr-4 text-slate-300">{formatNumber(stats.min)}</td><td className="py-2 pr-4 text-slate-300">{formatNumber(stats.mean)}</td><td className="py-2 pr-4 text-slate-300">{formatNumber(stats.max)}</td><td className="py-2 pr-4 text-slate-300">{formatNumber(stats.missing, 0)}</td></tr>)}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+  return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isFinite(item))
 }
 
 export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema: ProjectSchema | null; onOpenModelQuality?: () => void }) {
@@ -166,25 +146,21 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   const [mlPreprocessingStatus, setMLPreprocessingStatus] = useState<MLPreprocessingStatus>({ status: 'not_started' })
   const [mlPreprocessingReport, setMLPreprocessingReport] = useState<MLPreprocessingReport | null>(null)
   const [mlPreprocessingLog, setMLPreprocessingLog] = useState<string[]>([])
-  const [mlPreprocessingQuestion, setMLPreprocessingQuestion] = useState('')
-  const [mlPreprocessingChat, setMLPreprocessingChat] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [trainingRequest, setTrainingRequest] = useState<TrainingRequestResponse | null>(null)
   const [trainingStatus, setTrainingStatus] = useState<Record<string, unknown> | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
-  const [mlflowImport, setMlflowImport] = useState({ runId: '', registeredModelName: '', modelVersion: '', alias: 'challenger' })
   const [importMessage, setImportMessage] = useState<string | null>(null)
+  const [mlflowImport, setMlflowImport] = useState({ runId: '', registeredModelName: '', modelVersion: '' })
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfiguration>(() => defaultTrainingConfiguration(schema ?? { project_id: '', display_name: '', inputs: [], outputs: [] }))
   const [metadataStatus, setMetadataStatus] = useState<DomainMetadataStatus | null>(null)
   const [metadataDraft, setMetadataDraft] = useState<ProjectDomainMetadata | null>(null)
   const [appendFiles, setAppendFiles] = useState<File[]>([])
   const [busy, setBusy] = useState<string | null>(null)
-  const [mlAgentScopeCollapsed, setMLAgentScopeCollapsed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<PreparationTab>('overview')
+  const [contextualPrompt, setContextualPrompt] = useState('')
 
-  const selectedSession = useMemo(
-    () => sessions.find((session) => session.ingestion_session_id === selectedSessionId) ?? null,
-    [sessions, selectedSessionId],
-  )
+  const selectedSession = useMemo(() => sessions.find((session) => session.ingestion_session_id === selectedSessionId) ?? null, [sessions, selectedSessionId])
 
   const loadSessions = useCallback(async () => {
     setError(null)
@@ -192,9 +168,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     setSessions(next)
     const latestRaw = window.localStorage.getItem('mirai.latestIngestionSession')
     const latest = latestRaw ? JSON.parse(latestRaw) as IngestionSessionResponse : null
-    const preferred = latest && next.some((session) => session.ingestion_session_id === latest.ingestion_session_id)
-      ? latest.ingestion_session_id
-      : next[0]?.ingestion_session_id ?? ''
+    const preferred = latest && next.some((session) => session.ingestion_session_id === latest.ingestion_session_id) ? latest.ingestion_session_id : next[0]?.ingestion_session_id ?? ''
     setSelectedSessionId((current) => next.some((session) => session.ingestion_session_id === current) ? current : preferred)
   }, [schema?.project_id])
 
@@ -213,31 +187,18 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       setMetadataStatus(nextMetadata)
       setMetadataDraft(cloneMetadata(nextMetadata.domain_metadata))
       setMLPreprocessingStatus(nextMLStatus)
-      if (nextMLStatus.status && nextMLStatus.status !== 'not_started') {
-        setMLPreprocessingReport(await getMLPreprocessingReport(session).catch(() => null))
-      } else {
-        setMLPreprocessingReport(null)
-      }
+      setMLPreprocessingReport(nextMLStatus.status !== 'not_started' ? await getMLPreprocessingReport(session).catch(() => null) : null)
       if (['preprocessing_complete_needs_approval', 'approved_for_training'].includes(nextStatus.status)) {
-        try {
-          const [nextReport, nextEda, requests] = await Promise.all([
-            getPreprocessingReport(session),
-            getPreprocessingEdaSummary(session),
-            listTrainingRequests(session),
-          ])
-          setReport(nextReport)
-          setEdaSummary(nextEda)
-          const latestRequest = [...requests].sort((a, b) => String(b.requested_at ?? '').localeCompare(String(a.requested_at ?? '')))[0] ?? null
-          setTrainingRequest(latestRequest)
-          if (latestRequest) {
-            setTrainingStatus(await getTrainingStatus(session, latestRequest.training_request_id))
-          } else {
-            setTrainingStatus(null)
-          }
-        } catch {
-          setReport(null)
-          setEdaSummary(null)
-        }
+        const [nextReport, nextEda, requests] = await Promise.all([
+          getPreprocessingReport(session),
+          getPreprocessingEdaSummary(session),
+          listTrainingRequests(session),
+        ])
+        setReport(nextReport)
+        setEdaSummary(nextEda)
+        const latestRequest = [...requests].sort((a, b) => String(b.requested_at ?? '').localeCompare(String(a.requested_at ?? '')))[0] ?? null
+        setTrainingRequest(latestRequest)
+        setTrainingStatus(latestRequest ? await getTrainingStatus(session, latestRequest.training_request_id) : null)
       } else {
         setReport(null)
         setEdaSummary(null)
@@ -245,63 +206,78 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
         setTrainingStatus(null)
       }
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh preprocessing state')
+      setReport(null)
+      setEdaSummary(null)
+      setTrainingRequest(null)
+      setTrainingStatus(null)
+      setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh preparation state')
     }
   }, [])
 
-  useEffect(() => {
-    if (schema) setTrainingConfig(defaultTrainingConfiguration(schema))
-  }, [schema])
-
-  useEffect(() => {
-    loadSessions().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions'))
-  }, [loadSessions])
-
-  useEffect(() => {
-    if (selectedSession) refreshSessionState(selectedSession)
-  }, [refreshSessionState, selectedSession, selectedSessionId])
-
+  useEffect(() => { if (schema) setTrainingConfig(defaultTrainingConfiguration(schema)) }, [schema])
+  useEffect(() => { loadSessions().catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions')) }, [loadSessions])
+  useEffect(() => { if (selectedSession) void refreshSessionState(selectedSession) }, [refreshSessionState, selectedSession])
   useEffect(() => {
     if (!selectedSession || !['queued', 'running'].includes(preprocessingStatus.status)) return undefined
-    const timer = window.setInterval(() => {
-      refreshSessionState(selectedSession)
-    }, 2500)
+    const timer = window.setInterval(() => void refreshSessionState(selectedSession), 2500)
     return () => window.clearInterval(timer)
-  }, [refreshSessionState, selectedSessionId, selectedSession, preprocessingStatus.status])
+  }, [refreshSessionState, selectedSession, preprocessingStatus.status])
 
   async function runAction(label: string, action: () => Promise<void>) {
+    if (busy) return
     setBusy(label)
     setError(null)
-    try {
-      await action()
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : `${label} failed`)
-    } finally {
-      setBusy(null)
-    }
+    try { await action() }
+    catch (actionError) { setError(actionError instanceof Error ? actionError.message : `${label} failed`) }
+    finally { setBusy(null) }
   }
 
   const rowCounts = preprocessingStatus.row_counts ?? {}
-  const modelRows = numberValue(rowCounts.model_table) ?? numberValue(rowCounts['model_table.csv'])
-  const preprocessingApproved = preprocessingStatus.status === 'approved_for_training' || report?.['status'] === 'approved_for_training'
+  const modelRows = numberValue(edaSummary?.summary.model_rows) ?? numberValue(rowCounts.model_table) ?? numberValue(rowCounts['model_table.csv'])
+  const rejectedRows = numberValue(edaSummary?.summary.rejected_rows?.count) ?? numberValue(rowCounts['rejected_rows.csv'])
+  const preprocessingApproved = preprocessingStatus.status === 'approved_for_training' || report?.status === 'approved_for_training'
   const preprocessingComplete = preprocessingStatus.status === 'preprocessing_complete_needs_approval' || preprocessingApproved
   const metadataApproved = metadataStatus?.approval_status === 'approved' || preprocessingComplete
   const metadataVariables = metadataDraft?.variables ?? []
   const editableVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => isEditableModelVariable(variable))
   const provenanceVariableEntries = metadataVariables.map((variable, index) => ({ variable, index })).filter(({ variable }) => !isEditableModelVariable(variable))
-  const editableVariables = editableVariableEntries.map(({ variable }) => variable)
-  const inputOrSweepVariables = editableVariables.filter((variable) => ['input', 'sweep'].includes(variable.role))
-  const outputVariables = editableVariables.filter((variable) => variable.role === 'output')
+  const inputVariables = editableVariableEntries.filter(({ variable }) => ['input', 'sweep'].includes(variable.role))
+  const outputVariables = editableVariableEntries.filter(({ variable }) => variable.role === 'output')
   const selectedRecipe = metadataDraft?.ui_config?.plot_recipes?.find((recipe) => recipe.id === metadataDraft.ui_config?.selected_plot_recipe_id) ?? metadataDraft?.ui_config?.plot_recipes?.[0]
-  const selectedX = (selectedRecipe?.x?.variable && inputOrSweepVariables.some((variable) => variable.name === selectedRecipe.x?.variable) ? selectedRecipe.x.variable : undefined) || inputOrSweepVariables[0]?.name || ''
-  const selectedY = (selectedRecipe?.y?.variable && outputVariables.some((variable) => variable.name === selectedRecipe.y?.variable) ? selectedRecipe.y.variable : undefined) || outputVariables[0]?.name || ''
-  const lifecycleStatus = String(trainingStatus?.['status'] ?? trainingRequest?.status ?? '')
+  const selectedX = (selectedRecipe?.x?.variable && inputVariables.some(({ variable }) => variable.name === selectedRecipe.x?.variable) ? selectedRecipe.x.variable : undefined) || inputVariables[0]?.variable.name || ''
+  const selectedY = (selectedRecipe?.y?.variable && outputVariables.some(({ variable }) => variable.name === selectedRecipe.y?.variable) ? selectedRecipe.y.variable : undefined) || outputVariables[0]?.variable.name || ''
+  const lifecycleStatus = String(trainingStatus?.status ?? trainingRequest?.status ?? '')
   const candidateReady = lifecycleStatus === 'candidate_ready_for_review'
   const championActive = lifecycleStatus === 'approved_champion_active'
   const trainingCompleted = lifecycleStatus === 'completed' || candidateReady || championActive
   const mlPreprocessingReady = mlPreprocessingStatus.status === 'ml_preprocessing_ready_for_training'
-  const mlPreprocessingNeedsApproval = mlPreprocessingStatus.status === 'preprocessing_plan_needs_approval'
-  const mlPreprocessingStarted = mlPreprocessingStatus.status && mlPreprocessingStatus.status !== 'not_started'
+  const mlPreprocessingStarted = Boolean(mlPreprocessingStatus.status && mlPreprocessingStatus.status !== 'not_started')
+  const canRunPreprocessing = Boolean(selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status))
+  const recommendedTrainingReady = Boolean(selectedSession && preprocessingApproved && mlPreprocessingReady && !trainingRequest)
+  const canExportApprovedPackage = Boolean(selectedSession && preprocessingApproved && trainingRequest)
+  const canUseProjectChampionLoader = Boolean(schema?.project_id && !championActive && (mlPreprocessingReady || preprocessingApproved || trainingRequest || trainingCompleted || !selectedSession))
+  const expectedMlflowExperiment = schema?.project_id || selectedSession?.project_id || '<project_id>'
+  const expectedRegisteredModel = expectedMlflowExperiment !== '<project_id>' ? `doe_surrogate_${expectedMlflowExperiment}` : 'doe_surrogate_<project_id>'
+  const facts: PreparationFacts = {
+    hasSchema: Boolean(schema),
+    hasSession: Boolean(selectedSession),
+    metadataApproved,
+    preprocessingStatus: preprocessingStatus.status,
+    preprocessingComplete,
+    preprocessingApproved,
+    mlPreprocessingStatus: mlPreprocessingStatus.status,
+    mlPreprocessingStarted,
+    mlPreprocessingReady,
+    hasTrainingRequest: Boolean(trainingRequest),
+    trainingStatus: lifecycleStatus,
+    trainingCompleted,
+    candidateReady,
+    championActive,
+  }
+  const viewModel = derivePreparationViewModel(facts)
+  const inputCount = validation?.input_count ?? inputVariables.length
+  const outputCount = validation?.output_count ?? outputVariables.length
+  const artifacts = Array.from(new Set([...(edaSummary?.artifacts.canonical_files ?? []), ...(mlPreprocessingReport?.export_files ?? [])]))
 
   function updateMetadataDraft(updater: (draft: ProjectDomainMetadata) => void) {
     setMetadataDraft((current) => {
@@ -323,12 +299,7 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
   function updatePrimaryRecipe(xVariable: string, yVariable: string) {
     updateMetadataDraft((draft) => {
       const recipe = buildPrimaryRecipe(draft, xVariable, yVariable)
-      draft.ui_config = {
-        ...(draft.ui_config ?? {}),
-        selected_plot_recipe_id: recipe.id,
-        plot_recipes: [recipe],
-        design_studio: { ...(draft.ui_config?.design_studio ?? {}), primary_plot_recipe_id: recipe.id },
-      }
+      draft.ui_config = { ...(draft.ui_config ?? {}), selected_plot_recipe_id: recipe.id, plot_recipes: [recipe], design_studio: { ...(draft.ui_config?.design_studio ?? {}), primary_plot_recipe_id: recipe.id } }
     })
   }
 
@@ -358,97 +329,42 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
       window.localStorage.setItem('mirai.latestIngestionSession', JSON.stringify(updated))
       setSessions((current) => current.map((session) => session.ingestion_session_id === updated.ingestion_session_id ? updated : session))
       setAppendFiles([])
-      setReport(null)
-      setEdaSummary(null)
-      setTrainingRequest(null)
-      setTrainingStatus(null)
       await refreshSessionState(updated)
     })
   }
 
-  const lifecycleSteps = [
-    { id: 'upload', label: 'Create project', status: 'done' as const },
-    { id: 'metadata', label: 'Review metadata', status: metadataApproved ? 'done' as const : 'current' as const },
-    { id: 'preprocess', label: 'Preprocess', status: preprocessingComplete ? 'done' as const : metadataApproved ? 'current' as const : 'locked' as const },
-    { id: 'ml-preprocess', label: 'ML preprocessing', status: mlPreprocessingReady ? 'done' as const : preprocessingApproved ? 'current' as const : 'locked' as const },
-    { id: 'train', label: 'Train', status: trainingCompleted ? 'done' as const : mlPreprocessingReady ? 'current' as const : 'locked' as const },
-    { id: 'quality', label: 'Quality', status: trainingCompleted ? 'current' as const : 'locked' as const },
-  ]
-
-  const metadataSummary = [
-    ['Inputs', inputOrSweepVariables.length],
-    ['Outputs', outputVariables.length],
-    ['Other/provenance', provenanceVariableEntries.length],
-  ]
-
-  const canUseProjectChampionLoader = Boolean(schema?.project_id && !championActive && (mlPreprocessingReady || preprocessingApproved || trainingRequest || trainingCompleted || !selectedSession))
-  const projectOnlyChampionControls = Boolean(schema?.project_id && !selectedSession)
-  const canRunPreprocessing = selectedSession && metadataApproved && !['queued', 'running'].includes(preprocessingStatus.status)
-  const recommendedTrainingReady = selectedSession && preprocessingApproved && mlPreprocessingReady && !trainingRequest
-  const canExportApprovedPackage = Boolean(selectedSession && preprocessingApproved && trainingRequest)
-  const expectedMlflowExperiment = schema?.project_id || selectedSession?.project_id || '<project_id>'
-  const expectedRegisteredModel = expectedMlflowExperiment && expectedMlflowExperiment !== '<project_id>' ? `doe_surrogate_${expectedMlflowExperiment}` : 'doe_surrogate_<project_id>'
-
-  async function handleExportApprovedPackage() {
-    if (!selectedSession || !trainingRequest) return
-    await runAction('export-package', async () => {
-      await exportApprovedTrainingPackage(selectedSession, trainingRequest.training_request_id)
-      setExportMessage('Approved training package export started. Check your downloads folder.')
-    })
+  async function runCanonicalPreprocessing() {
+    if (!selectedSession) return
+    await runAction('preprocessing', async () => setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)))
   }
 
-  async function handleOpenYdataReport() {
+  async function approveCanonicalPreprocessing() {
     if (!selectedSession) return
-    const popup = window.open('', '_blank')
-    if (popup) popup.opener = null
-    await runAction('open-ydata-report', async () => {
-      try {
-        const { blob } = await getPreprocessingYdataReportBlob(selectedSession)
-        const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/html' }))
-        if (popup) {
-          popup.location.href = url
-          window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
-        } else {
-          const link = document.createElement('a')
-          link.href = url
-          link.target = '_blank'
-          link.rel = 'noopener noreferrer'
-          document.body.appendChild(link)
-          link.click()
-          link.remove()
-          window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
-        }
-      } catch (reportError) {
-        popup?.close()
-        throw reportError
-      }
+    await runAction('approval', async () => {
+      setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.'))
+      await refreshSessionState(selectedSession)
     })
   }
 
   async function draftMLPreprocessingPlan() {
     if (!selectedSession) return
     await runAction('ml-preprocessing-draft', async () => {
-      const log = ['Loading bounded EDA/profile evidence…', 'Loading ML preprocessing skill and policy…']
-      setMLPreprocessingLog(log)
+      setMLPreprocessingLog(['Loading bounded dataset evidence…', 'Drafting reproducible preprocessing recommendations…'])
       const drafted = await startMLPreprocessing(selectedSession)
       setMLPreprocessingStatus(drafted)
-      const nextReport = await getMLPreprocessingReport(selectedSession)
-      setMLPreprocessingReport(nextReport)
-      setMLPreprocessingLog([...log, 'Drafted deterministic tool plan and passed validation gates.', 'Paused before applying. Ask the ML preprocessing agent, then approve/apply when ready.'])
+      setMLPreprocessingReport(await getMLPreprocessingReport(selectedSession))
+      setMLPreprocessingLog((current) => [...current, 'Plan drafted and validation gates checked.', 'Waiting for review before applying.'])
     })
   }
 
   async function applyMLPreprocessingPlan() {
     if (!selectedSession) return
     await runAction('ml-preprocessing-apply', async () => {
-      setMLPreprocessingLog((current) => [...current, 'Approving plan. Running train-only fit and transform-only validation/test application…'])
-      const approved = await approveMLPreprocessing(selectedSession, 'Approved deterministic ML preprocessing plan from Preprocessing Review UI.')
-      setMLPreprocessingStatus(approved)
-      const executed = await executeMLPreprocessing(selectedSession)
-      setMLPreprocessingStatus(executed)
-      const nextReport = await getMLPreprocessingReport(selectedSession)
-      setMLPreprocessingReport(nextReport)
-      setMLPreprocessingLog((current) => [...current, 'ml_preprocessing_ready_for_training', 'Preprocessing ready — this is what we did.'])
+      setMLPreprocessingLog((current) => [...current, 'Approving plan and fitting parameters on training rows only…'])
+      setMLPreprocessingStatus(await approveMLPreprocessing(selectedSession, 'Approved deterministic ML preprocessing plan from Preprocessing Review UI.'))
+      setMLPreprocessingStatus(await executeMLPreprocessing(selectedSession))
+      setMLPreprocessingReport(await getMLPreprocessingReport(selectedSession))
+      setMLPreprocessingLog((current) => [...current, 'Training-ready dataset created.'])
     })
   }
 
@@ -463,36 +379,50 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     window.URL.revokeObjectURL(url)
   }
 
+  async function handleOpenYdataReport() {
+    if (!selectedSession) return
+    const popup = window.open('', '_blank')
+    if (popup) popup.opener = null
+    await runAction('open-ydata-report', async () => {
+      try {
+        const { blob } = await getPreprocessingYdataReportBlob(selectedSession)
+        const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/html' }))
+        if (popup) popup.location.href = url
+        else window.open(url, '_blank', 'noopener,noreferrer')
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
+      } catch (reportError) { popup?.close(); throw reportError }
+    })
+  }
+
   async function handleDownloadPreprocessedTable() {
     if (!selectedSession) return
-    await runAction('download-ml-preprocessed-table', async () => {
-      const { blob, filename } = await getMLPreprocessedTableBlob(selectedSession)
-      downloadBlob(blob, filename)
-    })
+    await runAction('download-ml-preprocessed-table', async () => { const file = await getMLPreprocessedTableBlob(selectedSession); downloadBlob(file.blob, file.filename) })
   }
 
   async function handleDownloadMLPreprocessingReport() {
     if (!selectedSession) return
-    await runAction('download-ml-preprocessing-report', async () => {
-      const { blob, filename } = await getMLPreprocessingHumanReportBlob(selectedSession)
-      downloadBlob(blob, filename)
+    await runAction('download-ml-preprocessing-report', async () => { const file = await getMLPreprocessingHumanReportBlob(selectedSession); downloadBlob(file.blob, file.filename) })
+  }
+
+  async function createVersionedTrainingRequest() {
+    if (!selectedSession) return
+    await runAction('training-request', async () => {
+      const request = await createTrainingRequest(selectedSession, trainingConfig)
+      setTrainingRequest(request)
+      setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id))
     })
   }
 
-  async function askMLPreprocessingAgent(question?: string) {
-    if (!selectedSession || !schema?.project_id) return
-    const prompt = (question ?? mlPreprocessingQuestion).trim()
-    if (!prompt) return
-    const next = [...mlPreprocessingChat, { role: 'user' as const, content: prompt }]
-    setMLPreprocessingChat(next)
-    setMLPreprocessingQuestion('')
-    await runAction('ml-preprocessing-chat', async () => {
-      const response = await askDataScientist(
-        schema.project_id,
-        `For the selected ML preprocessing session ${selectedSession.ingestion_session_id}, answer this question using ml_preprocessing_summary and other scoped read-only tools as needed: ${prompt}`,
-        next.slice(-8),
-      )
-      setMLPreprocessingChat([...next, { role: 'assistant', content: response.answer }])
+  async function startManagedTraining() {
+    if (!selectedSession || !trainingRequest) return
+    await runAction('training', async () => setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)))
+  }
+
+  async function handleExportApprovedPackage() {
+    if (!selectedSession || !trainingRequest) return
+    await runAction('export-package', async () => {
+      await exportApprovedTrainingPackage(selectedSession, trainingRequest.training_request_id)
+      setExportMessage('Approved training package downloaded.')
     })
   }
 
@@ -511,524 +441,402 @@ export function PreprocessingReviewPage({ schema, onOpenModelQuality }: { schema
     })
   }
 
-  const nextAction = (() => {
-    if (!selectedSession) {
-      if (schema?.project_id) return { label: busy === 'load-champion-model' ? 'Loading...' : championActive ? 'Reload champion model' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
-      return { label: 'Select a session', disabled: true, run: undefined as (() => void) | undefined }
-    }
-    if (!metadataApproved) return { label: busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata', disabled: !metadataDraft || Boolean(busy), run: approveMetadataDraft }
-    if (!preprocessingComplete) return { label: busy === 'preprocessing' ? 'Preprocessing...' : 'Run preprocessing', disabled: !canRunPreprocessing || Boolean(busy), run: () => runAction('preprocessing', async () => { setPreprocessingStatus(await startMiraiPreprocessing(selectedSession)) }) }
-    if (!preprocessingApproved) return { label: busy === 'approval' ? 'Approving...' : 'Approve preprocessing', disabled: Boolean(busy), run: () => runAction('approval', async () => { setReport(await approvePreprocessing(selectedSession, 'Approved from Preprocessing Review UI.')); await refreshSessionState(selectedSession) }) }
-    if (!mlPreprocessingStarted) return { label: busy === 'ml-preprocessing-draft' ? 'Drafting...' : 'Draft ML preprocessing plan', disabled: Boolean(busy), run: draftMLPreprocessingPlan }
-    if (!mlPreprocessingReady) return { label: busy === 'ml-preprocessing-apply' ? 'Applying...' : 'Apply ML preprocessing', disabled: Boolean(busy), run: applyMLPreprocessingPlan }
-    if (!trainingRequest) return { label: busy === 'training-request' ? 'Creating...' : 'Create training request', disabled: !recommendedTrainingReady || Boolean(busy), run: () => runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) }) }
-    if (!trainingCompleted) return { label: busy === 'training' ? 'Training...' : 'Start recommended training', disabled: Boolean(busy), run: () => runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) }) }
-    if (candidateReady || trainingCompleted) return { label: busy === 'load-champion-model' ? 'Loading...' : 'Load champion model', disabled: Boolean(busy), run: handleLoadChampionModel }
-    return { label: 'Open model quality', disabled: false, run: onOpenModelQuality }
-  })()
+  function openAskMirai(prompt: string) {
+    setContextualPrompt(prompt)
+    setActiveTab('ask-mirai')
+  }
+
+  function handlePrimaryAction() {
+    setActiveTab(viewModel.action.destination)
+    if (!viewModel.action.enabled || busy) return
+    if (viewModel.action.kind === 'run_preprocessing' && !preprocessingStatus.status.includes('failed') && !['queued', 'running'].includes(preprocessingStatus.status)) void runCanonicalPreprocessing()
+    if (viewModel.action.kind === 'draft_ml_plan') void draftMLPreprocessingPlan()
+    if (viewModel.action.kind === 'create_training_request') void createVersionedTrainingRequest()
+    if (viewModel.action.kind === 'load_champion') void handleLoadChampionModel()
+    if (viewModel.action.kind === 'open_model_quality') onOpenModelQuality?.()
+  }
 
   return (
-    <div className="space-y-6">
-      <LifecycleStepper steps={lifecycleSteps} />
+    <div className="min-w-0 space-y-5">
+      <PreparationHeader
+        sessions={sessions}
+        selectedSessionId={selectedSessionId}
+        onSessionChange={setSelectedSessionId}
+        onRefresh={() => void refreshSessionState(selectedSession)}
+        busy={Boolean(busy)}
+        modelRows={modelRows}
+        rejectedRows={rejectedRows}
+        inputCount={inputCount}
+        outputCount={outputCount}
+        viewModel={viewModel}
+        onPrimaryAction={handlePrimaryAction}
+      />
 
-      <SectionCard>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-[#74C7F5]">Lifecycle</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.055em] text-white">Prepare this project for training</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Confirm the metadata, run preprocessing, then start the recommended training path.</p>
-          </div>
-          <StatusPill tone={championActive ? 'green' : trainingCompleted ? 'amber' : actionTone(preprocessingStatus.status)}>{championActive ? 'champion loaded' : trainingCompleted ? 'ready to load champion' : preprocessingStatus.status || 'not started'}</StatusPill>
-        </div>
+      {error && <div role="alert" className="bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</div>}
+      <PreparationTabs activeTab={activeTab} onChange={setActiveTab} />
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-          <label className="text-sm font-semibold text-slate-300">
-            Session
-            <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} className="mt-2 w-full border-y border-slate-400/[0.10] px-4 py-3 text-sm text-white outline-none focus:border-[#74C7F5]">
-              <option value="">No sessions found</option>
-              {sessions.map((session) => (
-                <option key={session.ingestion_session_id} value={session.ingestion_session_id}>{session.project_name} · {session.ingestion_session_id}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" onClick={() => refreshSessionState()} disabled={!selectedSession || Boolean(busy)} className="rounded-full border border-slate-200 bg-[#0B1220] px-4 py-3 text-sm font-semibold text-slate-300 disabled:opacity-45">Refresh</button>
-        </div>
+      <TabPanel tab="overview" activeTab={activeTab}>
+        <OverviewTab
+          session={selectedSession}
+          facts={facts}
+          modelRows={modelRows}
+          rejectedRows={rejectedRows}
+          inputCount={inputCount}
+          outputCount={outputCount}
+          validation={validation}
+          artifacts={artifacts}
+          viewModel={viewModel}
+          onPrimaryAction={handlePrimaryAction}
+          onNavigate={setActiveTab}
+          appendFiles={appendFiles}
+          onAppendFilesChange={setAppendFiles}
+          onAppendFiles={handleAppendFiles}
+          busy={busy}
+        />
+      </TabPanel>
 
-        {selectedSession && (
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Project</div><div className="mt-1 truncate font-semibold text-white">{selectedSession.project_name}</div></div>
-            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Files</div><div className="mt-1 font-semibold text-white">{selectedSession.files.length}</div></div>
-            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Columns</div><div className="mt-1 font-semibold text-white">{validation?.column_count ?? '—'}</div></div>
-            <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="text-xs font-bold tracking-normal text-slate-400">Rows</div><div className="mt-1 font-semibold text-white">{modelRows ?? 'Pending'}</div></div>
-          </div>
-        )}
+      <TabPanel tab="variables" activeTab={activeTab}>
+        <VariablesTab
+          metadataStatus={metadataStatus}
+          metadataApproved={metadataApproved}
+          editableVariables={editableVariableEntries}
+          provenanceVariables={provenanceVariableEntries}
+          inputVariables={inputVariables}
+          outputVariables={outputVariables}
+          selectedX={selectedX}
+          selectedY={selectedY}
+          onUpdateVariable={updateVariable}
+          onUpdateRecipe={updatePrimaryRecipe}
+          onSave={() => void saveMetadataDraft()}
+          onApprove={() => void approveMetadataDraft()}
+          onAsk={openAskMirai}
+          disabled={!selectedSession || Boolean(busy)}
+          busy={busy}
+        />
+      </TabPanel>
 
-        {projectOnlyChampionControls && (
-          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            <div className="font-semibold text-amber-900">No intake session is available in this deployment.</div>
-            <p className="mt-1 leading-6">The original preprocessing session is app-local runtime state, but this project can still use MLflow champion artifacts. Promote the intended version to <code>champion</code>, then load or reload the champion model here.</p>
-          </div>
-        )}
-      </SectionCard>
+      <TabPanel tab="preprocessing" activeTab={activeTab}>
+        <PreprocessingTab
+          selectedSession={selectedSession}
+          validation={validation}
+          preprocessingStatus={preprocessingStatus}
+          preprocessingComplete={preprocessingComplete}
+          preprocessingApproved={preprocessingApproved}
+          canRunPreprocessing={canRunPreprocessing}
+          modelRows={modelRows}
+          rejectedRows={rejectedRows}
+          edaSummary={edaSummary}
+          mlStatus={mlPreprocessingStatus}
+          mlReport={mlPreprocessingReport}
+          mlStarted={mlPreprocessingStarted}
+          mlReady={mlPreprocessingReady}
+          mlLog={mlPreprocessingLog}
+          busy={busy}
+          onRunCanonical={() => void runCanonicalPreprocessing()}
+          onApproveCanonical={() => void approveCanonicalPreprocessing()}
+          onOpenEda={() => void handleOpenYdataReport()}
+          onDraftPlan={() => void draftMLPreprocessingPlan()}
+          onApplyPlan={() => void applyMLPreprocessingPlan()}
+          onDownloadReport={() => void handleDownloadMLPreprocessingReport()}
+          onDownloadTable={() => void handleDownloadPreprocessedTable()}
+          onAsk={openAskMirai}
+        />
+      </TabPanel>
 
-      {error && <section className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</section>}
+      <TabPanel tab="training" activeTab={activeTab}>
+        <TrainingTab
+          selectedSession={selectedSession}
+          trainingRequest={trainingRequest}
+          trainingStatus={trainingStatus}
+          trainingConfig={trainingConfig}
+          setTrainingConfig={setTrainingConfig}
+          recommendedTrainingReady={recommendedTrainingReady}
+          canExportPackage={canExportApprovedPackage}
+          trainingCompleted={trainingCompleted}
+          championActive={championActive}
+          canLoadChampion={canUseProjectChampionLoader}
+          busy={busy}
+          exportMessage={exportMessage}
+          importMessage={importMessage}
+          mlflowImport={mlflowImport}
+          setMlflowImport={setMlflowImport}
+          expectedMlflowExperiment={expectedMlflowExperiment}
+          expectedRegisteredModel={expectedRegisteredModel}
+          onCreateRequest={() => void createVersionedTrainingRequest()}
+          onExportPackage={() => void handleExportApprovedPackage()}
+          onStartTraining={() => void startManagedTraining()}
+          onLoadChampion={() => void handleLoadChampionModel()}
+          onOpenModelQuality={onOpenModelQuality}
+          onAsk={openAskMirai}
+        />
+      </TabPanel>
 
-      <SectionCard>
-        <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
-          <div>
-            <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Next step</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{nextAction.label}</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              {projectOnlyChampionControls
-                ? 'No intake session is available here, so use the project-level MLflow champion loader to refresh serving state.'
-                : championActive
-                  ? 'Approved champion is active for serving, Model Quality, and Design Studio.'
-                  : candidateReady
-                    ? 'Training artifacts are ready. Promote the intended version to champion in MLflow, then load the champion model here.'
-                    : trainingCompleted
-                      ? 'Training artifacts are ready for review.'
-                  : !metadataApproved
-                    ? 'Review the variable summary, then approve metadata.'
-                    : !preprocessingComplete
-                      ? 'Generate the canonical model table and evidence.'
-                        : !preprocessingApproved
-                          ? 'Review evidence, then approve training readiness.'
-                          : !trainingRequest
-                            ? 'Use the recommended training configuration.'
-                            : 'Run the approved training request or import a completed local MLflow run.'}
-            </p>
-          </div>
-          <button type="button" disabled={nextAction.disabled} onClick={nextAction.run} className="h-fit rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
-            {nextAction.label}
-          </button>
-        </div>
-      </SectionCard>
-
-      {metadataDraft && (
-        <SectionCard className="bg-[#0B1220] border-[#74C7F5]/50">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Metadata</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Variable summary</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Confirm labels and roles before preprocessing. Internal IDs stay fixed for training.</p>
-            </div>
-            <StatusPill tone={metadataApproved ? 'green' : metadataStatus?.approval_status === 'draft' ? 'amber' : 'slate'}>{metadataStatus?.approval_status || 'needs review'}</StatusPill>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {metadataSummary.map(([label, value]) => (
-              <div key={label as string} className="border-t border-slate-400/[0.07] pt-4">
-                <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
-                <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{value}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <div className="border-t border-slate-400/[0.07] pt-4">
-              <div className="font-semibold text-white">Inputs</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {inputOrSweepVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-full bg-[#10203A] px-3 py-1 text-xs font-semibold text-slate-300">{variable.label || variable.name}</span>)}
-              </div>
-            </div>
-            <div className="border-t border-slate-400/[0.07] pt-4">
-              <div className="font-semibold text-white">Outputs</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {outputVariables.slice(0, 8).map((variable) => <span key={variable.name} className="rounded-md border border-slate-700 bg-[#0D1B2D] px-3 py-1 text-xs font-semibold text-slate-200">{variable.label || variable.name}</span>)}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            <DisclosurePanel title="Edit labels/details">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="text-sm font-semibold text-slate-300">
-                  X variable
-                  <select value={selectedX} onChange={(event) => updatePrimaryRecipe(event.target.value, selectedY)} disabled={!inputOrSweepVariables.length || !selectedY} className="mt-2 w-full border-y border-slate-400/[0.10] px-3 py-2 text-sm disabled:opacity-50">
-                    {inputOrSweepVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm font-semibold text-slate-300">
-                  Y variable
-                  <select value={selectedY} onChange={(event) => updatePrimaryRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full border-y border-slate-400/[0.10] px-3 py-2 text-sm disabled:opacity-50">
-                    {outputVariables.map((variable) => <option key={variable.name} value={variable.name}>{variableLabel(variable)} · {variable.role}</option>)}
-                  </select>
-                </label>
-              </div>
-              <div className="mt-4 overflow-x-auto border-y border-slate-400/[0.10]">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-[#0B1220] text-xs tracking-normal text-slate-500">
-                    <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {editableVariableEntries.map(({ variable, index }) => (
-                      <tr key={`${variable.name}-${index}`}>
-                        <td className="px-3 py-3 font-mono text-xs text-slate-300">{variable.variable_id || variable.name}</td>
-                        <td className="px-3 py-3 text-xs text-slate-300"><div className="font-medium text-slate-100">{variable.source_name || variable.name}</div></td>
-                        <td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => updateVariable(index, { label: event.target.value, ui_label: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
-                        <td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => updateVariable(index, { unit: event.target.value })} className="w-full rounded-xl border border-slate-200 px-3 py-2" /></td>
-                        <td className="px-3 py-3">
-                          <select value={variable.role} onChange={(event) => updateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="w-full rounded-xl border border-slate-200 px-3 py-2">
-                            <option value="input">input</option><option value="output">output</option><option value="group">group</option><option value="sweep">sweep</option><option value="time">time</option><option value="cycle">cycle</option><option value="sequence">sequence</option><option value="curve_axis">curve_axis</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                    {!editableVariableEntries.length && <tr><td colSpan={5} className="px-3 py-6 text-sm text-slate-500">No editable modeling variables were detected.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              {!!provenanceVariableEntries.length && (
-                <DisclosurePanel title={`Internal/provenance fields (${provenanceVariableEntries.length})`} defaultOpen={false}>
-                  <p className="text-sm leading-6 text-slate-300">These IDs, joins, split columns, and source metadata are kept read-only so they cannot accidentally become training inputs.</p>
-                  <div className="mt-3 max-h-80 overflow-auto border-y border-slate-400/[0.10]">
-                    <table className="min-w-full text-left text-xs">
-                      <thead className="bg-[#0D1B2D] tracking-normal text-slate-500">
-                        <tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Label</th><th className="px-3 py-3">Role</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {provenanceVariableEntries.map(({ variable, index }) => (
-                          <tr key={`${variable.name}-${index}`}>
-                            <td className="px-3 py-3 font-mono text-slate-300">{variable.variable_id || variable.name}</td>
-                            <td className="px-3 py-3 text-slate-300">{variable.source_name || variable.name}</td>
-                            <td className="px-3 py-3 text-slate-300">{variable.label || '—'}</td>
-                            <td className="px-3 py-3 text-slate-500">{variable.role}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </DisclosurePanel>
-              )}
-              <div className="mt-4 flex flex-wrap justify-end gap-3">
-                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={saveMetadataDraft} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-sm font-semibold text-slate-300 disabled:opacity-45">{busy === 'metadata-save' ? 'Saving...' : 'Save draft'}</button>
-                <button type="button" disabled={!selectedSession || Boolean(busy)} onClick={approveMetadataDraft} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving...' : 'Approve metadata'}</button>
-              </div>
-            </DisclosurePanel>
-          </div>
-        </SectionCard>
-      )}
-
-      {preprocessingComplete && (
-        <SectionCard>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Evidence</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Preprocessing results</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Canonical data is ready for review.</p>
-            </div>
-            <StatusPill tone={edaSummary ? 'green' : 'amber'}>{edaSummary ? 'ready' : 'loading'}</StatusPill>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            {[
-              ['Model rows', edaSummary?.summary.model_rows ?? modelRows],
-              ['Rejected rows', edaSummary?.summary.rejected_rows?.count ?? rowCounts['rejected_rows.csv']],
-              ['Inputs', validation?.input_count],
-              ['Outputs', validation?.output_count],
-            ].map(([label, value]) => (
-              <div key={label as string} className="border-t border-slate-400/[0.07] pt-4">
-                <div className="text-xs font-bold tracking-normal text-slate-400">{label}</div>
-                <div className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">{formatNumber(value, 0)}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <DistributionTable title="Input ranges" rows={edaSummary?.summary.input_distributions} />
-            <DistributionTable title="Output ranges" rows={edaSummary?.summary.output_distributions} />
-          </div>
-
-          {!!edaSummary?.summary.leakage_warnings?.length && (
-            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <h3 className="font-semibold text-amber-900">Review warnings</h3>
-              <ul className="mt-2 list-disc pl-5 text-sm leading-6 text-amber-800">
-                {edaSummary.summary.leakage_warnings.map((warning) => <li key={warning}>{warning}</li>)}
-              </ul>
-            </div>
-          )}
-
-          <div className="mt-5 space-y-3">
-            <DisclosurePanel title="Diagnostics and artifact links">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="border-t border-slate-400/[0.07] pt-4">
-                  <h3 className="font-semibold text-white">Split plan</h3>
-                  <p className="mt-1 text-sm text-slate-300">{edaSummary?.summary.split_strategy ?? 'See split artifact after refresh'} · BO policy: {edaSummary?.summary.bo_policy ?? 'train + validation; test untouched'}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    {Object.entries(edaSummary?.summary.split_counts ?? {}).map(([split, count]) => <div key={split} className="border-l border-slate-400/[0.10] px-3 py-2"><span className="font-semibold text-white">{split}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
-                  </div>
-                </div>
-                <div className="border-t border-slate-400/[0.07] pt-4">
-                  <h3 className="font-semibold text-white">Rejected-row reasons</h3>
-                  <div className="mt-3 space-y-2 text-sm">
-                    {Object.entries(edaSummary?.summary.rejected_rows?.reasons ?? {}).map(([reason, count]) => <div key={reason} className="border-l border-slate-400/[0.10] px-3 py-2"><span className="font-semibold text-white">{reason}</span><span className="float-right text-slate-300">{formatNumber(count, 0)}</span></div>)}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 border-t border-slate-400/[0.07] pt-4 text-xs text-slate-300">
-                {selectedSession && <button type="button" onClick={handleOpenYdataReport} disabled={busy === 'open-ydata-report'} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-50">{busy === 'open-ydata-report' ? 'Opening HTML EDA…' : 'Open HTML EDA ↗'}</button>}
-                <div className="mt-3 break-all">EDA JSON: {edaSummary?.artifacts.eda_report_json ?? 'available after refresh'}</div>
-                <div className="break-all">Split JSON: {edaSummary?.artifacts.split_report_json ?? 'available after refresh'}</div>
-                <div className="break-all">Preprocessing report: {edaSummary?.artifacts.preprocessing_report_json ?? preprocessingStatus.report_path ?? 'available after refresh'}</div>
-              </div>
-            </DisclosurePanel>
-          </div>
-        </SectionCard>
-      )}
-
-      {preprocessingApproved && (
-        <SectionCard>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold tracking-normal text-[#74C7F5]">ML preprocessing</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Training-ready model table</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Start the deterministic ML preprocessing lifecycle. Mirai uses EDA evidence to draft a typed tool plan, fits tool parameters on train rows only, and writes the actual model_table_preprocessed.csv used for training.</p>
-            </div>
-            <StatusPill tone={mlPreprocessingReady ? 'green' : mlPreprocessingStarted ? 'amber' : 'slate'}>{mlPreprocessingReady ? 'ready' : mlPreprocessingStarted ? 'in review' : 'not started'}</StatusPill>
-          </div>
-          <div className="mt-5 border-t border-slate-400/[0.07] pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="max-w-2xl text-sm leading-6 text-slate-300">
-                <div className="font-semibold text-white">{mlPreprocessingReady ? 'Preprocessing ready — this is what we did' : mlPreprocessingStarted ? 'Review ML preprocessing plan before applying' : 'Draft ML preprocessing plan'}</div>
-                <p className="mt-1">{mlPreprocessingReport?.summary ?? mlPreprocessingStatus.summary ?? 'Canonical data remains untouched; training will use the approved ML preprocessing version.'}</p>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {!mlPreprocessingStarted && <button type="button" onClick={draftMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft plan'}</button>}
-                {mlPreprocessingStarted && !mlPreprocessingReady && <button type="button" onClick={applyMLPreprocessingPlan} disabled={!selectedSession || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply'}</button>}
-                {mlPreprocessingStarted && <button type="button" onClick={handleDownloadMLPreprocessingReport} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-slate-300 disabled:opacity-45">Human report</button>}
-                {mlPreprocessingReady && <button type="button" onClick={handleDownloadPreprocessedTable} disabled={Boolean(busy)} className="rounded-full border border-slate-300 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-slate-300 disabled:opacity-45">Download CSV for inspection</button>}
-              </div>
-            </div>
-            {(mlPreprocessingLog.length > 0 || mlPreprocessingNeedsApproval || mlPreprocessingReady) && (
-              <div className="mt-4 rounded-lg border border-slate-200 bg-[#0f172a] p-4 font-mono text-xs leading-6 text-slate-100">
-                {(mlPreprocessingLog.length ? mlPreprocessingLog : [String(mlPreprocessingStatus.status)]).map((line, index) => <div key={`${line}-${index}`}>› {line}</div>)}
-              </div>
-            )}
-            {!!mlPreprocessingReport?.export_files?.length && (
-              <div className="mt-4 space-y-2 text-xs text-slate-300">
-                <p className="font-semibold text-slate-300">Standalone artifacts are for review. Local training requires the approved training package in the Training section.</p>
-                <div className="flex flex-wrap gap-2">
-                  {mlPreprocessingReport.export_files.map((name) => <span key={name} className="rounded-full bg-[#0B1220] px-3 py-1 font-semibold">{name}</span>)}
-                </div>
-              </div>
-            )}
-            <div className="mt-5 overflow-hidden border-y border-slate-400/[0.12]">
-              <div className="border-b border-slate-400/[0.08] bg-[linear-gradient(90deg,rgba(139,92,246,0.10),rgba(91,168,255,0.045))] px-5 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#8B5CF6]/20 text-[#A78BFA]">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#A78BFA]" />
-                    </div>
-                    <div>
-                      <p className="font-mono text-xs font-bold tracking-normal text-[#A78BFA]">ML preprocessing agent</p>
-                      <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-[#F3F7FF]">Ask about preprocessing choices</h3>
-                      <p className="mt-1 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Discuss the draft or completed preprocessing before/after applying it. The agent reads scoped ML preprocessing artifacts, not cross-workspace files or raw storage paths.</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void askMLPreprocessingAgent('Explain what happened during ML preprocessing and list the exported files.')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-slate-400/[0.10] bg-[#101A2C]/60 px-3 py-2 text-xs font-semibold text-[#D7DEEA] transition hover:border-[#5BA8FF]/30 hover:bg-[#121F35]/90 hover:text-[#F3F7FF] disabled:opacity-45">What happened?</button>
-                    <button type="button" onClick={() => void askMLPreprocessingAgent('x7 looks binary. Why was it not one-hot encoded? Should we change that before training?')} disabled={!selectedSession || Boolean(busy)} className="rounded-lg border border-[#5BA8FF]/35 bg-[#5BA8FF]/[0.11] px-3 py-2 text-xs font-semibold text-[#F3F7FF] transition hover:border-[#5BA8FF]/45 disabled:opacity-45">Ask about x7</button>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`grid gap-0 transition-[grid-template-columns] duration-200 ${mlAgentScopeCollapsed ? 'lg:grid-cols-[minmax(0,1fr)_2.75rem]' : 'lg:grid-cols-[minmax(0,1fr)_16rem]'}`}>
-                <div className="flex min-h-[20rem] flex-col">
-                  <div className="max-h-80 flex-1 space-y-4 overflow-y-auto px-5 py-5">
-                    {mlPreprocessingChat.length === 0 ? (
-                      <div className="border-y border-slate-400/[0.12] bg-[#101A2C]/65 py-6 text-center">
-                        <p className="text-sm font-semibold text-[#F3F7FF]">Ask before approving/running, or after completion to explain the report.</p>
-                        <p className="mt-2 text-xs leading-5 text-[#AAB6C8]">Answers remain project-scoped and grounded in preprocessing artifacts.</p>
-                      </div>
-                    ) : mlPreprocessingChat.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'border border-[#5BA8FF]/32 bg-[#5BA8FF]/[0.11] text-[#F3F7FF]' : 'border border-slate-400/[0.14] bg-[#101A2C]/90 text-[#D7DEEA]'}`}>
-                          {message.role === 'assistant' && <div className="mb-2 inline-flex rounded-full border border-[#D9C27E]/20 bg-[#D9C27E]/10 px-3 py-1 font-mono text-[0.65rem] font-bold tracking-normal text-[#D8C98F]">Cited from preprocessing</div>}
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {busy === 'ml-preprocessing-chat' && <div className="border-l border-slate-400/[0.10] pl-4 text-sm text-slate-300">Checking scoped ML preprocessing artifacts…</div>}
-                  </div>
-
-                  <form onSubmit={(event) => { event.preventDefault(); void askMLPreprocessingAgent() }} className="border-t border-slate-400/[0.12] bg-[#0B1220] p-4">
-                    <div className="flex flex-col gap-3 rounded-lg border border-slate-400/[0.16] bg-[#0B1220] p-3 sm:flex-row sm:items-center">
-                      <input value={mlPreprocessingQuestion} onChange={(event) => setMLPreprocessingQuestion(event.target.value)} maxLength={1200} placeholder="Ask about tool choices, one-hot encoding, leakage, or exports…" className="min-h-11 flex-1 rounded-md border border-slate-400/[0.18] bg-[#050914] px-3 text-sm text-[#F3F7FF] outline-none placeholder:text-[#6F7A90] focus:border-[#5BA8FF]/40 focus:ring-0" />
-                      <span className="hidden text-xs font-semibold tracking-normal text-[#63D69A] sm:inline"><span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#63D69A]" />Ready</span>
-                      <button type="submit" disabled={!selectedSession || Boolean(busy) || !mlPreprocessingQuestion.trim()} className="rounded-md bg-[#2563EB] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#3478FF] disabled:opacity-45">Ask</button>
-                    </div>
-                  </form>
-                </div>
-
-                <aside className={`border-t border-slate-400/[0.07] bg-[#0B1220] ${mlAgentScopeCollapsed ? 'flex items-center justify-center p-3' : 'p-5'} lg:border-l-0 lg:border-t-0`}>
-                  {mlAgentScopeCollapsed ? (
-                    <button type="button" onClick={() => setMLAgentScopeCollapsed(false)} className="inline-flex h-full min-h-40 flex-col items-center justify-center gap-3 rounded-md text-[#9FB0C8] transition hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label="Show agent scope" title="Show agent scope">
-                      <span className="text-sm font-semibold">‹</span>
-                      <span className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] [writing-mode:vertical-rl]">Scope</span>
-                    </button>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-mono text-xs font-bold tracking-normal text-[#7E8AA0]">Agent scope</p>
-                        <button type="button" onClick={() => setMLAgentScopeCollapsed(true)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-400/[0.12] text-sm font-semibold text-[#9FB0C8] transition hover:border-[#5BA8FF]/30 hover:bg-[#5BA8FF]/10 hover:text-[#F3F7FF]" aria-label="Hide agent scope" title="Hide scope">›</button>
-                      </div>
-                      <div className="mt-4 space-y-3">
-                        <div className="rounded-lg border border-[#8B5CF6]/20 bg-[#8B5CF6]/[0.11] px-3 py-3 text-xs font-medium text-[#B89CFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#8B5CF6]/70" />Project-scoped</div>
-                        <div className="rounded-lg border border-[#5BA8FF]/20 bg-[#5BA8FF]/10 px-3 py-3 text-xs font-medium text-[#8FCBFF]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#5BA8FF]/75" />Read-only tools</div>
-                        <div className="rounded-lg border border-[#D9C27E]/20 bg-[#D9C27E]/10 px-3 py-3 text-xs font-medium text-[#D8C98F]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#D9C27E]/75" />No raw paths</div>
-                      </div>
-                    </>
-                  )}
-                </aside>
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      )}
-
-      <SectionCard>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold tracking-normal text-[#74C7F5]">Training</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Recommended training</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Use the default Mirai training path unless this project needs a custom sweep.</p>
-          </div>
-          <StatusPill tone={championActive ? 'green' : trainingRequest ? 'amber' : preprocessingApproved ? 'slate' : 'slate'}>{championActive ? 'champion loaded' : trainingCompleted ? 'ready to load champion' : trainingRequest ? 'request ready' : 'not started'}</StatusPill>
-        </div>
-
-        <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">1. Create training request</span><StatusPill tone={trainingRequest ? 'green' : mlPreprocessingReady ? 'amber' : 'slate'}>{trainingRequest ? 'ready' : mlPreprocessingReady ? 'available' : 'waiting'}</StatusPill></div>
-                <p className="mt-1 leading-6">Locks the approved preprocessing state to a versioned training request. This is required before downloading the full local-training package.</p>
-                {trainingRequest && <p className="mt-2 text-[#BDEAFF]">Request: <span className="font-mono">{trainingRequest.training_request_id}</span> · {trainingRequest.model_families.join(', ')}</p>}
-                {!mlPreprocessingReady && <p className="mt-2 text-slate-500">Complete ML preprocessing first so training uses <code>model_table_preprocessed.csv</code>.</p>}
-              </div>
-              <button type="button" onClick={() => selectedSession && runAction('training-request', async () => { const request = await createTrainingRequest(selectedSession, trainingConfig); setTrainingRequest(request); setTrainingStatus(await getTrainingStatus(selectedSession, request.training_request_id)) })} disabled={!recommendedTrainingReady || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
-                {busy === 'training-request' ? 'Creating...' : trainingRequest ? 'Request created' : 'Create request'}
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Download approved training package</span><StatusPill tone={canExportApprovedPackage ? 'green' : 'slate'}>{canExportApprovedPackage ? 'ready' : 'locked'}</StatusPill></div>
-                <p className="mt-1 leading-6">Use this package for local or on-premise training while logging remotely. It includes <code>training_manifest.json</code>, schema, ML preprocessing artifacts, and the actual <code>model_table_preprocessed.csv</code>.</p>
-                <p className="mt-2 font-semibold leading-6">Do not train from the standalone CSV alone. The manifest prevents logging into the wrong MLflow experiment.</p>
-                {exportMessage && <p className="mt-2 text-[#BDEAFF]">{exportMessage}</p>}
-              </div>
-              <button type="button" onClick={handleExportApprovedPackage} disabled={!canExportApprovedPackage || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-xs font-bold tracking-normal text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">
-                {busy === 'export-package' ? 'Exporting...' : 'Download package'}
-              </button>
-            </div>
-          </div>
-
-          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">3. Optional in-app training</span><StatusPill tone={trainingCompleted ? 'green' : trainingRequest ? 'amber' : 'slate'}>{trainingCompleted ? 'done' : trainingRequest ? 'available' : 'waiting'}</StatusPill></div>
-                <p className="mt-1 leading-6">Run Mirai’s managed training path from the approved request. For local remote-MLflow training, download the package instead and run the local command.</p>
-              </div>
-              <button type="button" onClick={() => selectedSession && trainingRequest && runAction('training', async () => { setTrainingStatus(await startTrainingRequest(selectedSession, trainingRequest.training_request_id)) })} disabled={!trainingRequest || trainingCompleted || Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-white disabled:opacity-45">
-                {busy === 'training' ? 'Training...' : trainingCompleted ? 'Training complete' : 'Start in-app training'}
-              </button>
-            </div>
-          </div>
-
-          <div className="border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">4. Load promoted MLflow champion</span><StatusPill tone={championActive ? 'green' : canUseProjectChampionLoader ? 'amber' : 'slate'}>{championActive ? 'active' : canUseProjectChampionLoader ? 'available' : 'waiting'}</StatusPill></div>
-                <p className="mt-1 leading-6">Expected MLflow experiment: <code>{expectedMlflowExperiment}</code>. Registered model: <code>{expectedRegisteredModel}</code>. Promote the approved version to <code>champion</code>, then load it here.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {canUseProjectChampionLoader && (
-          <div className="mt-4 border-t border-slate-400/[0.07] pt-4 text-sm text-slate-300">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-white">Load champion model</span><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold tracking-normal text-amber-800">App dev step</span></div>
-                <p className="mt-1 leading-6">After local or on-prem training, promote the approved MLflow model version to <code>champion</code>, then load it here. Mirai verifies identity, required artifacts, ONNX serving, and activates the champion in one step. This project-level loader is available even when the current browser session does not have a Mirai training request cached.</p>
-                <p className="mt-1 text-xs font-semibold tracking-normal text-slate-500">Optional fields must match the current MLflow champion for this project.</p>
-                {importMessage && <p className="mt-2 text-[#74C7F5]">{importMessage}</p>}
-              </div>
-              <div className="grid w-full gap-3 lg:w-[30rem]">
-                <input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="Champion MLflow run ID optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Champion version optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
-                  <input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name optional" className="rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[#74C7F5]" />
-                </div>
-                <button type="button" onClick={handleLoadChampionModel} disabled={Boolean(busy)} className="rounded-full border border-slate-950 bg-[#0B1220] px-5 py-3 text-xs font-bold tracking-normal text-white disabled:opacity-45">
-                  {busy === 'load-champion-model' ? 'Loading...' : 'Load champion model'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {championActive && (
-          <div className="mt-4 rounded-lg border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
-            <div className="font-semibold">Approved champion active</div>
-            <div className="mt-1">Champion model: {String((trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
-          </div>
-        )}
-        {trainingCompleted && !candidateReady && !championActive && (
-          <div className="mt-4 rounded-lg border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm text-[#BDEAFF]">
-            <div className="font-semibold">Training completed</div>
-            <div className="mt-1">Best model: {String((trainingStatus?.result as Record<string, unknown> | undefined)?.best_model_name ?? (trainingStatus?.mlflow as Record<string, unknown> | undefined)?.model_name ?? '—')}</div>
-          </div>
-        )}
-
-        <div className="mt-5">
-          <DisclosurePanel title="Advanced settings">
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="text-sm font-semibold text-slate-300">Search mode<select value={trainingConfig.search.mode} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, mode: event.target.value } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"><option value="single_config">single_config</option><option value="small_sweep_1h">small_sweep_1h</option><option value="balanced_sweep_2h">balanced_sweep_2h</option></select></label>
-              <label className="text-sm font-semibold text-slate-300">Budget minutes<input type="number" value={trainingConfig.search.wall_clock_budget_minutes} onChange={(event) => setTrainingConfig((current) => ({ ...current, search: { ...current.search, wall_clock_budget_minutes: Number(event.target.value) || 60 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-              <label className="text-sm font-semibold text-slate-300">Seeds<input value={trainingConfig.mlp.seeds.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-            </div>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="border-t border-slate-400/[0.07] pt-4">
-                <h3 className="font-semibold text-white">Linear baselines</h3>
-                <div className="mt-3 grid gap-3">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-300"><input type="checkbox" checked={trainingConfig.linear.include_mvlr} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include MVLR</label>
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-300"><input type="checkbox" checked={trainingConfig.linear.include_ridge} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, include_ridge: event.target.checked } }))} /> Include Ridge</label>
-                  <label className="text-sm font-semibold text-slate-300">Ridge alphas<input value={trainingConfig.linear.ridge_alphas.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-                </div>
-              </div>
-              <div className="border-t border-slate-400/[0.07] pt-4">
-                <h3 className="font-semibold text-white">MLP</h3>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="text-sm font-semibold text-slate-300">Architecture<select value={trainingConfig.mlp.architecture_family} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2"><option value="plain_mlp">plain_mlp</option><option value="shared_trunk_multi_head">shared_trunk_multi_head</option></select></label>
-                  <label className="text-sm font-semibold text-slate-300">Hidden layers<input value={trainingConfig.mlp.hidden_layers.join(',')} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map((value) => Math.round(value)) } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-                  <label className="text-sm font-semibold text-slate-300">Learning rate<input type="number" step="0.0001" value={trainingConfig.mlp.learning_rate} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-                  <label className="text-sm font-semibold text-slate-300">Max epochs<input type="number" value={trainingConfig.mlp.max_epochs} onChange={(event) => setTrainingConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2" /></label>
-                </div>
-              </div>
-            </div>
-          </DisclosurePanel>
-        </div>
-      </SectionCard>
-
-      <div className="space-y-3">
-        <DisclosurePanel title="Session tools">
-          {selectedSession ? (
-            <div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Project ID</div><div className="mt-1 break-all text-slate-300">{selectedSession.project_id}</div></div>
-                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Dataset</div><div className="mt-1 break-all text-slate-300">{selectedSession.dataset_id}</div></div>
-                <div className="border-t border-slate-400/[0.07] pt-4 text-sm"><div className="font-semibold text-white">Session</div><div className="mt-1 break-all text-slate-300">{selectedSession.ingestion_session_id}</div></div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <input type="file" multiple onChange={(event) => setAppendFiles(Array.from(event.target.files ?? []))} className="min-w-[18rem] flex-1 border-y border-slate-400/[0.10] px-4 py-3 text-sm text-slate-300" />
-                <button type="button" onClick={handleAppendFiles} disabled={!appendFiles.length || Boolean(busy)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-950/20 disabled:opacity-45">{busy === 'append-files' ? 'Appending...' : 'Append files'}</button>
-              </div>
-            </div>
-          ) : <div className="text-sm text-slate-500">Select a session first.</div>}
-        </DisclosurePanel>
-      </div>
+      <TabPanel tab="ask-mirai" activeTab={activeTab}>
+        {schema ? <AskMiraiWorkspace projectId={schema.project_id} projectName={schema.display_name} session={selectedSession} facts={facts} usableRows={modelRows} inputCount={inputCount} outputCount={outputCount} artifacts={artifacts} variableLabels={editableVariableEntries.map(({ variable }) => variable.label || variable.name)} contextualPrompt={contextualPrompt} onNavigate={setActiveTab} /> : <EmptyState title="Project context unavailable" description="Select a project before asking Mirai about preparation evidence." />}
+      </TabPanel>
     </div>
   )
 }
+
+function PreparationHeader({ sessions, selectedSessionId, onSessionChange, onRefresh, busy, modelRows, rejectedRows, inputCount, outputCount, viewModel, onPrimaryAction }: {
+  sessions: IngestionSessionResponse[]
+  selectedSessionId: string
+  onSessionChange: (value: string) => void
+  onRefresh: () => void
+  busy: boolean
+  modelRows: number | null
+  rejectedRows: number | null
+  inputCount: number
+  outputCount: number
+  viewModel: ReturnType<typeof derivePreparationViewModel>
+  onPrimaryAction: () => void
+}) {
+  return (
+    <header className="border-b border-white/[0.10] pb-5">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-semibold tracking-[-0.045em] text-white">Prepare for training</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#B8C2D4]">Review the dataset, approve preprocessing decisions, and create a reproducible training package.</p>
+          <p className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-sm text-[#9FB0C8]">
+            <span>{modelRows === null ? 'Usable rows pending' : `${modelRows.toLocaleString()} usable rows`}</span><span>·</span>
+            <span>{inputCount} inputs</span><span>·</span><span>{outputCount} outputs</span><span>·</span>
+            <span>{rejectedRows === null ? 'Rejected rows pending' : rejectedRows === 0 ? 'No rejected rows' : `${rejectedRows.toLocaleString()} rejected rows`}</span>
+          </p>
+        </div>
+        <div className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:w-[34rem]">
+          <label className="min-w-0 text-xs font-medium text-[#9FB0C8]">Dataset session
+            <select value={selectedSessionId} onChange={(event) => onSessionChange(event.target.value)} className="mt-1.5 w-full min-w-0 truncate rounded-md border border-white/[0.10] bg-[#050914] px-3 py-2 text-sm text-white">
+              <option value="">No sessions found</option>
+              {sessions.map((session) => <option key={session.ingestion_session_id} value={session.ingestion_session_id}>{session.project_name} · {session.dataset_id}</option>)}
+            </select>
+          </label>
+          <button type="button" onClick={onRefresh} disabled={!selectedSessionId || busy} className="self-end rounded-md border border-white/[0.12] px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.05] disabled:opacity-45">Refresh</button>
+        </div>
+      </div>
+      <div className="mt-5 flex flex-col gap-4 rounded-lg border border-white/[0.10] bg-[#0B1424]/75 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><div className="flex items-center gap-2"><StatusBadge tone={viewModel.tone}>{viewModel.displayStatus}</StatusBadge></div><p className="mt-2 text-sm leading-6 text-[#B8C2D4]">{viewModel.explanation}</p></div>
+        <button type="button" onClick={onPrimaryAction} disabled={!viewModel.action.enabled || busy} className="shrink-0 rounded-md bg-[#2F6BFF] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#4C7DFF] disabled:cursor-not-allowed disabled:opacity-45">{viewModel.action.label}</button>
+      </div>
+    </header>
+  )
+}
+
+function TabPanel({ tab, activeTab, children }: { tab: PreparationTab; activeTab: PreparationTab; children: ReactNode }) {
+  return <section id={`preparation-panel-${tab}`} role="tabpanel" aria-labelledby={`preparation-tab-${tab}`} hidden={activeTab !== tab} tabIndex={0}>{children}</section>
+}
+
+function OverviewTab({ session, facts, modelRows, rejectedRows, inputCount, outputCount, validation, artifacts, viewModel, onPrimaryAction, onNavigate, appendFiles, onAppendFilesChange, onAppendFiles, busy }: {
+  session: IngestionSessionResponse | null
+  facts: PreparationFacts
+  modelRows: number | null
+  rejectedRows: number | null
+  inputCount: number
+  outputCount: number
+  validation: MiraiContractValidation | null
+  artifacts: string[]
+  viewModel: ReturnType<typeof derivePreparationViewModel>
+  onPrimaryAction: () => void
+  onNavigate: (tab: PreparationTab) => void
+  appendFiles: File[]
+  onAppendFilesChange: (files: File[]) => void
+  onAppendFiles: () => Promise<void>
+  busy: string | null
+}) {
+  const steps = [
+    { label: 'Variables reviewed', done: facts.metadataApproved },
+    { label: 'Dataset validated', done: facts.preprocessingApproved },
+    { label: 'Training-ready dataset', done: facts.mlPreprocessingReady },
+    { label: 'Training request', done: facts.hasTrainingRequest },
+    { label: 'Champion active', done: facts.championActive },
+  ]
+  return (
+    <div className="space-y-7 py-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <section>
+          <h2 className="text-xl font-semibold text-white">Project readiness</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Mirai turns validated engineering data into a reproducible, approved training asset. Each stage stays reviewable before training begins.</p>
+          <ol className="mt-6 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">{steps.map((step, index) => <li key={step.label} className={`rounded-md border px-3 py-3 text-xs font-semibold ${step.done ? 'border-emerald-400/20 bg-emerald-500/[0.07] text-emerald-100' : index === steps.findIndex((item) => !item.done) ? 'border-[#5BA8FF]/35 bg-[#5BA8FF]/10 text-white' : 'border-white/[0.08] text-[#8493AA]'}`}>{step.done ? '✓ ' : `${index + 1}. `}{step.label}</li>)}</ol>
+        </section>
+        <aside className="border-t border-white/[0.10] pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+          <p className="text-xs font-medium text-[#9FB0C8]">Recommended next step</p>
+          <p className="mt-2 text-lg font-semibold text-white">{viewModel.action.label}</p>
+          <p className="mt-2 text-sm leading-6 text-[#B8C2D4]">{viewModel.blocker ?? 'No blocking issue is currently reported.'}</p>
+          <button type="button" onClick={onPrimaryAction} disabled={!viewModel.action.enabled || Boolean(busy)} className="mt-4 rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{viewModel.action.label}</button>
+        </aside>
+      </div>
+
+      <section className="grid gap-x-6 gap-y-5 border-y border-white/[0.10] py-5 sm:grid-cols-2 xl:grid-cols-5">
+        <Metric label="Usable rows" value={modelRows === null ? 'Pending' : modelRows.toLocaleString()} />
+        <Metric label="Rejected rows" value={rejectedRows === null ? 'Pending' : rejectedRows.toLocaleString()} />
+        <Metric label="Inputs" value={String(inputCount)} />
+        <Metric label="Outputs" value={String(outputCount)} />
+        <Metric label="Contract" value={validation?.valid ? 'Valid' : validation ? 'Needs attention' : 'Pending'} />
+      </section>
+
+      <div className="grid gap-7 lg:grid-cols-2">
+        <section>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-white">Preparation record</h2><button type="button" onClick={() => onNavigate('preprocessing')} className="text-sm font-semibold text-[#8FCBFF]">View preprocessing</button></div>
+          <dl className="mt-4 divide-y divide-white/[0.08] text-sm"><SummaryRow label="Dataset session" value={session?.dataset_id ?? 'Not selected'} /><SummaryRow label="Variable metadata" value={facts.metadataApproved ? 'Approved' : 'Needs review'} /><SummaryRow label="Validated dataset" value={preparationStatusLabel(facts.preprocessingStatus)} /><SummaryRow label="Training-ready dataset" value={preparationStatusLabel(facts.mlPreprocessingStatus)} /><SummaryRow label="Training" value={preparationStatusLabel(facts.trainingStatus)} /></dl>
+        </section>
+        <section>
+          <h2 className="text-lg font-semibold text-white">Available artifacts</h2>
+          {artifacts.length ? <ul className="mt-4 divide-y divide-white/[0.08] text-sm text-[#B8C2D4]">{artifacts.slice(0, 6).map((artifact) => <li key={artifact} className="py-2.5"><span className="font-medium text-white">{artifactDisplayName(artifact)}</span><span className="mt-0.5 block truncate text-xs text-[#8493AA]" title={artifact}>{artifact}</span></li>)}</ul> : <p className="mt-4 text-sm text-[#9FB0C8]">Artifacts will appear after dataset preparation begins.</p>}
+        </section>
+      </div>
+
+      <DisclosurePanel title="Session tools">
+        {session ? <div><div className="grid gap-3 sm:grid-cols-3"><TechnicalValue label="Project ID" value={session.project_id} /><TechnicalValue label="Dataset ID" value={session.dataset_id} /><TechnicalValue label="Session ID" value={session.ingestion_session_id} /></div><div className="mt-4 flex flex-col gap-3 sm:flex-row"><input type="file" multiple onChange={(event) => onAppendFilesChange(Array.from(event.target.files ?? []))} className="min-w-0 flex-1 rounded-md border border-white/[0.10] px-3 py-2 text-sm" /><button type="button" onClick={() => void onAppendFiles()} disabled={!appendFiles.length || Boolean(busy)} className="rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'append-files' ? 'Appending…' : 'Append files'}</button></div></div> : <p>Select a session first.</p>}
+      </DisclosurePanel>
+    </div>
+  )
+}
+
+function VariablesTab({ metadataStatus, metadataApproved, editableVariables, provenanceVariables, inputVariables, outputVariables, selectedX, selectedY, onUpdateVariable, onUpdateRecipe, onSave, onApprove, onAsk, disabled, busy }: {
+  metadataStatus: DomainMetadataStatus | null
+  metadataApproved: boolean
+  editableVariables: Array<{ variable: VariableMetadata; index: number }>
+  provenanceVariables: Array<{ variable: VariableMetadata; index: number }>
+  inputVariables: Array<{ variable: VariableMetadata; index: number }>
+  outputVariables: Array<{ variable: VariableMetadata; index: number }>
+  selectedX: string
+  selectedY: string
+  onUpdateVariable: (index: number, patch: Partial<VariableMetadata>) => void
+  onUpdateRecipe: (x: string, y: string) => void
+  onSave: () => void
+  onApprove: () => void
+  onAsk: (prompt: string) => void
+  disabled: boolean
+  busy: string | null
+}) {
+  return (
+    <div className="space-y-6 py-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-xl font-semibold text-white">Variables</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Review variable roles, labels, and units before preprocessing. Internal identifiers remain stable throughout training.</p></div><StatusBadge tone={metadataApproved ? 'success' : 'warning'}>{metadataApproved ? 'Approved' : preparationStatusLabel(metadataStatus?.approval_status)}</StatusBadge></div>
+      <div className="grid gap-4 sm:grid-cols-3"><Metric label="Model inputs" value={String(inputVariables.length)} /><Metric label="Model outputs" value={String(outputVariables.length)} /><Metric label="Context/provenance" value={String(provenanceVariables.length)} /></div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="text-sm font-medium text-slate-200">Primary x-axis<select value={selectedX} onChange={(event) => onUpdateRecipe(event.target.value, selectedY)} disabled={!inputVariables.length || !selectedY} className="mt-2 w-full rounded-md border border-white/[0.10] bg-[#050914] px-3 py-2"><option value="">Select input</option>{inputVariables.map(({ variable }) => <option key={variable.name} value={variable.name}>{variable.label || variable.name}</option>)}</select></label>
+        <label className="text-sm font-medium text-slate-200">Primary y-axis<select value={selectedY} onChange={(event) => onUpdateRecipe(selectedX, event.target.value)} disabled={!outputVariables.length || !selectedX} className="mt-2 w-full rounded-md border border-white/[0.10] bg-[#050914] px-3 py-2"><option value="">Select output</option>{outputVariables.map(({ variable }) => <option key={variable.name} value={variable.name}>{variable.label || variable.name}</option>)}</select></label>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-white/[0.10]">
+        <table className="min-w-[760px] w-full text-left text-sm"><thead className="bg-white/[0.035] text-xs text-[#9FB0C8]"><tr><th className="px-3 py-3">Variable</th><th className="px-3 py-3">Display label</th><th className="px-3 py-3">Unit</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Context</th></tr></thead><tbody className="divide-y divide-white/[0.08]">{editableVariables.map(({ variable, index }) => <tr key={`${variable.name}-${index}`}><td className="px-3 py-3"><span className="block font-medium text-white">{variable.label || variable.name}</span><span className="mt-1 block font-mono text-xs text-[#8493AA]">{variable.source_name || variable.name}</span></td><td className="px-3 py-3"><input value={variable.label || ''} onChange={(event) => onUpdateVariable(index, { label: event.target.value, ui_label: event.target.value })} className="w-full rounded-md border border-white/[0.10] px-3 py-2" /></td><td className="px-3 py-3"><input value={variable.unit || ''} onChange={(event) => onUpdateVariable(index, { unit: event.target.value })} className="w-28 rounded-md border border-white/[0.10] px-3 py-2" /></td><td className="px-3 py-3"><select value={variable.role} onChange={(event) => onUpdateVariable(index, { role: event.target.value as VariableMetadata['role'] })} className="rounded-md border border-white/[0.10] px-3 py-2"><RoleOptions /></select></td><td className="px-3 py-3"><button type="button" onClick={() => onAsk(`Explain the role and preprocessing considerations for ${variable.label || variable.name}.`)} className="text-xs font-semibold text-[#8FCBFF]">Ask Mirai</button></td></tr>)}{!editableVariables.length && <tr><td colSpan={5} className="px-3 py-8 text-center text-[#9FB0C8]">No editable modeling variables were detected.</td></tr>}</tbody></table>
+      </div>
+      {!!provenanceVariables.length && <DisclosurePanel title={`Context and provenance fields (${provenanceVariables.length})`}><p className="mb-3 leading-6">These read-only IDs, joins, split columns, and source fields are excluded from editable model inputs.</p><div className="overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-[#9FB0C8]"><tr><th className="py-2 pr-4">Field</th><th className="py-2 pr-4">Source</th><th className="py-2 pr-4">Role</th></tr></thead><tbody className="divide-y divide-white/[0.08]">{provenanceVariables.map(({ variable }) => <tr key={variable.name}><td className="py-2 pr-4 font-medium text-white">{variable.label || variable.name}</td><td className="py-2 pr-4">{variable.source_name || variable.name}</td><td className="py-2 pr-4">{preparationStatusLabel(variable.role)}</td></tr>)}</tbody></table></div></DisclosurePanel>}
+      <div className="flex flex-wrap justify-end gap-3 border-t border-white/[0.10] pt-5"><button type="button" onClick={onSave} disabled={disabled} className="rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'metadata-save' ? 'Saving…' : 'Save draft'}</button><button type="button" onClick={onApprove} disabled={disabled} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'metadata-approval' ? 'Approving…' : 'Approve variables'}</button></div>
+    </div>
+  )
+}
+
+function PreprocessingTab({ selectedSession, validation, preprocessingStatus, preprocessingComplete, preprocessingApproved, canRunPreprocessing, modelRows, rejectedRows, edaSummary, mlStatus, mlReport, mlStarted, mlReady, mlLog, busy, onRunCanonical, onApproveCanonical, onOpenEda, onDraftPlan, onApplyPlan, onDownloadReport, onDownloadTable, onAsk }: {
+  selectedSession: IngestionSessionResponse | null
+  validation: MiraiContractValidation | null
+  preprocessingStatus: PreprocessingStatus
+  preprocessingComplete: boolean
+  preprocessingApproved: boolean
+  canRunPreprocessing: boolean
+  modelRows: number | null
+  rejectedRows: number | null
+  edaSummary: PreprocessingEdaSummary | null
+  mlStatus: MLPreprocessingStatus
+  mlReport: MLPreprocessingReport | null
+  mlStarted: boolean
+  mlReady: boolean
+  mlLog: string[]
+  busy: string | null
+  onRunCanonical: () => void
+  onApproveCanonical: () => void
+  onOpenEda: () => void
+  onDraftPlan: () => void
+  onApplyPlan: () => void
+  onDownloadReport: () => void
+  onDownloadTable: () => void
+  onAsk: (prompt: string) => void
+}) {
+  const warnings = [...(edaSummary?.summary.leakage_warnings ?? []), ...(mlReport?.warnings ?? []), ...(mlReport?.risks ?? [])]
+  const missingEntries = Object.entries(edaSummary?.summary.missingness ?? {}).filter(([, count]) => count > 0)
+  return (
+    <div className="space-y-8 py-6">
+      <div><h2 className="text-xl font-semibold text-white">Preprocessing</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Mirai uses the dataset analysis to recommend reproducible preprocessing steps, with parameters fitted on training rows only.</p></div>
+
+      <PreparationStage number={1} title="Validate and prepare the engineering dataset" status={preprocessingStatus.status} current={!preprocessingApproved}>
+        <p className="text-sm leading-6 text-[#B8C2D4]">Creates the canonical validated dataset, rejected-row record, split evidence, and analysis artifacts.</p>
+        {!preprocessingComplete && <div className="mt-4"><button type="button" onClick={onRunCanonical} disabled={!canRunPreprocessing || Boolean(busy)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'preprocessing' ? 'Preparing…' : ['queued', 'running'].includes(preprocessingStatus.status) ? 'Preparation in progress' : 'Run preprocessing'}</button>{validation?.errors?.length ? <ul className="mt-3 text-sm text-red-100">{validation.errors.map((item) => <li key={item}>{item}</li>)}</ul> : null}</div>}
+        {preprocessingComplete && <div className="mt-5 space-y-5"><div className="grid gap-4 sm:grid-cols-4"><Metric label="Usable rows" value={formatNumber(modelRows)} /><Metric label="Rejected rows" value={formatNumber(rejectedRows)} /><Metric label="Inputs" value={formatNumber(validation?.input_count)} /><Metric label="Outputs" value={formatNumber(validation?.output_count)} /></div><div className="grid gap-3 lg:grid-cols-2">{rejectedRows !== null && <DecisionStory finding={rejectedRows === 0 ? 'No rows were rejected.' : `${rejectedRows.toLocaleString()} rows were rejected.`} recommendation={rejectedRows === 0 ? 'Proceed with the validated row set.' : 'Review rejection reasons before approval.'} effect="Approval confirms which rows are eligible for downstream preparation." safeguard={edaSummary?.summary.split_strategy ? `Split strategy: ${edaSummary.summary.split_strategy}` : 'Split evidence is available in technical details.'} />}{missingEntries.length > 0 && <DecisionStory finding={`${missingEntries.length} variables contain missing values.`} recommendation="Review the model-preparation plan for the proposed handling." effect="Only approved, reproducible handling is applied to the training-ready dataset." safeguard="Fitted preprocessing parameters use training rows only." />}</div>{warnings.length > 0 && <div className="bg-amber-500/10 px-3 py-3 text-sm text-amber-100"><p className="font-semibold">Items requiring attention</p><ul className="mt-2 list-disc space-y-1 pl-5">{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}<div className="flex flex-wrap gap-3">{!preprocessingApproved && <button type="button" onClick={onApproveCanonical} disabled={Boolean(busy)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'approval' ? 'Approving…' : 'Approve validated dataset'}</button>}<button type="button" onClick={onOpenEda} disabled={!selectedSession || Boolean(busy)} className="rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'open-ydata-report' ? 'Opening…' : 'Open analysis report'}</button><button type="button" onClick={() => onAsk(rejectedRows ? 'Why were rows rejected, and what evidence supports those decisions?' : 'Summarize the dataset analysis and leakage safeguards.')} className="rounded-md px-4 py-2 text-sm font-semibold text-[#8FCBFF]">Ask Mirai</button></div><TechnicalDetails><TechnicalGrid eda={edaSummary} status={preprocessingStatus} /></TechnicalDetails></div>}
+      </PreparationStage>
+
+      <PreparationStage number={2} title="Create the training-ready dataset" status={mlStatus.status} current={preprocessingApproved && !mlReady} locked={!preprocessingApproved}>
+        {!preprocessingApproved ? <p className="text-sm text-[#9FB0C8]">Approve the validated dataset before drafting model-preparation recommendations.</p> : <><p className="text-sm leading-6 text-[#B8C2D4]">{mlReport?.summary ?? mlStatus.summary ?? 'Draft a reproducible preprocessing plan from the approved dataset evidence.'}</p><div className="mt-4 flex flex-wrap gap-3">{!mlStarted && <button type="button" onClick={onDraftPlan} disabled={Boolean(busy)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'ml-preprocessing-draft' ? 'Drafting…' : 'Draft preprocessing plan'}</button>}{mlStarted && !mlReady && <button type="button" onClick={onApplyPlan} disabled={Boolean(busy)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'ml-preprocessing-apply' ? 'Applying…' : 'Approve & apply plan'}</button>}{mlStarted && <button type="button" onClick={onDownloadReport} disabled={Boolean(busy)} className="rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'download-ml-preprocessed-report' ? 'Downloading…' : 'Download plan report'}</button>}{mlReady && <button type="button" onClick={onDownloadTable} disabled={Boolean(busy)} className="rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'download-ml-preprocessed-table' ? 'Downloading…' : 'Download training-ready dataset'}</button>}<button type="button" onClick={() => onAsk(mlReady ? 'Compare the validated and training-ready datasets.' : 'Explain the proposed preprocessing plan and its leakage safeguards.')} className="rounded-md px-4 py-2 text-sm font-semibold text-[#8FCBFF]">Ask Mirai</button></div>{mlStarted && <div className="mt-5 grid gap-3 lg:grid-cols-2"><DecisionStory finding={mlReport?.summary ?? preparationStatusLabel(mlStatus.status)} recommendation={mlReady ? 'Use the approved training-ready dataset for versioned training.' : 'Review and approve the deterministic plan.'} effect={mlReady ? 'The training asset is reproducible from its approved plan and fitted parameters.' : 'Applying the plan creates the dataset used by training.'} safeguard="Parameters are fitted on training rows, then applied without refitting to validation and test rows." approval={preparationStatusLabel(mlStatus.status)} /></div>}{mlLog.length > 0 && <TechnicalDetails><ul className="space-y-1 font-mono text-xs">{mlLog.map((line, index) => <li key={`${line}-${index}`}>› {line}</li>)}</ul>{mlReport?.export_files?.length ? <div className="mt-4"><p className="font-semibold text-white">Generated artifacts</p><ul className="mt-2 space-y-1">{mlReport.export_files.map((file) => <li key={file}>{artifactDisplayName(file)} <span className="text-[#8493AA]">({file})</span></li>)}</ul></div> : null}</TechnicalDetails>}</>}
+      </PreparationStage>
+    </div>
+  )
+}
+
+function TrainingTab({ selectedSession, trainingRequest, trainingStatus, trainingConfig, setTrainingConfig, recommendedTrainingReady, canExportPackage, trainingCompleted, championActive, canLoadChampion, busy, exportMessage, importMessage, mlflowImport, setMlflowImport, expectedMlflowExperiment, expectedRegisteredModel, onCreateRequest, onExportPackage, onStartTraining, onLoadChampion, onOpenModelQuality, onAsk }: {
+  selectedSession: IngestionSessionResponse | null
+  trainingRequest: TrainingRequestResponse | null
+  trainingStatus: Record<string, unknown> | null
+  trainingConfig: TrainingConfiguration
+  setTrainingConfig: Dispatch<SetStateAction<TrainingConfiguration>>
+  recommendedTrainingReady: boolean
+  canExportPackage: boolean
+  trainingCompleted: boolean
+  championActive: boolean
+  canLoadChampion: boolean
+  busy: string | null
+  exportMessage: string | null
+  importMessage: string | null
+  mlflowImport: { runId: string; registeredModelName: string; modelVersion: string }
+  setMlflowImport: Dispatch<SetStateAction<{ runId: string; registeredModelName: string; modelVersion: string }>>
+  expectedMlflowExperiment: string
+  expectedRegisteredModel: string
+  onCreateRequest: () => void
+  onExportPackage: () => void
+  onStartTraining: () => void
+  onLoadChampion: () => void
+  onOpenModelQuality?: () => void
+  onAsk: (prompt: string) => void
+}) {
+  const trainingState = String(trainingStatus?.status ?? trainingRequest?.status ?? 'not_started')
+  return (
+    <div className="space-y-7 py-6">
+      <div><h2 className="text-xl font-semibold text-white">Training</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#B8C2D4]">Create a versioned request, choose managed or local/on-premises execution, then activate the model promoted in MLflow.</p></div>
+      <div className="space-y-0 border-l border-white/[0.12] pl-5 sm:pl-7">
+        <TrainingStage number={1} title="Create a versioned training request" status={trainingRequest ? 'completed' : recommendedTrainingReady ? 'available' : 'waiting'} current={!trainingRequest}>
+          <p>Locks the approved dataset, preprocessing plan, and training configuration into one reproducible request.</p>{trainingRequest && <p className="mt-2 text-xs text-[#9FB0C8]">Request <span className="font-mono text-slate-200">{trainingRequest.training_request_id}</span> · {trainingRequest.model_families.join(', ')}</p>}<button type="button" onClick={onCreateRequest} disabled={!recommendedTrainingReady || Boolean(busy)} className="mt-4 rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'training-request' ? 'Creating…' : trainingRequest ? 'Request created' : 'Create training request'}</button>
+        </TrainingStage>
+        <TrainingStage number={2} title="Choose a training path" status={trainingCompleted ? 'completed' : trainingRequest ? trainingState : 'locked'} current={Boolean(trainingRequest && !trainingCompleted)}>
+          <div className="grid gap-4 lg:grid-cols-2"><div className="rounded-md border border-white/[0.10] p-4"><h4 className="font-semibold text-white">Mirai-managed training</h4><p className="mt-2 text-sm leading-6 text-[#B8C2D4]">Run the approved request within Mirai using the selected deterministic configuration.</p><button type="button" onClick={onStartTraining} disabled={!trainingRequest || trainingCompleted || Boolean(busy)} className="mt-4 rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'training' ? 'Training…' : trainingCompleted ? 'Training complete' : 'Start managed training'}</button></div><div className="rounded-md border border-white/[0.10] p-4"><h4 className="font-semibold text-white">Local or on-premises</h4><p className="mt-2 text-sm leading-6 text-[#B8C2D4]">Download the same approved package when data or compute must remain in your controlled environment.</p><button type="button" onClick={onExportPackage} disabled={!canExportPackage || Boolean(busy)} className="mt-4 rounded-md border border-white/[0.12] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'export-package' ? 'Downloading…' : 'Download training package'}</button>{exportMessage && <p className="mt-2 text-xs text-emerald-100">{exportMessage}</p>}</div></div><button type="button" onClick={() => onAsk('Explain the managed and local/on-premises training paths for this project.')} className="mt-3 text-sm font-semibold text-[#8FCBFF]">Ask Mirai about training paths</button>
+        </TrainingStage>
+        <TrainingStage number={3} title="Load the promoted champion" status={championActive ? 'completed' : canLoadChampion ? 'available' : 'locked'} current={canLoadChampion && !championActive}>
+          <p>After review and promotion in MLflow, Mirai verifies the champion artifacts and activates the model for serving.</p>{canLoadChampion && <div className="mt-4 grid gap-3 lg:grid-cols-3"><input value={mlflowImport.runId} onChange={(event) => setMlflowImport((current) => ({ ...current, runId: event.target.value }))} placeholder="Champion run ID (optional)" className="rounded-md border border-white/[0.10] px-3 py-2" /><input value={mlflowImport.modelVersion} onChange={(event) => setMlflowImport((current) => ({ ...current, modelVersion: event.target.value }))} placeholder="Version (optional)" className="rounded-md border border-white/[0.10] px-3 py-2" /><input value={mlflowImport.registeredModelName} onChange={(event) => setMlflowImport((current) => ({ ...current, registeredModelName: event.target.value }))} placeholder="Model name (optional)" className="rounded-md border border-white/[0.10] px-3 py-2" /></div>}<div className="mt-4 flex flex-wrap gap-3">{canLoadChampion && <button type="button" onClick={onLoadChampion} disabled={Boolean(busy)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{busy === 'load-champion-model' ? 'Loading…' : 'Load champion model'}</button>}{championActive && onOpenModelQuality && <button type="button" onClick={onOpenModelQuality} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white">Open model quality</button>}</div>{importMessage && <p className="mt-3 text-sm text-emerald-100">{importMessage}</p>}<TechnicalDetails><p>Expected MLflow experiment: <code>{expectedMlflowExperiment}</code></p><p>Registered model: <code>{expectedRegisteredModel}</code></p><p>Current status: <code>{trainingState}</code></p></TechnicalDetails>
+        </TrainingStage>
+      </div>
+      <DisclosurePanel title="Advanced training settings"><AdvancedTrainingSettings config={trainingConfig} setConfig={setTrainingConfig} /></DisclosurePanel>
+      {!selectedSession && <p className="text-sm text-amber-100">No local preparation session is available. The project-level champion loader remains available when a champion has already been promoted.</p>}
+    </div>
+  )
+}
+
+function AdvancedTrainingSettings({ config, setConfig }: { config: TrainingConfiguration; setConfig: Dispatch<SetStateAction<TrainingConfiguration>> }) {
+  return <div className="grid gap-5"><div className="grid gap-3 md:grid-cols-3"><label>Search mode<select value={config.search.mode} onChange={(event) => setConfig((current) => ({ ...current, search: { ...current.search, mode: event.target.value } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2"><option value="single_config">Single configuration</option><option value="small_sweep_1h">Small one-hour sweep</option><option value="balanced_sweep_2h">Balanced two-hour sweep</option></select></label><label>Budget minutes<input type="number" value={config.search.wall_clock_budget_minutes} onChange={(event) => setConfig((current) => ({ ...current, search: { ...current.search, wall_clock_budget_minutes: Number(event.target.value) || 60 } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label><label>Seeds<input value={config.mlp.seeds.join(',')} onChange={(event) => setConfig((current) => ({ ...current, mlp: { ...current.mlp, seeds: parseNumberList(event.target.value).map(Math.round) } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label></div><div className="grid gap-4 border-t border-white/[0.10] pt-4 md:grid-cols-2"><div className="space-y-3"><p className="font-semibold text-white">Linear baselines</p><label className="flex items-center gap-2"><input type="checkbox" checked={config.linear.include_mvlr} onChange={(event) => setConfig((current) => ({ ...current, linear: { ...current.linear, include_mvlr: event.target.checked } }))} /> Include multivariate linear regression</label><label className="flex items-center gap-2"><input type="checkbox" checked={config.linear.include_ridge} onChange={(event) => setConfig((current) => ({ ...current, linear: { ...current.linear, include_ridge: event.target.checked } }))} /> Include ridge regression</label><label className="block">Ridge alphas<input value={config.linear.ridge_alphas.join(',')} onChange={(event) => setConfig((current) => ({ ...current, linear: { ...current.linear, ridge_alphas: parseNumberList(event.target.value) } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label></div><div className="grid gap-3 sm:grid-cols-2"><p className="font-semibold text-white sm:col-span-2">Neural network</p><label>Architecture<select value={config.mlp.architecture_family} onChange={(event) => setConfig((current) => ({ ...current, mlp: { ...current.mlp, architecture_family: event.target.value } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2"><option value="plain_mlp">Plain MLP</option><option value="shared_trunk_multi_head">Shared trunk, multiple heads</option></select></label><label>Hidden layers<input value={config.mlp.hidden_layers.join(',')} onChange={(event) => setConfig((current) => ({ ...current, mlp: { ...current.mlp, hidden_layers: parseNumberList(event.target.value).map(Math.round) } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label><label>Learning rate<input type="number" step="0.0001" value={config.mlp.learning_rate} onChange={(event) => setConfig((current) => ({ ...current, mlp: { ...current.mlp, learning_rate: Number(event.target.value) || 0.003 } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label><label>Maximum epochs<input type="number" value={config.mlp.max_epochs} onChange={(event) => setConfig((current) => ({ ...current, mlp: { ...current.mlp, max_epochs: Number(event.target.value) || 500 } }))} className="mt-2 w-full rounded-md border border-white/[0.10] px-3 py-2" /></label></div></div></div>
+}
+
+function PreparationStage({ number, title, status, current, locked = false, children }: { number: number; title: string; status: string; current: boolean; locked?: boolean; children: ReactNode }) {
+  return <section className={`rounded-lg border p-5 sm:p-6 ${current ? 'border-[#5BA8FF]/30 bg-[#0B1424]/70' : 'border-white/[0.09]'} ${locked ? 'opacity-65' : ''}`}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-semibold text-white"><span className="mr-2 text-[#74C7F5]">{number}.</span>{title}</h3><StatusBadge tone={locked ? 'neutral' : preparationStatusTone(status)}>{locked ? 'Locked' : preparationStatusLabel(status)}</StatusBadge></div><div className="mt-4">{children}</div></section>
+}
+
+function TrainingStage({ number, title, status, current, children }: { number: number; title: string; status: string; current: boolean; children: ReactNode }) {
+  return <section className={`relative pb-8 pl-2 last:pb-0 ${current ? '' : 'opacity-80'}`}><span className={`absolute -left-[2.1rem] top-0 grid h-7 w-7 place-items-center rounded-full text-xs font-semibold ring-1 ${status === 'completed' ? 'bg-emerald-500/15 text-emerald-100 ring-emerald-400/25' : current ? 'bg-[#2F6BFF] text-white ring-[#74C7F5]/40' : 'bg-[#0B1220] text-[#8493AA] ring-white/15'}`}>{status === 'completed' ? '✓' : number}</span><div className={`rounded-lg p-5 ${current ? 'bg-[#0B1424]/75 ring-1 ring-[#5BA8FF]/25' : ''}`}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-semibold text-white">{title}</h3><StatusBadge tone={preparationStatusTone(status)}>{preparationStatusLabel(status)}</StatusBadge></div><div className="mt-3 text-sm leading-6 text-[#B8C2D4]">{children}</div></div></section>
+}
+
+function DecisionStory({ finding, recommendation, effect, safeguard, approval }: { finding: string; recommendation: string; effect: string; safeguard: string; approval?: string }) {
+  return <article className="rounded-md border border-white/[0.10] p-4"><dl className="space-y-3 text-sm"><DecisionLine label="Finding" value={finding} /><DecisionLine label="Recommendation" value={recommendation} /><DecisionLine label="Expected effect" value={effect} /><DecisionLine label="Leakage safeguard" value={safeguard} />{approval && <DecisionLine label="Approval" value={approval} />}</dl></article>
+}
+
+function DecisionLine({ label, value }: { label: string; value: string }) { return <div><dt className="text-xs font-medium text-[#9FB0C8]">{label}</dt><dd className="mt-1 leading-6 text-slate-100">{value}</dd></div> }
+function Metric({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><p className="text-xs font-medium text-[#9FB0C8]">{label}</p><p className="mt-1 truncate text-xl font-semibold text-white" title={value}>{value}</p></div> }
+function SummaryRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between gap-4 py-3"><dt className="text-[#9FB0C8]">{label}</dt><dd className="text-right font-medium text-white">{value}</dd></div> }
+function TechnicalValue({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-[#9FB0C8]">{label}</p><p className="mt-1 break-all font-mono text-xs text-slate-200">{value}</p></div> }
+function StatusBadge({ tone, children }: { tone: PreparationTone; children: ReactNode }) { const classes: Record<PreparationTone, string> = { neutral: 'bg-white/[0.07] text-slate-200', active: 'bg-[#5BA8FF]/12 text-[#D9F3FF]', success: 'bg-emerald-500/10 text-emerald-100', warning: 'bg-amber-500/10 text-amber-100', error: 'bg-red-500/10 text-red-100' }; return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${classes[tone]}`}>{children}</span> }
+function EmptyState({ title, description }: { title: string; description: string }) { return <div className="py-16 text-center"><h2 className="text-xl font-semibold text-white">{title}</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#9FB0C8]">{description}</p></div> }
+function TechnicalDetails({ children }: { children: ReactNode }) { return <details className="mt-5 border-t border-white/[0.10] pt-3 text-sm text-[#B8C2D4]"><summary className="cursor-pointer font-semibold text-[#BDEAFF]">Technical details</summary><div className="mt-4 space-y-2">{children}</div></details> }
+function RoleOptions() { return <><option value="input">Model input</option><option value="output">Model output</option><option value="group">Group</option><option value="sweep">Sweep variable</option><option value="time">Time</option><option value="cycle">Cycle</option><option value="sequence">Sequence</option><option value="curve_axis">Curve axis</option></> }
+function TechnicalGrid({ eda, status }: { eda: PreprocessingEdaSummary | null; status: PreprocessingStatus }) { return <div className="grid gap-4 sm:grid-cols-2"><TechnicalValue label="Split strategy" value={eda?.summary.split_strategy ?? 'Pending'} /><TechnicalValue label="BO policy" value={eda?.summary.bo_policy ?? 'Pending'} /><TechnicalValue label="EDA artifact" value={eda?.artifacts.eda_report_json ?? 'Pending'} /><TechnicalValue label="Preprocessing report" value={eda?.artifacts.preprocessing_report_json ?? status.report_path ?? 'Pending'} /></div> }
