@@ -3,10 +3,14 @@ import Plot from 'react-plotly.js'
 import * as Plotly from 'plotly.js-dist-min'
 import type { DesignStudioOverlayColumn, DesignStudioParetoCandidate, DesignStudioParetoResponse, DesignStudioPrediction, DesignStudioState, ExperimentVisualisationConfig, ProjectSchema } from '../lib/api'
 import { exportDesignStudioZip, findDesignStudioPareto, getDesignStudioState, predictDesignStudio, seedDesignStudioBatch } from '../lib/api'
-import { lightPlotOnDarkCardLayout, miraiChartColors, plotConfig } from '../lib/plotlyTheme'
+import { createMiraiPlotlyTheme, diagnosticPlotConfig, miraiChartColors } from '../lib/plotlyTheme'
 import { formatNumber } from '../lib/doeUtils'
+import { designResultPresentation, designResultState, isChampionReady, plannedEngineeringChecks, plannedOptimizationCapabilities, schemaBoundsSummary, type DesignStudioView } from '../lib/designStudioPresentation'
+import { DesignStudioTabs } from './design-studio/DesignStudioTabs'
+import { DesignVariableControl } from './design-studio/DesignVariableControl'
+import { PlannedCapabilities } from './design-studio/PlannedCapabilities'
 import { ModelMap } from './ModelMap'
-import { Alert, PanelHeader } from './ui'
+import { Alert, EmptyState, PanelHeader, StatusBadge, TechnicalDetails } from './ui'
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -28,7 +32,7 @@ function asPlotLayout(value: unknown) {
   return value as any
 }
 
-const plotLayoutBase = lightPlotOnDarkCardLayout({
+const plotLayoutBase = createMiraiPlotlyTheme({
   margin: { l: 60, r: 24, t: 34, b: 56 },
 })
 
@@ -39,7 +43,6 @@ type ObjectivePreset = {
   weights: Record<string, number>
 }
 
-type DesignWorkflow = 'single_result' | 'plot' | 'optimize' | 'compare' | 'model_map'
 type VisualisationType = 'generic' | 'electrochemical' | 'battery_degradation' | 'energy_demand'
 type OverlayMode = 'comparable' | 'same_current_conditions' | 'custom' | 'none'
 type PlotAnnotationMode = 'none' | 'selected' | 'all'
@@ -54,7 +57,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const [visualisationFixedInputs, setVisualisationFixedInputs] = useState<Record<string, string>>({})
   const [prediction, setPrediction] = useState<DesignStudioPrediction | null>(null)
   const [savedComparison, setSavedComparison] = useState<DesignStudioPrediction | null>(null)
-  const [activeWorkflow, setActiveWorkflow] = useState<DesignWorkflow>('plot')
+  const [activeWorkflow, setActiveWorkflow] = useState<DesignStudioView>('single_result')
   const [overlayMode, setOverlayMode] = useState<OverlayMode>('none')
   const [trainingOverlayEnabled, setTrainingOverlayEnabled] = useState(false)
   const [trainingOverlayFilters, setTrainingOverlayFilters] = useState<Record<string, string>>({})
@@ -143,7 +146,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
     return {
       id: configId || `dynamic_${xVariable}_${yVariable}`,
       label: plotTitle || `${schema.outputs.find((output) => output.name === yVariable)?.label ?? yVariable} vs ${schema.inputs.find((input) => input.name === xVariable)?.label ?? xVariable}`,
-      description: 'Experiment visualisation: sweep one variable, keep fixed inputs constant, and predict selected response(s).',
+      description: 'Experiment visualization: sweep one variable, keep fixed inputs constant, and predict selected response(s).',
       kind: 'scatter_response',
       template_id: 'generic_tabular_doe',
       safe: true,
@@ -302,7 +305,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       setHasPendingInputChanges(false)
       setVisualisationStale(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to generate visualisation')
+      setError(err instanceof Error ? err.message : 'Unable to generate visualization')
     } finally {
       setPredicting(false)
     }
@@ -414,7 +417,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
         scale: 2,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to export experiment visualisation PNG')
+      setError(err instanceof Error ? err.message : 'Unable to export experiment visualization PNG')
     } finally {
       setExportingCurvePng(false)
     }
@@ -452,11 +455,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
   const metadataVariables = schema.metadata?.all_variables ?? schema.domain_metadata?.all_variables ?? schema.metadata?.variables ?? schema.domain_metadata?.variables ?? []
   const trainingOverlayGroupOptions = overlayColumns.filter((column) => overlayColumnTier(column) !== 'internal').map((column) => column.name)
   const activeModel = asRecord(state?.active_model)
+  const servedSource = asString(activeModel.served_source)
+  const hasLoadedChampion = isChampionReady(servedSource)
   const aliases = asRecord(activeModel.aliases)
   const champion = asRecord(aliases.champion)
   const traceability = asRecord(activeModel.mlflow_traceability)
   const cacheStatus = asRecord(traceability.cache_status)
   const defaultObjectiveName = Object.keys(state?.default_objective_weights ?? {})[0]
+  const resultStatus = designResultPresentation[designResultState({ loading: predicting, error: Boolean(error), stale: hasPendingInputChanges, hasPrediction: Boolean(prediction) })]
   const emphasizedOutputs = new Set(Object.entries(selectedObjectiveWeights).filter(([, value]) => Math.abs(value) > 1e-12).map(([name]) => name))
   const curveXAxisVariable = asString(asRecord(asRecord(curveVisualisationConfig).x).variable) || asString(asRecord(selectedExperimentVisualisationConfig?.x).variable)
   const curveYAxisVariable = asString(asRecord(asRecord(curveVisualisationConfig).y).variable) || asString(asRecord(selectedExperimentVisualisationConfig?.y).variable)
@@ -503,11 +509,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       align: 'left' as const,
       showarrow: false,
       text: `<b>Fixed conditions</b><br>${plotAnnotationLabels.join('<br>')}`,
-      bgcolor: 'rgba(255,255,255,0.88)',
-      bordercolor: '#cbd5e1',
+      bgcolor: 'rgba(16,27,50,0.92)',
+      bordercolor: 'rgba(116,199,245,0.35)',
       borderwidth: 1,
       borderpad: 8,
-      font: { size: 12, color: miraiChartColors.axis },
+      font: { size: 12, color: miraiChartColors.darkAxis },
     }]
     : []
   const responseCurveData = asPlotData([
@@ -543,12 +549,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             })
           }),
       ])
-  const responseCurveLayout = asPlotLayout(lightPlotOnDarkCardLayout({
-        ...plotLayoutBase,
-        paper_bgcolor: '#ffffff',
-        plot_bgcolor: '#ffffff',
-        height: 470,
-        title: { text: plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response' },
+  const responseCurveLayout = asPlotLayout(createMiraiPlotlyTheme({
+    ...plotLayoutBase,
+    height: 470,
+    title: { text: plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response', font: { color: miraiChartColors.darkAxis, size: 16 } },
         xaxis: { title: { text: responseAxesSwapped ? genericSwappedXAxisTitle : `${curveXAxisMeta?.label ?? curveXAxisVariable}${curveXAxisMeta?.unit ? ` / ${curveXAxisMeta.unit}` : ''}` }, zeroline: false },
         yaxis: { title: { text: responseAxesSwapped ? genericSwappedYAxisTitle : `${curveYAxisMeta?.label ?? curveYAxisVariable}${curveYAxisMeta?.unit ? ` / ${curveYAxisMeta.unit}` : ''}` }, zeroline: false },
         annotations: plotAnnotations,
@@ -566,20 +570,22 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       <section className="border-b border-slate-400/[0.10] pb-6">
         <PanelHeader
           eyebrow="Design Studio"
-          title="Interactive surrogate-model playground"
-          description="Seed a candidate, move schema-driven inputs, watch predictions update, compare against real experiments, and export a design package for lab review."
+          title="Explore and evaluate candidate designs"
+          description="Use the loaded champion model to estimate one design, visualize a controlled sweep, or search for promising candidates inside the approved engineering bounds."
         />
-        <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold tracking-normal">
-          <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Served-model predictions</span>
-          <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">Champion: {asString(traceability.model_version) || asString(champion.version) || 'not set'}</span>
-          {defaultObjectiveName && <span className="rounded-md border border-[#2F6BFF]/50 bg-[#10203A] px-3 py-1 text-[#BDEAFF]">Default objective: {schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName}</span>}
-          <span className="rounded-md border border-slate-700 bg-[#070C16] px-3 py-1 text-slate-300">{defaultInputSourceLabel}</span>
-          <span className="rounded-md border border-[#74C7F5]/40 bg-[#0D1B2D] px-3 py-1 text-[#BDEAFF]">Schema bounds enforced</span>
-          {prediction?.warnings?.length ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</span> : null}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="border-l border-white/[0.10] pl-3"><div className="text-xs text-[#9FB0C8]">Serving status</div><div className="mt-1 text-sm font-semibold text-white">{hasLoadedChampion ? 'Champion loaded' : 'Champion required'}</div></div>
+          <div className="border-l border-white/[0.10] pl-3"><div className="text-xs text-[#9FB0C8]">Model version</div><div className="mt-1 truncate text-sm font-semibold text-white">{asString(traceability.model_version) || asString(champion.version) || 'Not loaded'}</div></div>
+          <div className="border-l border-white/[0.10] pl-3"><div className="text-xs text-[#9FB0C8]">Design contract</div><div className="mt-1 text-sm font-semibold text-white">{schemaBoundsSummary(schema.inputs.length)}</div></div>
+          <div className="border-l border-white/[0.10] pl-3"><div className="text-xs text-[#9FB0C8]">Default objective</div><div className="mt-1 truncate text-sm font-semibold text-white">{defaultObjectiveName ? schema.outputs.find((output) => output.name === defaultObjectiveName)?.label ?? defaultObjectiveName : 'Custom objective'}</div></div>
         </div>
-        <details className="mt-4 border-t border-slate-400/[0.07] pt-4 text-sm text-slate-600">
-          <summary className="cursor-pointer select-none font-semibold text-slate-900">MLflow traceability</summary>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <StatusBadge tone={hasLoadedChampion ? 'success' : 'error'}>{hasLoadedChampion ? 'Ready for model estimates' : 'Workspace blocked'}</StatusBadge>
+          <StatusBadge tone="neutral">{defaultInputSourceLabel}</StatusBadge>
+          {prediction?.warnings?.length ? <StatusBadge tone="warning">{prediction.warnings.length} model/support warning{prediction.warnings.length === 1 ? '' : 's'}</StatusBadge> : null}
+        </div>
+        <TechnicalDetails title="Model and MLflow traceability">
+          <div className="grid gap-3 md:grid-cols-2">
             {[
               ['Workspace ID', traceability.workspace_id],
               ['Project ID', traceability.project_id || schema.project_id],
@@ -593,50 +599,39 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               ['Loaded by', traceability.loaded_by],
               ['Artifact/cache status', cacheStatus.status],
             ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-lg bg-white p-3">
-                <div className="text-xs font-semibold tracking-normal text-slate-400">{String(label)}</div>
-                <div className="mt-1 break-all font-medium text-slate-800">{asString(value) || '—'}</div>
+              <div key={String(label)} className="border-l border-white/[0.08] pl-3">
+                <div className="text-xs font-semibold tracking-normal text-slate-500">{String(label)}</div>
+                <div className="mt-1 break-all font-medium text-slate-200">{asString(value) || '—'}</div>
               </div>
             ))}
           </div>
-        </details>
+        </TechnicalDetails>
       </section>
 
-      <nav className="border-b border-slate-400/[0.10] pb-2" aria-label="Design Studio workflows">
-        <div className="grid gap-2 md:grid-cols-5">
-          {[
-            ['single_result', 'Single result', 'Edit the current design point and generate KPIs'],
-            ['plot', 'Experiment visualisation', 'Sweep one input around fixed conditions from the current design point'],
-            ['optimize', 'Optimize', 'Search space, objectives, and candidates'],
-            ['compare', 'Compare/export', 'Save baselines and package outputs'],
-            ['model_map', 'Model map', 'Schema inputs and predicted responses'],
-          ].map(([id, label, description]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveWorkflow(id as DesignWorkflow)}
-              className={`rounded-md border px-4 py-3 text-left transition ${activeWorkflow === id ? 'bg-[#2F6BFF] text-white' : 'border-transparent text-slate-300 hover:bg-white/[0.035] hover:text-white'}`}
-            >
-              <div className="font-semibold">{label}</div>
-              <div className={`mt-1 text-xs ${activeWorkflow === id ? 'text-white/80' : 'text-slate-500'}`}>{description}</div>
-            </button>
-          ))}
-        </div>
-      </nav>
+      <DesignStudioTabs activeTab={activeWorkflow} onChange={setActiveWorkflow} />
 
-      {activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
-        <section className="border-y border-slate-400/[0.10] py-4">
+      {!loading && state && !hasLoadedChampion && (
+        <div className="border-y border-red-400/20 bg-red-500/[0.04] py-2">
+          <EmptyState title="Load an approved champion to continue" description="Design Studio only serves estimates from the workspace’s loaded champion model. Approve and load a champion in Model Quality before exploring candidate designs." />
+        </div>
+      )}
+
+      {hasLoadedChampion && activeWorkflow === 'plot' && visualisationConfigs.length > 0 && (
+        <section id="design-studio-panel-plot" role="tabpanel" aria-labelledby="design-studio-tab-plot" tabIndex={0} className="border-y border-slate-400/[0.10] py-4">
+          <div className="mb-5">
+            <PanelHeader eyebrow="Experiment visualization" title="Ask one controlled engineering question" description="Choose the response to study, define one bounded sweep, and hold every other condition fixed before generating model estimates." />
+          </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(16rem,0.7fr)_minmax(0,1.1fr)] lg:items-start">
-            <label className="min-w-0 text-sm font-semibold text-slate-700">
-              Visualisation type
+            <label className="min-w-0 text-sm font-semibold text-slate-300">
+              1 · Engineering question
               <select value={visualisationType} onChange={(event) => setVisualisationType(event.target.value as VisualisationType)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                <option value="generic">Generic experiment visualisation</option>
-                <option value="electrochemical">Electrochemical device visualisation — feature not available yet</option>
-                <option value="battery_degradation">Battery degradation visualisation — feature not available yet</option>
-                <option value="energy_demand">Energy demand visualisation — feature not available yet</option>
+                <option value="generic">Generic experiment visualization</option>
+                <option value="electrochemical">Electrochemical device visualization — feature not available yet</option>
+                <option value="battery_degradation">Battery degradation visualization — feature not available yet</option>
+                <option value="energy_demand">Energy demand visualization — feature not available yet</option>
               </select>
             </label>
-            <label className="min-w-0 text-sm font-semibold text-slate-700">
+            <label className="min-w-0 text-sm font-semibold text-slate-300">
               Starting setup
               <select
                 value={selectedExperimentVisualisationConfigId}
@@ -656,57 +651,57 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
             </label>
             <div className="min-w-0 rounded-md border border-slate-700/80 bg-[#070C16] px-4 py-3 text-sm leading-6 text-slate-300">
               {visualisationType === 'generic' ? (
-                <><strong className="text-slate-900">Current visualisation setup:</strong> {selectedExperimentVisualisationConfig?.description || 'Sweep one variable while holding fixed inputs constant, then plot predicted response points.'}</>
+                <><strong className="text-slate-100">Current visualization setup:</strong> {selectedExperimentVisualisationConfig?.description || 'Sweep one variable while holding fixed inputs constant, then plot predicted response points.'}</>
               ) : (
-                <><strong className="text-slate-900">Feature not available yet.</strong> This placeholder shows where future field-level visualisation presets can be added without hardcoding domain logic into the generic workflow.</>
+                <><strong className="text-slate-100">Feature not available yet.</strong> This placeholder shows where future field-level visualization presets can be added without hardcoding domain logic into the generic workflow.</>
               )}
             </div>
           </div>
           <div className="mt-4 border-y border-slate-400/[0.10] py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold text-slate-950">Experiment visualisation</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Choose X, predicted Y, the sweep range, and fixed values for every other input. A 60-point sweep generates exactly 60 model predictions.</p>
+                  <h3 className="font-semibold text-slate-100">2 · Sweep setup</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">Choose X, predicted Y, the sweep range, and fixed values for every other input. A 60-point sweep generates exactly 60 model predictions.</p>
                 </div>
                 <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold tracking-normal text-slate-500">schema-driven</span>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.1fr)_minmax(10rem,1.15fr)_minmax(7rem,0.75fr)_minmax(7rem,0.75fr)_minmax(6rem,0.6fr)_minmax(9rem,0.85fr)]">
-                <label className="min-w-0 text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-300">
                   Plot title
                   <input value={plotTitle} onChange={(event) => setPlotTitle(event.target.value)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
-                <label className="min-w-0 text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-300">
                   Sweep variable
                   <select value={sweepInputName} onChange={(event) => { setSweepInputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.inputs.map((input) => <option key={input.name} value={input.name}>{input.label}{input.unit ? ` / ${input.unit}` : ''}</option>)}
                   </select>
                 </label>
-                <label className="min-w-0 text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-300">
                   Predicted response
                   <select value={primaryOutputName} onChange={(event) => { setPrimaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
-                <label className="min-w-0 text-sm font-semibold text-slate-700">
+                <label className="min-w-0 text-sm font-semibold text-slate-300">
                   Optional second response
                   <select value={secondaryOutputName} onChange={(event) => { setSecondaryOutputName(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="">None</option>
                     {schema.outputs.map((output) => <option key={output.name} value={output.name}>{output.label}{output.unit ? ` / ${output.unit}` : ''}</option>)}
                   </select>
                 </label>
-                <label className="text-sm font-semibold text-slate-700">
+                <label className="text-sm font-semibold text-slate-300">
                   Sweep min
                   <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMin} onChange={(event) => { setSweepRangeMin(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.min ?? '')} className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
-                <label className="text-sm font-semibold text-slate-700">
+                <label className="text-sm font-semibold text-slate-300">
                   Sweep max
                   <input type="number" min={sweepMeta?.min} max={sweepMeta?.max} value={sweepRangeMax} onChange={(event) => { setSweepRangeMax(event.target.value); setVisualisationStale(true) }} placeholder={String(sweepMeta?.max ?? '')} className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm ${sweepRangeIssue ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`} />
                 </label>
-                <label className="text-sm font-semibold text-slate-700">
+                <label className="text-sm font-semibold text-slate-300">
                   Points
                   <input type="number" min="10" max="200" value={sweepPointCount} onChange={(event) => { setSweepPointCount(event.target.value); setVisualisationStale(true) }} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
-                <label className="min-w-0 text-sm font-semibold text-slate-700 xl:col-span-2">
+                <label className="min-w-0 text-sm font-semibold text-slate-300 xl:col-span-2">
                   Plot orientation
                   <select value={responseAxesSwapped ? 'response_x' : 'sweep_x'} onChange={(event) => setResponseAxesSwapped(event.target.value === 'response_x')} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <option value="sweep_x">X = sweep variable, Y = predicted response</option>
@@ -724,11 +719,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <div className="mt-5 border-y border-slate-400/[0.10] py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h4 className="font-semibold text-slate-950">Fixed conditions for visualisation</h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">These fixed values define the design point used for the multi-point visualisation. They are initialized from the current design point and stay synchronized when optimizer candidates are loaded.</p>
+                    <h4 className="font-semibold text-slate-100">3 · Fixed conditions</h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">These fixed values define the design point used for the multi-point visualization. They are initialized from the current design point and stay synchronized when optimizer candidates are loaded.</p>
                   </div>
                   <button type="button" onClick={copyCurrentInputsToVisualisation} className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#2F6BFF]/40">
-                    Use current design point for visualisation
+                    Use current design point for visualization
                   </button>
                 </div>
                 <div className="mt-4 overflow-x-auto">
@@ -736,7 +731,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     <thead className="text-xs font-semibold tracking-normal text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Input</th>
-                        <th className="px-3 py-2">Visualisation value</th>
+                        <th className="px-3 py-2">Visualization value</th>
                         <th className="px-3 py-2">Schema range</th>
                         <th className="px-3 py-2">Action</th>
                       </tr>
@@ -768,9 +763,10 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </table>
                 </div>
               </div>
-              <div className="mt-5 border-y border-slate-400/[0.10] py-4">
+              <details open className="mt-5 border-y border-slate-400/[0.10] py-4">
+                <summary className="mb-4 cursor-pointer select-none font-semibold text-slate-100">Plot options and generation</summary>
                 <div className="grid gap-3 lg:grid-cols-[minmax(14rem,0.45fr)_minmax(0,1fr)_auto] lg:items-end">
-                  <label className="min-w-0 text-sm font-semibold text-slate-700">
+                  <label className="min-w-0 text-sm font-semibold text-slate-300">
                     Plot label
                     <select value={plotAnnotationMode} onChange={(event) => setPlotAnnotationMode(event.target.value as PlotAnnotationMode)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                       <option value="none">No in-plot fixed-condition label</option>
@@ -778,7 +774,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <option value="all">Show all fixed parameters</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-lg bg-[#0B1220] px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
+                  <div className="min-w-0 rounded-lg bg-[#0B1220] px-3 py-2 text-sm text-slate-400 ring-1 ring-white/[0.08]">
                     {plotAnnotationMode === 'none' ? (
                       <span>Plot label hidden by default. Enable it only when exported figures need fixed-condition context.</span>
                     ) : plotAnnotationMode === 'selected' ? (
@@ -795,15 +791,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     )}
                   </div>
                   <button type="button" onClick={() => runVisualisation()} disabled={predicting || visualisationType !== 'generic' || Boolean(sweepRangeIssue)} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-50">
-                    {predicting ? 'Generating...' : 'Generate visualisation'}
+                    {predicting ? 'Generating...' : 'Generate visualization'}
                   </button>
                 </div>
-              </div>
-              <div className="mt-4 border-y border-slate-400/[0.10] py-4">
+              </details>
+              <details className="mt-4 border-y border-slate-400/[0.10] py-4">
+                <summary className="cursor-pointer select-none font-semibold text-slate-100">Optional measured-data overlay <span className="ml-2 text-xs font-medium text-slate-500">{String(trainingOverlay.filtered_row_count ?? trainingOverlayRows.length)} shown</span></summary>
+                <div className="mt-4">
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-950">Measured training overlay</h3>
-                    <p className="mt-1 max-w-5xl text-sm leading-6 text-slate-600">Optional: compare this visualisation with measured training rows from the loaded champion artifact. Hidden by default so predicted sweep setup stays primary.</p>
+                    <h3 className="font-semibold text-slate-100">Measured training overlay</h3>
+                    <p className="mt-1 max-w-5xl text-sm leading-6 text-slate-400">Optional: compare this visualization with measured training rows from the loaded champion artifact. Hidden by default so predicted sweep setup stays primary.</p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
                     <span className="w-fit whitespace-nowrap rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold tracking-normal text-slate-500 ring-1 ring-slate-200">
@@ -813,7 +811,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(16rem,0.45fr)_minmax(0,1fr)] xl:items-start">
-                  <label className="min-w-0 text-sm font-semibold text-slate-700">
+                  <label className="min-w-0 text-sm font-semibold text-slate-300">
                     Overlay mode
                     <select value={overlayMode} onChange={(event) => applyOverlayMode(event.target.value as OverlayMode)} className="mt-2 w-full truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm">
                       <option value="comparable">Comparable training data</option>
@@ -822,7 +820,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                       <option value="none">No measured overlay</option>
                     </select>
                   </label>
-                  <div className="min-w-0 rounded-lg bg-[#0B1220] p-3 text-sm text-slate-600 ring-1 ring-slate-200">
+                  <div className="min-w-0 rounded-lg bg-[#0B1220] p-3 text-sm text-slate-400 ring-1 ring-white/[0.08]">
                     <div className="text-xs font-semibold tracking-normal text-slate-400">Matching by</div>
                     {overlayMode === 'none' ? (
                       <div className="mt-2 font-medium text-slate-700">Overlay hidden</div>
@@ -840,7 +838,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     )}
                   </div>
                 </div>
-              </div>
+                </div>
+              </details>
 
               <details className="mt-4 border-y border-slate-400/[0.10] py-4">
                 <summary className="cursor-pointer select-none font-semibold text-slate-950">Refine matching / Advanced filters</summary>
@@ -890,11 +889,11 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
       {prediction?.warnings?.length ? <Alert tone="warning" title="Model/support warnings" messages={prediction.warnings} /> : null}
       {loading && <div className="rounded-xl bg-white/80 p-6 text-slate-600">Loading Design Studio...</div>}
 
-      {!loading && state && (
+      {!loading && state && hasLoadedChampion && (
         <>
           <section id="design-workspace" className="scroll-mt-8 space-y-6">
-            {activeWorkflow === 'model_map' && <section className="border-y border-slate-400/[0.10] py-6">
-              <PanelHeader eyebrow="Model map" title="From experiment settings to predicted response" description="A schema view of the loaded model inputs and outputs. This is separated from Experiment visualisation so it does not interrupt plot setup." />
+            {activeWorkflow === 'model_map' && <section id="design-studio-panel-model_map" role="tabpanel" aria-labelledby="design-studio-tab-model_map" tabIndex={0} className="border-y border-slate-400/[0.10] py-6">
+              <PanelHeader eyebrow="Model map" title="From experiment settings to predicted response" description="A schema view of the loaded model inputs and outputs. This is separated from Experiment visualization so it does not interrupt plot setup." />
               <div className="mt-4">
                 <ModelMap
                   inputs={schema.inputs}
@@ -904,91 +903,67 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </div>
             </section>}
 
-            {activeWorkflow === 'single_result' && <section id="design-experiment" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
+            {activeWorkflow === 'single_result' && <section id="design-studio-panel-single_result" role="tabpanel" aria-labelledby="design-studio-tab-single_result" tabIndex={0} className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
-                <PanelHeader eyebrow="Current design point" title="Tune one design point" description="Adjust the current composition/test values, then generate one model result. Experiment visualisation can sweep one input around this same design point." />
+                <PanelHeader eyebrow="Single result" title="Set one design point and estimate its outcomes" description="Adjust the bounded engineering variables, then generate one explicit champion-model estimate. Values do not update until you run the model." />
                 <div className="flex flex-col items-start gap-2 sm:items-end">
                   <button type="button" onClick={() => runPrediction()} disabled={predicting} className="rounded-full bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-[#2F6BFF]/20 disabled:opacity-50">
-                    {predicting ? 'Generating...' : 'Generate result'}
+                    {predicting ? 'Generating estimate…' : 'Generate model estimate'}
                   </button>
-                  <span className={`rounded-md px-3 py-1 text-xs font-semibold tracking-normal ${hasPendingInputChanges ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' : prediction ? 'bg-[#0D1B2D] text-[#BDEAFF] ring-1 ring-[#74C7F5]/30' : 'bg-[#070C16] text-slate-500 ring-1 ring-slate-700'}`}>
-                    {hasPendingInputChanges ? 'Inputs changed' : prediction ? 'Result current' : 'No result yet'}
-                  </span>
+                  <StatusBadge tone={resultStatus.tone}>{resultStatus.label}</StatusBadge>
                 </div>
               </div>
               {hasPendingInputChanges && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                  Inputs changed — click <strong>Generate result</strong> to update the single-point KPI predictions. Use the copy action in Experiment visualisation when you want these values as sweep fixed conditions.
+                  Inputs changed — click <strong>Generate model estimate</strong> to update the single-point KPI predictions. Use the copy action in Experiment visualization when you want these values as sweep fixed conditions.
                 </div>
               )}
-              <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-                {schema.inputs.map((input) => (
-                  <label key={input.name} className="block border-t border-slate-400/[0.07] pt-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold text-slate-900">{input.label}</span>
-                      <span className="rounded-full bg-white px-2 py-1 text-[0.68rem] font-semibold tracking-normal text-slate-400">{input.unit}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={input.min}
-                      max={input.max}
-                      step={(input.max - input.min) / 200}
-                      value={inputs[input.name] ?? input.min}
-                      onChange={(event) => updateInput(input.name, event.target.value)}
-                      className="mt-4 w-full accent-[#2F6BFF]"
-                    />
-                    <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
-                      <span>{formatNumber(input.min)}</span>
-                      <input
-                        type="number"
-                        min={input.min}
-                        max={input.max}
-                        step={(input.max - input.min) / 200}
-                        value={inputs[input.name] ?? ''}
-                        onChange={(event) => updateInput(input.name, event.target.value)}
-                        className="w-28 rounded-xl border border-slate-200 bg-white px-2 py-1 text-right text-sm font-semibold text-slate-900"
-                      />
-                      <span>{formatNumber(input.max)}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
+              <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)] xl:items-start">
+                <div>
+                  <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-white">Engineering inputs</h3><span className="text-xs text-slate-500">Slider and numeric entry stay synchronized</span></div>
+                  <div className="mt-3 grid gap-x-5 gap-y-4 md:grid-cols-2">
+                    {schema.inputs.map((input) => <DesignVariableControl key={input.name} input={input} value={inputs[input.name] ?? ''} onChange={(value) => updateInput(input.name, value)} />)}
+                  </div>
+                </div>
 
-              <div className="mt-6 border-t border-slate-200 pt-5">
-                <PanelHeader eyebrow="Predicted outputs" title="Model-estimated KPIs" description="These values are the single generated result for the currently shown input settings. Objective weights are not needed for this direct prediction." />
-                {predicting && <div className="mt-3 text-sm text-slate-500">Generating result...</div>}
+                <div className="xl:sticky xl:top-6">
+                  <PanelHeader eyebrow="Estimated outcomes" title="Champion-model KPIs" description="A model estimate, not an experimental measurement. Objective weights are not used for this direct prediction." />
+                  {predicting && <div className="mt-3 text-sm text-[#BDEAFF]">Generating estimate…</div>}
                 {prediction?.seed && (
                   <div className="mt-4 rounded-md border border-[#74C7F5]/30 bg-[#0D1B2D] p-4 text-sm leading-6 text-[#BDEAFF]">
                     <strong>Why this candidate?</strong> It had the highest model score among {formatNumber(asNumber(asRecord(prediction.seed).n_candidates))} sampled virtual candidates for the selected goal: {currentGoalLabel}. Score: {formatNumber(asNumber(asRecord(prediction.seed).score))}. Model version: {prediction.model_version || 'unknown'}.
                   </div>
                 )}
-                <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   {schema.outputs.map((output) => {
                     const value = prediction?.predictions_at_selected_point[output.name]
                     const comparisonValue = savedComparison?.predictions_at_selected_point[output.name]
                     const delta = value !== undefined && comparisonValue !== undefined ? value - comparisonValue : undefined
                     const emphasized = emphasizedOutputs.has(output.name)
                     return (
-                      <div key={output.name} className={`rounded-xl border p-4 ${emphasized ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#0B1220]'}`}>
+                      <div key={output.name} className={`rounded-lg border p-4 ${emphasized ? 'border-[#5BA8FF]/45 bg-[#10203A]' : 'border-white/[0.08] bg-[#081526]/45'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold text-slate-900">{output.label}</div>
+                            <div className="text-sm font-semibold text-slate-100">{output.label}</div>
                             <div className="mt-1 text-xs font-semibold tracking-normal text-slate-400">{output.direction === 'minimize' ? 'Lower is better' : 'Higher is better'}</div>
                           </div>
                           <span className="text-xs text-slate-500">{output.unit}</span>
                         </div>
-                        <div className="mt-3 text-2xl font-semibold text-slate-950">{value === undefined ? '-' : `${formatNumber(value)} ${output.unit}`}</div>
-                        {delta !== undefined && <div className={`mt-2 text-sm font-semibold ${delta >= 0 ? 'text-[#74C7F5]' : 'text-rose-700'}`}>{delta >= 0 ? '+' : ''}{formatNumber(delta)} vs saved comparison</div>}
+                        <div className="mt-3 text-2xl font-semibold text-white">{value === undefined ? '—' : `${formatNumber(value)} ${output.unit}`}</div>
+                        {delta !== undefined && <div className="mt-2 text-sm font-semibold text-[#BDEAFF]">{delta >= 0 ? '+' : ''}{formatNumber(delta)} vs saved comparison</div>}
                       </div>
                     )
                   })}
+                  </div>
+                  <p className="mt-4 text-xs leading-5 text-slate-500">Model estimates should support engineering judgment, not replace feasibility, safety, uncertainty, or applicability review.</p>
                 </div>
               </div>
+              <div className="mt-7"><PlannedCapabilities title="Planned engineering checks" items={plannedEngineeringChecks} /></div>
             </section>}
 
-            {activeWorkflow === 'optimize' && <section id="design-objective" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
+            {activeWorkflow === 'optimize' && <section id="design-studio-panel-optimize" role="tabpanel" aria-labelledby="design-studio-tab-optimize" tabIndex={0} className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <PanelHeader eyebrow="Design objective" title="Search for candidates using objective weights" description="Objective settings affect search actions only. Loading a candidate updates the current design point and the visualisation fixed conditions together." />
+                <PanelHeader eyebrow="Optimize" title="Search the approved design space" description="Define the objective and search space, run the existing candidate search, then review or load the returned designs." />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={seedFromBatch} disabled={seeding} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/15 disabled:opacity-50">
                     {seeding ? 'Searching designs...' : 'Find best starting design'}
@@ -1003,14 +978,14 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 <div className="rounded-xl border border-[#2F6BFF]/35 bg-[#10203A] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <h3 className="font-semibold text-blue-950">Optimization goal</h3>
+                      <h3 className="font-semibold text-white">1 · Objective</h3>
                       <p className="mt-1 text-sm leading-6 text-[#BDEAFF]">
                         Select a preset or build a custom multi-objective score. The search samples virtual designs, predicts each one, and loads a high-scoring candidate as the current design point.
                       </p>
                     </div>
                     <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold tracking-normal text-[#BDEAFF]">Current goal: {currentGoalLabel}</span>
                   </div>
-                  <label className="mt-4 block text-sm font-semibold text-blue-950">
+                  <label className="mt-4 block text-sm font-semibold text-slate-100">
                     Objective preset
                     <select
                       value={objectiveMode}
@@ -1032,17 +1007,17 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
                 <div className="border-y border-slate-400/[0.10] py-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-semibold text-slate-950">Objective mix</h3>
+                    <h3 className="font-semibold text-slate-100">Objective weights</h3>
                     <span className="text-xs font-semibold tracking-normal text-slate-400">custom tradeoffs</span>
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Check outputs you care about. Positive weights reward larger predictions; negative weights reward smaller predictions. Zero ignores that output.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">Check outputs you care about. Positive weights reward larger predictions; negative weights reward smaller predictions. Zero ignores that output.</p>
                   <div className="mt-4 grid gap-2 lg:grid-cols-2">
                     {schema.outputs.map((output) => {
                       const checked = Math.abs(Number(objectiveWeights[output.name] ?? '0')) > 1e-12
                       const defaultWeight = output.direction === 'minimize' ? '-1' : '1'
                       return (
                         <div key={output.name} className={`grid gap-2 rounded-lg border px-3 py-2 text-sm md:grid-cols-[1fr_5.5rem] md:items-center ${checked ? 'border-[#2F6BFF]/60 bg-[#10203A]' : 'border-slate-700 bg-[#070C16]'}`}>
-                          <label className="flex items-center gap-3 font-semibold text-slate-800">
+                          <label className="flex items-center gap-3 font-semibold text-slate-200">
                             <input
                               type="checkbox"
                               checked={checked}
@@ -1075,8 +1050,8 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               <div className="mt-5 border-y border-slate-400/[0.10] py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold text-slate-950">Search space / fixed conditions</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Single result inputs; constrained inputs search only inside the selected range.</p>
+                    <h3 className="font-semibold text-slate-100">2 · Search space and fixed conditions</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">Choose which schema inputs the optimizer may vary. Fixed inputs use the current Single result inputs; constrained inputs search only inside the selected range.</p>
                   </div>
                   <span className="rounded-full bg-[#0B1220] px-3 py-1 text-xs font-semibold tracking-normal text-slate-500">generic inputs</span>
                 </div>
@@ -1087,7 +1062,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                     return (
                       <div key={input.name} className="border-y border-slate-400/[0.10] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="font-semibold text-slate-800">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
+                          <div className="font-semibold text-slate-200">{input.label}{input.unit ? ` / ${input.unit}` : ''}</div>
                           <div className="text-xs text-slate-500">Current design point: {formatNumber(Number(currentDesignPoint[input.name]))}</div>
                         </div>
                         <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr] md:items-center">
@@ -1104,10 +1079,15 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                   })}
                 </div>
               </div>
+              <div className="mt-6 border-t border-white/[0.08] pt-5">
+                <h3 className="text-sm font-semibold text-slate-100">3 · Run the search</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-400">The actions above preserve the existing 3,000-candidate batch and Pareto search behavior. Returned candidates appear below for review.</p>
+              </div>
+              <div className="mt-7"><PlannedCapabilities title="Planned optimization capabilities" items={plannedOptimizationCapabilities} /></div>
             </section>}
 
-            {activeWorkflow === 'compare' && <section id="design-compare" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
-              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the experiment visualisation settings." />
+            {activeWorkflow === 'compare' && <section id="design-studio-panel-compare" role="tabpanel" aria-labelledby="design-studio-tab-compare" tabIndex={0} className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
+              <PanelHeader eyebrow="Compare and package" title="Prepare this candidate for lab review" description="Save a comparison candidate or export a complete design package. Generic training-data overlays are controlled in the experiment visualization settings." />
               <div className="mt-5 grid gap-4 lg:grid-cols-2 lg:items-end">
                 <button type="button" onClick={() => prediction && setSavedComparison(prediction)} disabled={!prediction} className="rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                   Save current as comparison
@@ -1121,7 +1101,7 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
 
           {activeWorkflow === 'plot' && <section id="design-response-curve" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <PanelHeader eyebrow="Experiment visualisation" title={plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response'} description={selectedExperimentVisualisationConfig?.description || 'Sweep one variable, keep fixed inputs constant, and plot predicted response points.'} />
+              <PanelHeader eyebrow="Experiment visualization" title={plotTitle || selectedExperimentVisualisationConfig?.label || 'Predicted response'} description={selectedExperimentVisualisationConfig?.description || 'Sweep one variable, keep fixed inputs constant, and plot predicted response points.'} />
               <button
                 type="button"
                 onClick={exportResponseCurvePng}
@@ -1132,13 +1112,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
               </button>
             </div>
             {!curveRows.length && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                No experiment visualisation is available yet. Click <strong>Generate visualisation</strong> to sweep the selected variable, or <strong>Find best starting design</strong> to let the model choose a candidate.
+              <div className="mt-4 border-y border-white/[0.08]">
+                <EmptyState title="Generate the first response curve" description="Set the sweep and fixed conditions above, then generate the visualization. You can also load an optimized candidate as the starting design point." />
               </div>
             )}
             {curveRows.length > 0 && visualisationStale && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                Fixed values or plot setup changed since this plot was generated. Click <strong>Generate visualisation</strong> to refresh the multi-point plot.
+                Fixed values or plot setup changed since this plot was generated. Click <strong>Generate visualization</strong> to refresh the multi-point plot.
               </div>
             )}
             {curveRows.length > 0 && (
@@ -1148,30 +1128,32 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                 {visualisationGroupLabels.length > 0 && <div><strong className="text-slate-900">Grouped curves:</strong> {visualisationGroupLabels.join(' · ')}</div>}
               </div>
             )}
-            <Plot
+            {curveRows.length > 0 && <Plot
               data={responseCurveData}
               layout={responseCurveLayout}
-              config={plotConfig}
+              config={diagnosticPlotConfig}
               onInitialized={(_, graphDiv) => { responseCurvePlotRef.current = graphDiv }}
               onUpdate={(_, graphDiv) => { responseCurvePlotRef.current = graphDiv }}
               useResizeHandler
               style={{ width: '100%', height: '470px' }}
-            />
-            <p className="mt-3 rounded-lg bg-[#0B1220] px-4 py-3 text-sm leading-6 text-slate-600">
+            />}
+            <p className="mt-3 rounded-lg bg-[#0B1220] px-4 py-3 text-sm leading-6 text-slate-400">
               Predicted traces come from the loaded champion model. Training overlay markers come from static predictions.csv *_true measured columns and the generic filters above.
             </p>
+            <div className="mt-5"><PlannedCapabilities title="Planned analysis" items={[{ title: 'Sensitivity analysis', description: 'Rank variable influence around the current fixed design conditions.' }]} /></div>
           </section>}
 
           {activeWorkflow === 'optimize' && paretoResults && (
             <section id="design-tradeoffs" className="scroll-mt-8 border-y border-slate-400/[0.10] py-6">
               <PanelHeader
-                eyebrow="Find alternatives"
+                eyebrow="4 · Candidate review"
                 title="Tradeoff candidates"
-                description="Optional starting points. Use one as the current design point to update Single result inputs and visualisation fixed conditions together."
+                description="Optional starting points. Use one as the current design point to update Single result inputs and visualization fixed conditions together."
               />
               <div className="mt-4 rounded-lg border border-[#2F6BFF]/35 bg-[#10203A] p-4 text-sm leading-6 text-[#BDEAFF]">
                 These are alternative starting designs from {paretoResults.n_candidates} virtual candidates. Use one as the current design point, then plot a sweep around that point. Lower raw values are better for minimized objectives.
               </div>
+              {paretoResults.warnings.length > 0 && <Alert tone="warning" title="Candidate search warnings" messages={paretoResults.warnings} />}
               <div className="mt-5 space-y-3">
                 {paretoResults.candidates.map((candidate) => (
                   <article key={candidate.rank} className="border-y border-slate-400/[0.10] p-3">
@@ -1225,13 +1207,13 @@ export function DesignStudioPage({ schema }: { schema: ProjectSchema }) {
                         marker: { size: 11, color: '#2F6BFF', opacity: 0.85 },
                       },
                     ])}
-                    layout={asPlotLayout(lightPlotOnDarkCardLayout({
+                    layout={asPlotLayout(createMiraiPlotlyTheme({
                       ...plotLayoutBase,
                       height: 360,
                       xaxis: { title: { text: `${asString(asRecord(paretoResults.objectives[0]).label)} / ${asString(asRecord(paretoResults.objectives[0]).unit)}` }, zeroline: false },
                       yaxis: { title: { text: `${asString(asRecord(paretoResults.objectives[1]).label)} / ${asString(asRecord(paretoResults.objectives[1]).unit)}` }, zeroline: false },
                     }))}
-                    config={plotConfig}
+                    config={diagnosticPlotConfig}
                     useResizeHandler
                     style={{ width: '100%', height: '360px' }}
                   />
