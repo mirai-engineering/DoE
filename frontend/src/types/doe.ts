@@ -26,6 +26,7 @@ export type RecommendationRun = {
   objectiveWeights: Record<string, number>
   fixedInputs: Record<string, number>
   recommendations: Recommendation[]
+  modelVersion?: string
 }
 
 export type HeatmapData = {

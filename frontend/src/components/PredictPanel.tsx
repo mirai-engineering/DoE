@@ -1,6 +1,7 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import type { PredictionMap, ProjectSchema } from '../lib/api'
-import { Alert, KpiCard, NumberField, PanelHeader } from './ui'
+import { DesignVariableControl } from './design-studio/DesignVariableControl'
+import { Alert, KpiCard, PanelHeader } from './ui'
 
 export function PredictPanel({
   schema,
@@ -11,6 +12,7 @@ export function PredictPanel({
   loading,
   error,
   onSubmit,
+  embedded = false,
 }: {
   schema: ProjectSchema
   inputValues: Record<string, string>
@@ -20,25 +22,22 @@ export function PredictPanel({
   loading: boolean
   error: string | null
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  embedded?: boolean
 }) {
   return (
-    <section className="border-y border-slate-400/[0.10] py-5">
-      <PanelHeader
+    <section className={embedded ? '' : 'border-y border-slate-400/[0.10] py-5'}>
+      {!embedded && <PanelHeader
         eyebrow="Single experiment"
-        title="Predict outcomes"
-        description="Set one candidate formulation or operating point and score the expected KPIs."
-      />
+        title="Evaluate one reference design"
+        description="Set one known or proposed formulation or operating point and estimate its outcomes."
+      />}
 
       <form className="mt-6 space-y-5" onSubmit={onSubmit}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
           {schema.inputs.map((input) => (
-            <NumberField
+            <DesignVariableControl
               key={input.name}
-              id={`predict-${input.name}`}
-              label={input.label}
-              unit={input.unit}
-              min={input.min}
-              max={input.max}
+              input={input}
               value={inputValues[input.name] ?? ''}
               onChange={(value) =>
                 setInputValues((current) => ({ ...current, [input.name]: value }))
@@ -50,9 +49,9 @@ export function PredictPanel({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245CF0] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-white/[0.12] px-5 py-3 text-sm font-semibold text-white transition hover:border-[#74C7F5]/50 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? 'Predicting...' : 'Predict experiment'}
+          {loading ? 'Generating estimate…' : 'Generate reference estimate'}
         </button>
       </form>
 
@@ -71,7 +70,7 @@ export function PredictPanel({
       {prediction && (
         <div className="mt-6">
           <h3 className="text-sm font-semibold tracking-normal text-slate-500">
-            Predicted KPIs
+            Model-estimated outcomes
           </h3>
           <div className="mt-3 grid gap-6 sm:grid-cols-2">
             {schema.outputs.map((output) => (

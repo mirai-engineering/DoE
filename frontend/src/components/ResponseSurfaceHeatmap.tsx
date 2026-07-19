@@ -3,18 +3,17 @@ import type { Data, Layout } from 'plotly.js'
 import type { ExperimentInputs, ProjectSchema } from '../lib/api'
 import { batchPredictExperiments } from '../lib/api'
 import {
-  clampInteger,
   defaultHeatmapAxes,
   formatNumber,
-  linspace,
   outputLabel,
   scorePredictionRows,
   toNumberMap,
 } from '../lib/doeUtils'
+import { buildHeatmapRequestRows, heatmapRequestFingerprint } from '../lib/batchSearchPresentation'
 import { Plot } from '../lib/plotly'
-import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
+import { createMiraiPlotlyTheme, plotConfig } from '../lib/plotlyTheme'
 import type { HeatmapData, RecommendationRun } from '../types/doe'
-import { Alert, NumberField, PanelHeader, SelectField } from './ui'
+import { Alert, EmptyState, NumberField, PanelHeader, SelectField, StatusBadge } from './ui'
 
 export function ResponseSurfaceHeatmap({
   schema,
@@ -31,6 +30,8 @@ export function ResponseSurfaceHeatmap({
   const [colorMetric, setColorMetric] = useState('score')
   const [gridSize, setGridSize] = useState('24')
   const [heatmapData, setHeatmapData] = useState<HeatmapData | null>(null)
+  const [generatedRequestKey, setGeneratedRequestKey] = useState('')
+  const [heatmapWarnings, setHeatmapWarnings] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,6 +41,8 @@ export function ResponseSurfaceHeatmap({
     setYAxis(nextDefaults.yAxis)
     setColorMetric('score')
     setHeatmapData(null)
+    setGeneratedRequestKey('')
+    setHeatmapWarnings([])
     setError(null)
   }, [schema])
 
@@ -51,31 +54,16 @@ export function ResponseSurfaceHeatmap({
       return
     }
 
-    const xInput = schema.inputs.find((input) => input.name === xAxis)
-    const yInput = schema.inputs.find((input) => input.name === yAxis)
-    if (!xInput || !yInput) {
+    const requestGrid = buildHeatmapRequestRows(schema, xAxis, yAxis, gridSize, inputValues)
+    if (!requestGrid) {
       setError('Selected heatmap axes are not available in the project schema.')
       return
     }
-
-    const axisSteps = clampInteger(gridSize, 24, 8, 40)
-    const xValues = linspace(xInput.min, xInput.max, axisSteps)
-    const yValues = linspace(yInput.min, yInput.max, axisSteps)
-    const baseInputs = toNumberMap(inputValues)
-    const rows: ExperimentInputs[] = []
-
-    yValues.forEach((yValue) => {
-      xValues.forEach((xValue) => {
-        rows.push({
-          ...baseInputs,
-          [xInput.name]: xValue,
-          [yInput.name]: yValue,
-        })
-      })
-    })
+    const { xInput, yInput, xValues, yValues, rows } = requestGrid
 
     setLoading(true)
     setError(null)
+    setHeatmapWarnings([])
     try {
       const response = await batchPredictExperiments(schema.project_id, rows)
       const values =
@@ -96,6 +84,8 @@ export function ResponseSurfaceHeatmap({
         zValues,
         predictions: response.predictions,
       })
+      setGeneratedRequestKey(heatmapRequestFingerprint({ xAxis, yAxis, colorMetric, gridSize, inputValues, objectiveWeights: recommendationRun.objectiveWeights }))
+      setHeatmapWarnings(response.warnings)
     } catch (heatmapError) {
       setHeatmapData(null)
       setError(heatmapError instanceof Error ? heatmapError.message : 'Unable to generate heatmap')
@@ -107,13 +97,15 @@ export function ResponseSurfaceHeatmap({
   const fixedInputs = schema.inputs.filter((input) => input.name !== xAxis && input.name !== yAxis)
   const variedX = schema.inputs.find((input) => input.name === xAxis)
   const variedY = schema.inputs.find((input) => input.name === yAxis)
+  const currentRequestKey = heatmapRequestFingerprint({ xAxis, yAxis, colorMetric, gridSize, inputValues, objectiveWeights: recommendationRun.objectiveWeights })
+  const heatmapStale = Boolean(heatmapData && generatedRequestKey !== currentRequestKey)
 
   return (
     <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
         eyebrow="Response surface"
-        title="2D heatmap"
-        description="Sweep two variables over their schema bounds while every other input stays fixed at the current Home / Console value."
+        title="Explore a two-variable response surface"
+        description="Vary two inputs across their schema bounds while keeping all other conditions fixed at the current reference-design values."
       />
 
       <form className="mt-6 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_0.7fr_auto]" onSubmit={handleGenerate}>
@@ -123,6 +115,7 @@ export function ResponseSurfaceHeatmap({
           value={xAxis}
           onChange={setXAxis}
           options={schema.inputs.map((input) => ({ value: input.name, label: input.label }))}
+          dark
         />
         <SelectField
           id="heatmap-y"
@@ -130,6 +123,7 @@ export function ResponseSurfaceHeatmap({
           value={yAxis}
           onChange={setYAxis}
           options={schema.inputs.map((input) => ({ value: input.name, label: input.label }))}
+          dark
         />
         <SelectField
           id="heatmap-color"
@@ -137,12 +131,13 @@ export function ResponseSurfaceHeatmap({
           value={colorMetric}
           onChange={setColorMetric}
           options={[
-            { value: 'score', label: 'Recommendation score' },
+            { value: 'score', label: 'Ranking score' },
             ...schema.outputs.map((output) => ({
               value: output.name,
               label: `${output.label} (${output.direction})`,
             })),
           ]}
+          dark
         />
         <NumberField
           id="heatmap-grid"
@@ -152,13 +147,14 @@ export function ResponseSurfaceHeatmap({
           max={40}
           value={gridSize}
           onChange={setGridSize}
+          dark
         />
         <button
           type="submit"
           disabled={loading}
-          className="self-end rounded-lg bg-slate-950 px-5 py-4 text-sm font-semibold tracking-normal text-white shadow-sm shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-[#263329] disabled:cursor-not-allowed disabled:brightness-75"
+          className="self-end rounded-md bg-[#2F6BFF] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#245CF0] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? 'Generating...' : 'Generate'}
+          {loading ? 'Generating surface…' : 'Generate heatmap'}
         </button>
       </form>
 
@@ -167,15 +163,15 @@ export function ResponseSurfaceHeatmap({
           <p className="text-xs font-semibold tracking-normal text-slate-400">
             Varied variables
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-800">
-            {variedX?.label ?? xAxis} vs {variedY?.label ?? yAxis}
+          <p className="mt-2 text-sm font-semibold text-slate-200">
+            {variedX?.label ?? xAxis}{variedX?.unit ? ` (${variedX.unit})` : ''} vs {variedY?.label ?? yAxis}{variedY?.unit ? ` (${variedY.unit})` : ''}
           </p>
         </div>
         <div className="border-t border-white/[0.07] pt-4">
           <p className="text-xs font-semibold tracking-normal text-slate-400">
             Fixed variables
           </p>
-          <p className="mt-2 text-sm leading-6 text-slate-700">
+          <p className="mt-2 text-sm leading-6 text-slate-300">
             {fixedInputs
               .map((input) => `${input.label}: ${formatNumber(Number(inputValues[input.name]))} ${input.unit}`)
               .join(' | ')}
@@ -188,6 +184,8 @@ export function ResponseSurfaceHeatmap({
           <Alert tone="error" title="Heatmap failed" messages={[error]} />
         </div>
       )}
+      {heatmapWarnings.length > 0 && <div className="mt-5"><Alert tone="warning" title="Response-surface warnings" messages={heatmapWarnings} /></div>}
+      {heatmapStale && <div className="mt-5"><StatusBadge tone="warning">Setup changed · regenerate the heatmap</StatusBadge></div>}
 
       {heatmapData ? (
         <HeatmapPlot
@@ -197,9 +195,7 @@ export function ResponseSurfaceHeatmap({
           currentInputs={toNumberMap(inputValues)}
         />
       ) : (
-        <div className="mt-6 border-y border-dashed border-white/10 py-8 text-center text-sm text-slate-400">
-          Generate a response surface to compare local tradeoffs around the current console inputs.
-        </div>
+        <div className="mt-6 border-y border-white/[0.08]"><EmptyState title="Generate a response surface" description="Choose two inputs and a predicted target to inspect the model response." /></div>
       )}
     </section>
   )
@@ -220,7 +216,7 @@ function HeatmapPlot({
   const yInput = schema.inputs.find((input) => input.name === heatmapData.yAxis)
   const metricLabel =
     heatmapData.colorMetric === 'score'
-      ? 'Recommendation score'
+      ? 'Ranking score'
       : outputLabel(schema, heatmapData.colorMetric)
   const bestCandidate = recommendationRun.recommendations[0]
 
@@ -245,7 +241,7 @@ function HeatmapPlot({
     traces.push({
       type: 'scatter',
       mode: 'markers',
-      name: 'Best recommendation',
+      name: 'Rank 1 virtual candidate',
       x: [bestCandidate.inputs[heatmapData.xAxis]],
       y: [bestCandidate.inputs[heatmapData.yAxis]],
       marker: {
@@ -254,14 +250,14 @@ function HeatmapPlot({
         color: '#F6F4EA',
         line: { color: '#050914', width: 2 },
       },
-      hovertemplate: 'Best recommendation<br>%{x:.4g}, %{y:.4g}<extra></extra>',
+      hovertemplate: 'Rank 1 virtual candidate<br>%{x:.4g}, %{y:.4g}<extra></extra>',
     })
   }
 
   traces.push({
     type: 'scatter',
     mode: 'markers',
-    name: 'Current input',
+    name: 'Reference design',
     x: [currentInputs[heatmapData.xAxis]],
     y: [currentInputs[heatmapData.yAxis]],
     marker: {
@@ -270,10 +266,10 @@ function HeatmapPlot({
       color: '#ffffff',
       line: { color: '#5DA8FF', width: 3 },
     },
-    hovertemplate: 'Current console input<br>%{x:.4g}, %{y:.4g}<extra></extra>',
+    hovertemplate: 'Reference design<br>%{x:.4g}, %{y:.4g}<extra></extra>',
   })
 
-  const layout: Partial<Layout> = transparentDarkPlotLayout({
+  const layout: Partial<Layout> = createMiraiPlotlyTheme({
     autosize: true,
     margin: { l: 72, r: 72, t: 24, b: 64 },
     xaxis: {
@@ -290,7 +286,7 @@ function HeatmapPlot({
       <Plot
         data={traces}
         layout={layout}
-        config={{ displayModeBar: false, responsive: true }}
+        config={{ ...plotConfig, displayModeBar: false }}
         useResizeHandler
         className="h-[540px] w-full"
       />

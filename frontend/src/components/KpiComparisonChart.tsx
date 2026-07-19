@@ -1,8 +1,9 @@
 import type { Data, Layout } from 'plotly.js'
 import type { ProjectSchema, Recommendation } from '../lib/api'
 import { formatNumber, normalizeForComparison } from '../lib/doeUtils'
+import { candidateColors } from '../lib/batchSearchPresentation'
 import { Plot } from '../lib/plotly'
-import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
+import { createMiraiPlotlyTheme, plotConfig } from '../lib/plotlyTheme'
 import { PanelHeader } from './ui'
 
 export function KpiComparisonChart({
@@ -35,12 +36,13 @@ export function KpiComparisonChart({
       hovertemplate:
         '<b>%{x}</b><br>Optimization-normalized value: %{y:.3f}<br>Raw: %{customdata}<extra>%{fullData.name}</extra>',
       marker: {
-        color: ['#050914', '#2F6BFF', '#74C7F5', '#BDEAFF', '#5DA8FF'][index % 5],
+        color: candidateColors[index % candidateColors.length],
+        line: index === 0 ? { color: '#E8EEF8', width: 1.5 } : undefined,
       },
     }
   })
 
-  const layout: Partial<Layout> = transparentDarkPlotLayout({
+  const layout: Partial<Layout> = createMiraiPlotlyTheme({
     autosize: true,
     barmode: 'group',
     margin: { l: 48, r: 24, t: 24, b: 82 },
@@ -52,15 +54,15 @@ export function KpiComparisonChart({
   return (
     <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
-        eyebrow="KPI tradeoffs"
-        title="Top candidate comparison"
-        description="Bars are normalized per KPI. For minimize metrics, the normalization is reversed so taller remains better."
+        eyebrow="Candidate comparison"
+        title="Compare the leading candidates"
+        description="Normalized KPI values show the tradeoffs behind the current ranking. For minimized outputs, the display direction is reversed so higher remains better."
       />
       <div className="mt-5 overflow-hidden border-y border-white/[0.07] py-2">
         <Plot
           data={traces}
           layout={layout}
-          config={{ displayModeBar: false, responsive: true }}
+          config={{ ...plotConfig, displayModeBar: false }}
           useResizeHandler
           className="h-[420px] w-full"
         />

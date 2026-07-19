@@ -1,10 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { ProjectHeader } from './components/ProjectHeader'
 import { Tabs } from './components/Tabs'
-import { PredictPanel } from './components/PredictPanel'
-import { RecommendPanel } from './components/RecommendPanel'
-import { RecommendationsPage } from './components/RecommendationsPage'
-import { VisualizationsPage } from './components/VisualizationsPage'
+import { BatchSearchPage } from './components/batch-search/BatchSearchPage'
 import { OptimizationLoopPage } from './components/bo/OptimizationLoopPage'
 import { ModelQualityPage } from './components/ModelQualityPage'
 import { BusinessImpactPage } from './components/BusinessImpactPage'
@@ -17,23 +14,21 @@ import { Alert } from './components/ui'
 import type { AccountStatus, ProjectSchema, ProjectSummary, WorkspaceSummary } from './lib/api'
 import { getProjectSchema, getProjectsResponse, predictExperiment, recommendExperiments } from './lib/api'
 import {
-  clampInteger,
   defaultTableTopK,
   defaultVisualizationTopK,
-  enabledFixedInputValues,
   initialFixedInputs,
   initialInputValues,
   initialWeights,
-  maxVisualizationTopK,
   selectDefaultProject,
   toNumberMap,
 } from './lib/doeUtils'
+import { buildBatchSearchRequest, type BatchSearchView } from './lib/batchSearchPresentation'
 import type { ActiveTab, FixedInputConfig, RecommendationRun } from './types/doe'
 import type { PredictionMap } from './lib/api'
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('knowledge-intake')
-  const [batchView, setBatchView] = useState<'configure' | 'results' | 'visuals'>('configure')
+  const [batchView, setBatchView] = useState<BatchSearchView>('configure')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [account, setAccount] = useState<AccountStatus | null>(null)
@@ -189,42 +184,19 @@ function App() {
     event.preventDefault()
     if (!schema) return
 
-    const requestedCandidates = clampInteger(nCandidates, 2000, 1, 100000)
-    const requestedTableTopK = clampInteger(tableTopK, defaultTableTopK, 1, 25)
-    const requestedVisualizationTopK = clampInteger(
-      visualizationTopK,
-      defaultVisualizationTopK,
-      requestedTableTopK,
-      maxVisualizationTopK,
-    )
-    const requestedTopK = Math.min(
-      Math.max(requestedTableTopK, requestedVisualizationTopK),
-      requestedCandidates,
-      maxVisualizationTopK,
-    )
-    const weights = toNumberMap(objectiveWeights)
-    const fixedInputValues = enabledFixedInputValues(fixedInputs)
+    const { request, run } = buildBatchSearchRequest({ objectiveWeights, fixedInputs, nCandidates, tableTopK, visualizationTopK })
 
     setRecommendLoading(true)
     setRecommendError(null)
     setRecommendWarnings([])
     try {
-      const response = await recommendExperiments(schema.project_id, {
-        objective_weights: weights,
-        fixed_inputs: fixedInputValues,
-        n_candidates: requestedCandidates,
-        top_k: requestedTopK,
-      })
+      const response = await recommendExperiments(schema.project_id, request)
       setRecommendationRun({
         projectId: schema.project_id,
         projectDisplayName: schema.display_name,
-        nCandidates: requestedCandidates,
-        tableTopK: requestedTableTopK,
-        visualizationTopK: requestedVisualizationTopK,
-        requestedTopK,
-        objectiveWeights: weights,
-        fixedInputs: fixedInputValues,
+        ...run,
         recommendations: response.recommendations,
+        modelVersion: response.model_version,
       })
       setRecommendWarnings(response.warnings)
       setActiveTab('batch')
@@ -260,7 +232,7 @@ function App() {
             workspaces={workspaces}
             projectsLoading={projectsLoading}
             onProjectChange={handleProjectChange}
-            compact={activeTab === 'knowledge-intake' || activeTab === 'preprocessing-review' || activeTab === 'data-scientist'}
+            compact={activeTab === 'knowledge-intake' || activeTab === 'preprocessing-review' || activeTab === 'model-quality' || activeTab === 'design-studio' || activeTab === 'batch' || activeTab === 'data-scientist'}
           />
 
           {appError && <Alert tone="error" title="Backend connection issue" messages={[appError]} />}
@@ -280,89 +252,7 @@ function App() {
         ) : schema || activeTab === 'preprocessing-review' ? (
           <>
             {activeTab === 'batch' && schema && (
-              <div className="space-y-8">
-                <section className="border-b border-slate-400/[0.10] pb-5">
-                  <p className="text-sm font-medium text-[#74C7F5]">
-                    Batch Search
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#F6F4EA]">
-                    Design-space scan with weighted KPI ranking
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#9BA8C0]">
-                    Configure candidate scans, review ranked results, and inspect response-surface visuals in one workflow.
-                  </p>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {[
-                      { id: 'configure', label: 'Configure' },
-                      { id: 'results', label: 'Results' },
-                      { id: 'visuals', label: 'Visuals' },
-                    ].map((view) => (
-                      <button
-                        key={view.id}
-                        type="button"
-                        onClick={() => setBatchView(view.id as 'configure' | 'results' | 'visuals')}
-                        className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
-                          batchView === view.id ? 'bg-[#2F6BFF] text-white' : 'text-slate-300 hover:bg-white/[0.035] hover:text-white'
-                        }`}
-                      >
-                        {view.label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                {batchView === 'configure' && (
-                  <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
-                    <PredictPanel
-                      schema={schema}
-                      inputValues={inputValues}
-                      setInputValues={setInputValues}
-                      prediction={prediction}
-                      warnings={predictWarnings}
-                      loading={predictLoading}
-                      error={predictError}
-                      onSubmit={handlePredictSubmit}
-                    />
-
-                    <RecommendPanel
-                      schema={schema}
-                      objectiveWeights={objectiveWeights}
-                      setObjectiveWeights={setObjectiveWeights}
-                      fixedInputs={fixedInputs}
-                      setFixedInputs={setFixedInputs}
-                      nCandidates={nCandidates}
-                      setNCandidates={setNCandidates}
-                      tableTopK={tableTopK}
-                      setTableTopK={setTableTopK}
-                      visualizationTopK={visualizationTopK}
-                      setVisualizationTopK={setVisualizationTopK}
-                      loading={recommendLoading}
-                      error={recommendError}
-                      warnings={recommendWarnings}
-                      recommendationRun={recommendationRun}
-                      onSubmit={handleRecommendSubmit}
-                      onViewRecommendations={() => setBatchView('results')}
-                    />
-                  </div>
-                )}
-
-                {batchView === 'results' && (
-                  <RecommendationsPage
-                    schema={schema}
-                    recommendationRun={recommendationRun}
-                    onGoHome={() => setBatchView('configure')}
-                  />
-                )}
-
-                {batchView === 'visuals' && (
-                  <VisualizationsPage
-                    schema={schema}
-                    recommendationRun={recommendationRun}
-                    inputValues={inputValues}
-                    onGoHome={() => setBatchView('configure')}
-                  />
-                )}
-              </div>
+              <BatchSearchPage schema={schema} activeView={batchView} onViewChange={setBatchView} inputValues={inputValues} setInputValues={setInputValues} prediction={prediction} predictWarnings={predictWarnings} predictLoading={predictLoading} predictError={predictError} onPredict={handlePredictSubmit} objectiveWeights={objectiveWeights} setObjectiveWeights={setObjectiveWeights} fixedInputs={fixedInputs} setFixedInputs={setFixedInputs} nCandidates={nCandidates} setNCandidates={setNCandidates} tableTopK={tableTopK} setTableTopK={setTableTopK} visualizationTopK={visualizationTopK} setVisualizationTopK={setVisualizationTopK} recommendLoading={recommendLoading} recommendError={recommendError} recommendWarnings={recommendWarnings} recommendationRun={recommendationRun} onRecommend={handleRecommendSubmit} />
             )}
 
             {activeTab === 'knowledge-intake' && schema && <KnowledgeIntakePage schema={schema} onGoToDataIntake={() => setActiveTab('data-intake')} />}

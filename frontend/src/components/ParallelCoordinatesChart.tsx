@@ -2,8 +2,8 @@ import type { Data, Layout } from 'plotly.js'
 import type { ProjectSchema, Recommendation } from '../lib/api'
 import { formatNumber, safeRange } from '../lib/doeUtils'
 import { Plot } from '../lib/plotly'
-import { transparentDarkPlotLayout } from '../lib/plotlyTheme'
-import { PanelHeader } from './ui'
+import { createMiraiPlotlyTheme, plotConfig } from '../lib/plotlyTheme'
+import { PanelHeader, StatusBadge } from './ui'
 
 type ParallelDimension = {
   label: string
@@ -127,7 +127,7 @@ export function ParallelCoordinatesChart({
     dimensions,
   }
 
-  const layout: Partial<Layout> = transparentDarkPlotLayout({
+  const layout: Partial<Layout> = createMiraiPlotlyTheme({
     autosize: true,
     margin: { l: 60, r: 110, t: 36, b: 50 },
     font: { size: 12 },
@@ -138,24 +138,15 @@ export function ParallelCoordinatesChart({
   return (
     <section className="border-t border-white/[0.07] pt-6">
       <PanelHeader
-        eyebrow="Design space map"
-        title="Parallel coordinates"
-        description="Each line is a simulated experiment. Higher-score lines represent better tradeoffs under the current objective weights."
+        eyebrow="Candidate landscape"
+        title="Candidate tradeoff map"
+        description="Each line represents one model-ranked virtual candidate. Higher-score lines indicate stronger performance under the current objective."
       />
-      <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-        <span className="rounded-full bg-slate-950 px-3 py-1 font-semibold text-white">
-          {recommendations.length} ranked candidates
-        </span>
-        {topCandidates.map((candidate, index) => (
-          <span
-            key={`${candidate.score}-${index}`}
-            className="rounded-full border border-[#BDEAFF]/60 bg-[#0D1B2D] px-3 py-1 font-semibold text-slate-100"
-          >
-            Top {index + 1}: {formatNumber(candidate.score)}
-          </span>
-        ))}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <StatusBadge tone="neutral">{recommendations.length} ranked candidates shown</StatusBadge>
+        <span className="text-sm text-slate-400">Leading scores: {topCandidates.map((candidate, index) => `#${index + 1} ${formatNumber(candidate.score)}`).join(' · ')}</span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-600">
+      <p className="mt-3 text-sm leading-6 text-slate-400">
         Inputs are shown first, predicted outputs second, and score last. Axis codes keep
         the plot readable while the key maps each code to its variable and unit.
       </p>
@@ -164,7 +155,7 @@ export function ParallelCoordinatesChart({
         <Plot
           data={[trace]}
           layout={layout}
-          config={{ displayModeBar: false, responsive: true }}
+          config={{ ...plotConfig, displayModeBar: false }}
           useResizeHandler
           className="h-[680px] w-full"
         />
@@ -181,14 +172,9 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
   ]
 
   return (
-    <div className="mt-6 border-y border-white/[0.07] py-4">
+    <details className="mt-5 border-y border-white/[0.07] py-4">
+      <summary className="cursor-pointer text-sm font-semibold text-[#BDEAFF]">Axis key · {entries.length} dimensions</summary>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold tracking-normal text-slate-500">
-          Axis key
-        </h3>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-          {entries.length} plotted dimensions
-        </span>
       </div>
 
       <div className="mt-4 grid gap-4">
@@ -210,7 +196,7 @@ function AxisKey({ entries }: { entries: AxisKeyEntry[] }) {
           )
         })}
       </div>
-    </div>
+    </details>
   )
 }
 
