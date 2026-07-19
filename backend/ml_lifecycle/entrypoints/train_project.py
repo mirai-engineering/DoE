@@ -4,8 +4,8 @@ import argparse
 from pathlib import Path
 import tempfile
 
-from app.services.control_plane import get_project_storage_config
-from app.services.workspace_storage import object_storage_bucket, object_storage_uri, read_object_storage_bytes, validate_workspace_object_uri
+from app.services.platform.control_plane import get_project_storage_config
+from app.services.platform.workspace_storage import object_storage_bucket, object_storage_uri, read_object_storage_bytes, validate_workspace_object_uri
 from ml_lifecycle.training.generic_tabular_doe.train import train_generic_project
 
 

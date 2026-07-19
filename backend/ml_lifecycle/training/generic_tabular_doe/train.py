@@ -13,7 +13,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from app.services.control_plane import get_project_storage_config
+from app.services.platform.control_plane import get_project_storage_config
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]

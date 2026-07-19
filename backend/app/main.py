@@ -41,7 +41,7 @@ from .schemas import (
     RecommendResponse,
     ScientistReviewUpdate,
 )
-from .services.bayesian_optimization import (
+from .services.optimization.bayesian_optimization import (
     get_bo_state,
     initialize_replay,
     reveal_replay_result,
@@ -50,13 +50,13 @@ from .services.bayesian_optimization import (
     suggest_next_experiment,
 )
 from .services.business_impact import get_business_impact_summary
-from .services.control_plane import account_capabilities, assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, resolve_workspace_membership, synthetic_workspace_summary
-from .services.data_intake import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions, public_file_inventory, public_ingestion_session
+from .services.platform.control_plane import account_capabilities, assign_workspace_storage, get_project_runtime_state, get_workspace_summary, log_audit, resolve_workspace_membership, synthetic_workspace_summary
+from .services.data_preprocessing.ingestion_sessions import append_ingestion_files, create_ingestion_session, get_file_inventory, get_ingestion_session, list_ingestion_sessions, public_file_inventory, public_ingestion_session
 from .services.data_scientist.agent_loop import run_data_scientist_agent
 from .services.data_scientist.schemas import DataScientistRequest, DataScientistResponse
 from .services.data_scientist.scope import authorize_agent_scope
 from .services.design_studio import export_design_zip, get_design_studio_state, pareto_tradeoff_candidates, predict_design, seed_batch_candidate
-from .services.document_intake import (
+from .services.knowledge_intake import (
     approve_draft_table,
     create_document_intake_session,
     export_mirai_package,
@@ -71,10 +71,10 @@ from .services.document_intake import (
     upload_document_intake_files,
     upload_document_intake_target_contract,
 )
-from .services.fantasy_rollout import run_fantasy_rollout
-from .services.model_loader import are_models_loaded, clear_model_cache, load_all_models
-from .services.mlflow_registry import durable_artifact_pointer_for_project
-from .services.ml_preprocessing import (
+from .services.optimization.fantasy_rollout import run_fantasy_rollout
+from .services.model_serving.loader import are_models_loaded, clear_model_cache, load_all_models
+from .services.model_serving.registry import durable_artifact_pointer_for_project
+from .services.ml_preprocessing_harness.lifecycle import (
     approve_ml_preprocessing_plan,
     execute_ml_preprocessing,
     get_ml_preprocessing_human_report_path,
@@ -96,8 +96,8 @@ from .services.model_quality import (
     get_scientist_review,
     save_scientist_review,
 )
-from .services.prediction import predict_rows
-from .services.preprocessing_review import (
+from .services.model_serving.prediction import predict_rows
+from .services.data_preprocessing.review import (
     approve_domain_metadata,
     approve_preprocessing,
     generate_preprocessing_report,
@@ -111,15 +111,15 @@ from .services.preprocessing_review import (
     update_domain_metadata,
     validate_fuel_cell_package,
 )
-from .services.project_registry import (
+from .services.platform.project_registry import (
     ProjectNotFoundError,
     clear_registry_cache,
     get_project_schema,
     list_projects,
 )
-from .services.recommendation import recommend_experiments
-from .services.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, load_champion_model, reconcile_champion_model, start_training_request
-from .services.workspaces import list_workspaces
+from .services.optimization.recommendation import recommend_experiments
+from .services.ml_preprocessing_harness.training_requests import build_approved_training_package, create_training_request, get_training_status, import_external_mlflow_run, list_training_requests, load_champion_model, reconcile_champion_model, start_training_request
+from .services.platform.workspaces import list_workspaces
 
 
 logging.basicConfig(

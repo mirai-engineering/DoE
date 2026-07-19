@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.services.workspace_storage import (
+from app.services.platform.workspace_storage import (
     WorkspaceStorageError,
     local_object_storage_path,
     object_storage_backend,

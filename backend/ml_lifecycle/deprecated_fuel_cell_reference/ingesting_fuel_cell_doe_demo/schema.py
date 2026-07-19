@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from app.services.workspace_storage import local_object_storage_root
+from app.services.platform.workspace_storage import local_object_storage_root
 
 
 PROJECT_ID = "pem_fuel_cell_real_cathode_degradation"

@@ -9,7 +9,7 @@ from app.services.data_intake import get_file_inventory, get_ingestion_session, 
 from app.services.model_quality import get_active_model_metadata, get_artifact_summary, get_metrics
 from app.services.ml_preprocessing import get_ml_preprocessed_table_path, get_ml_preprocessing_report, get_ml_preprocessing_status, load_ml_preprocessing_plan
 from app.services.preprocessing_review import get_preprocessing_eda_summary, get_preprocessing_status
-from app.services.project_registry import get_project_schema, list_projects
+from app.services.platform.project_registry import get_project_schema, list_projects
 
 from .sanitization import sanitize_agent_payload
 from .schemas import InventoryArgs, LatestSessionArgs, NoArgs, TableProfileArgs
