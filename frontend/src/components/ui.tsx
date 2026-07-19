@@ -2,6 +2,27 @@ import { ReactNode, useState } from 'react'
 import type { ProjectSchema } from '../lib/api'
 import { formatNumber } from '../lib/doeUtils'
 
+export type StatusTone = 'neutral' | 'active' | 'success' | 'warning' | 'error'
+
+export function StatusBadge({ tone, children }: { tone: StatusTone; children: ReactNode }) {
+  const classes: Record<StatusTone, string> = {
+    neutral: 'bg-white/[0.07] text-slate-200',
+    active: 'bg-[#5BA8FF]/12 text-[#D9F3FF]',
+    success: 'bg-emerald-500/10 text-emerald-100',
+    warning: 'bg-amber-500/10 text-amber-100',
+    error: 'bg-red-500/10 text-red-100',
+  }
+  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${classes[tone]}`}>{children}</span>
+}
+
+export function EmptyState({ title, description }: { title: string; description: string }) {
+  return <div className="py-16 text-center"><h2 className="text-xl font-semibold text-white">{title}</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#9FB0C8]">{description}</p></div>
+}
+
+export function TechnicalDetails({ children, title = 'Technical details' }: { children: ReactNode; title?: string }) {
+  return <details className="mt-5 border-t border-white/[0.10] pt-3 text-sm text-[#B8C2D4]"><summary className="cursor-pointer font-semibold text-[#BDEAFF]">{title}</summary><div className="mt-4 space-y-2">{children}</div></details>
+}
+
 export type LifecycleStep = {
   id: string
   label: string
@@ -170,21 +191,23 @@ export function SelectField({
   value,
   onChange,
   options,
+  dark = false,
 }: {
   id: string
   label: string
   value: string
   onChange: (value: string) => void
   options: { value: string; label: string }[]
+  dark?: boolean
 }) {
   return (
     <label htmlFor={id} className="block">
-      <span className="text-sm font-semibold text-slate-700">{label}</span>
+      <span className={`text-sm font-semibold ${dark ? 'text-slate-200' : 'text-slate-700'}`}>{label}</span>
       <select
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-950 outline-none transition focus:border-[#475569] focus:ring-2 focus:ring-slate-500/20"
+        className={`mt-2 w-full rounded-md border px-3 py-2.5 text-sm font-medium outline-none transition focus:ring-2 ${dark ? 'border-white/[0.12] bg-[#050914] text-white focus:border-[#74C7F5] focus:ring-[#74C7F5]/20' : 'border-slate-300 bg-white text-slate-950 focus:border-[#475569] focus:ring-slate-500/20'}`}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

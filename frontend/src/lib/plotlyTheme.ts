@@ -1,4 +1,4 @@
-import type { Layout } from 'plotly.js'
+import type { Config, Layout } from 'plotly.js'
 
 export const miraiChartColors = {
   axis: '#1E293B',
@@ -10,6 +10,13 @@ export const miraiChartColors = {
   darkMuted: '#C7D2E4',
   darkGrid: 'rgba(199, 210, 228, 0.22)',
   darkZeroLine: 'rgba(232, 238, 248, 0.48)',
+  plotBackground: '#081526',
+  hoverBackground: '#101B32',
+  train: '#94A3B8',
+  validation: '#F5B942',
+  test: '#5BA8FF',
+  boReplay: '#A78BFA',
+  referenceDark: '#E8EEF8',
 }
 
 const fontFamily = 'Inter, Aptos, Avenir Next, ui-sans-serif, system-ui, sans-serif'
@@ -114,4 +121,48 @@ export function transparentDarkPlotLayout(overrides: LayoutOverride = {}): Layou
   return mergeLayout(base, overrides)
 }
 
+export function createMiraiPlotlyTheme(overrides: LayoutOverride = {}): LayoutOverride {
+  const base: LayoutOverride = {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: miraiChartColors.plotBackground,
+    margin: { l: 68, r: 28, t: 30, b: 66 },
+    font: { family: fontFamily, color: miraiChartColors.darkAxis, size: 12 },
+    hoverlabel: {
+      bgcolor: miraiChartColors.hoverBackground,
+      bordercolor: 'rgba(116,199,245,0.45)',
+      font: { family: fontFamily, color: miraiChartColors.darkAxis, size: 12 },
+    },
+    legend: {
+      orientation: 'h',
+      x: 0,
+      y: 1.16,
+      font: { family: fontFamily, color: miraiChartColors.darkAxis, size: 12 },
+    },
+    xaxis: {
+      automargin: true,
+      gridcolor: miraiChartColors.darkGrid,
+      zerolinecolor: miraiChartColors.darkZeroLine,
+      zerolinewidth: 1.5,
+      tickfont: { family: fontFamily, color: miraiChartColors.darkMuted, size: 12 },
+      title: { standoff: 14, font: { family: fontFamily, color: miraiChartColors.darkAxis, size: 14 } },
+    },
+    yaxis: {
+      automargin: true,
+      gridcolor: miraiChartColors.darkGrid,
+      zerolinecolor: miraiChartColors.darkZeroLine,
+      zerolinewidth: 1.5,
+      tickfont: { family: fontFamily, color: miraiChartColors.darkMuted, size: 12 },
+      title: { standoff: 14, font: { family: fontFamily, color: miraiChartColors.darkAxis, size: 14 } },
+    },
+  }
+  return mergeLayout(base, overrides)
+}
+
 export const plotConfig = { responsive: true, displaylogo: false }
+export const diagnosticPlotConfig = {
+  responsive: true,
+  displaylogo: false,
+  scrollZoom: false,
+  modeBarButtonsToRemove: ['lasso2d', 'select2d', 'toggleSpikelines'],
+  toImageButtonOptions: { format: 'png', scale: 2 },
+} satisfies Partial<Config>

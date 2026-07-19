@@ -47,11 +47,10 @@ import {
   preparationStatusTone,
   type PreparationFacts,
   type PreparationTab,
-  type PreparationTone,
 } from '../lib/preparationPresentation'
 import { AskMiraiWorkspace } from './preparation/AskMiraiWorkspace'
 import { PreparationTabs } from './preparation/PreparationTabs'
-import { DisclosurePanel } from './ui'
+import { DisclosurePanel, EmptyState, StatusBadge, TechnicalDetails } from './ui'
 
 const EDITABLE_METADATA_ROLES = new Set<VariableMetadata['role']>(['input', 'output', 'group', 'sweep', 'time', 'cycle', 'sequence', 'curve_axis'])
 const INTERNAL_NAME_PATTERNS = [
@@ -835,8 +834,5 @@ function DecisionLine({ label, value }: { label: string; value: string }) { retu
 function Metric({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><p className="text-xs font-medium text-[#9FB0C8]">{label}</p><p className="mt-1 truncate text-xl font-semibold text-white" title={value}>{value}</p></div> }
 function SummaryRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between gap-4 py-3"><dt className="text-[#9FB0C8]">{label}</dt><dd className="text-right font-medium text-white">{value}</dd></div> }
 function TechnicalValue({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-[#9FB0C8]">{label}</p><p className="mt-1 break-all font-mono text-xs text-slate-200">{value}</p></div> }
-function StatusBadge({ tone, children }: { tone: PreparationTone; children: ReactNode }) { const classes: Record<PreparationTone, string> = { neutral: 'bg-white/[0.07] text-slate-200', active: 'bg-[#5BA8FF]/12 text-[#D9F3FF]', success: 'bg-emerald-500/10 text-emerald-100', warning: 'bg-amber-500/10 text-amber-100', error: 'bg-red-500/10 text-red-100' }; return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${classes[tone]}`}>{children}</span> }
-function EmptyState({ title, description }: { title: string; description: string }) { return <div className="py-16 text-center"><h2 className="text-xl font-semibold text-white">{title}</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#9FB0C8]">{description}</p></div> }
-function TechnicalDetails({ children }: { children: ReactNode }) { return <details className="mt-5 border-t border-white/[0.10] pt-3 text-sm text-[#B8C2D4]"><summary className="cursor-pointer font-semibold text-[#BDEAFF]">Technical details</summary><div className="mt-4 space-y-2">{children}</div></details> }
 function RoleOptions() { return <><option value="input">Model input</option><option value="output">Model output</option><option value="group">Group</option><option value="sweep">Sweep variable</option><option value="time">Time</option><option value="cycle">Cycle</option><option value="sequence">Sequence</option><option value="curve_axis">Curve axis</option></> }
 function TechnicalGrid({ eda, status }: { eda: PreprocessingEdaSummary | null; status: PreprocessingStatus }) { return <div className="grid gap-4 sm:grid-cols-2"><TechnicalValue label="Split strategy" value={eda?.summary.split_strategy ?? 'Pending'} /><TechnicalValue label="BO policy" value={eda?.summary.bo_policy ?? 'Pending'} /><TechnicalValue label="EDA artifact" value={eda?.artifacts.eda_report_json ?? 'Pending'} /><TechnicalValue label="Preprocessing report" value={eda?.artifacts.preprocessing_report_json ?? status.report_path ?? 'Pending'} /></div> }

@@ -1,0 +1,49 @@
+import { useMemo } from 'react'
+import type { ProjectSchema } from '../../lib/api'
+import { asNumber, asRecord, asString, buildOutputTrustData, formatMetric, formatPercent1, formatR2, type TrustLevel } from '../../lib/modelQualityPresentation'
+import { formatNumber } from '../../lib/doeUtils'
+import { PanelHeader, StatusBadge, TechnicalDetails } from '../ui'
+
+const TRUST_TONES: Record<TrustLevel, 'success' | 'warning' | 'error' | 'neutral'> = { strong: 'success', usable: 'warning', weak: 'error', needs_review: 'neutral' }
+
+export function ModelQualityOutputs({ schema, bestModelName, bestModel, targetReference, selectedOutput, onSelectOutput, onOpenDiagnostics }: { schema: ProjectSchema; bestModelName: string; bestModel: Record<string, unknown>; targetReference: Record<string, unknown>; selectedOutput: string; onSelectOutput: (output: string) => void; onOpenDiagnostics: (output: string) => void }) {
+  const outputs = useMemo(() => buildOutputTrustData(schema, bestModel), [bestModel, schema])
+  const selected = outputs.find((item) => item.output.name === selectedOutput) ?? outputs[0]
+  const usableCount = outputs.filter((item) => item.level === 'strong' || item.level === 'usable').length
+  const weakCount = outputs.length - usableCount
+  const ranked = [...outputs].sort((left, right) => right.sortScore - left.sortScore)
+  const best = ranked[0]
+  const weakest = ranked[ranked.length - 1]
+  const overall = weakCount === 0 && outputs.filter((item) => item.level === 'strong').length >= Math.max(1, outputs.length - 1) ? 'Good' : usableCount >= Math.ceil(outputs.length / 2) ? 'Medium' : weakCount > 0 ? 'Needs review' : 'Weak'
+
+  if (!selected) return <div className="py-16 text-center text-sm text-[#9FB0C8]">No output metrics are available for the best candidate.</div>
+  const unit = selected.output.unit
+  const ref = asRecord(targetReference[selected.output.name])
+  const rows = [{ label: 'Validation', metrics: selected.validation }, { label: 'Test', metrics: selected.test }]
+
+  return (
+    <div className="space-y-9 py-7">
+      <section>
+        <PanelHeader eyebrow="Output-level trust" title="Which predicted KPIs can influence optimization?" description="Trust labels use the existing provisional report-only criteria. They do not mean production readiness." />
+        <div className="mt-6 grid gap-6 border-y border-white/[0.09] py-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div><div className="flex flex-wrap items-center gap-3"><span className="text-3xl font-semibold tracking-[-0.04em] text-white">Surrogate trust: {overall}</span><StatusBadge tone="warning">Report-only thresholds</StatusBadge></div><p className="mt-3 max-w-3xl text-sm leading-6 text-[#B8C2D4]">{usableCount} of {outputs.length} outputs meet the current accurate-enough criteria. {weakest ? `${weakest.output.label} requires the most caution.` : ''}</p></div>
+          <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-4 lg:grid-cols-2"><div><dt className="text-xs text-[#9FB0C8]">Usable outputs</dt><dd className="mt-1 text-2xl font-semibold text-[#BDEAFF]">{usableCount}</dd></div><div><dt className="text-xs text-[#9FB0C8]">Weak outputs</dt><dd className="mt-1 text-2xl font-semibold text-red-100">{weakCount}</dd></div><div><dt className="text-xs text-[#9FB0C8]">Best predicted</dt><dd className="mt-1 font-semibold text-white">{best?.output.label ?? '—'}</dd></div><div><dt className="text-xs text-[#9FB0C8]">Needs caution</dt><dd className="mt-1 font-semibold text-white">{weakest?.output.label ?? '—'}</dd></div></dl>
+        </div>
+      </section>
+
+      <section className="grid gap-7 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <div><h2 className="text-lg font-semibold text-white">Predicted outputs</h2><p className="mt-2 text-sm leading-6 text-[#9FB0C8]">Select an output to compare validation and untouched test evidence.</p><div className="mt-4 space-y-1" role="listbox" aria-label="Predicted outputs">{outputs.map((item) => { const active = item.output.name === selected.output.name; return <button key={item.output.name} type="button" role="option" aria-selected={active} onClick={() => onSelectOutput(item.output.name)} className={`w-full rounded-md px-3 py-3 text-left transition ${active ? 'bg-[#2F6BFF]/12 ring-1 ring-[#5BA8FF]/30' : 'hover:bg-white/[0.035]'}`}><div className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white" title={item.output.label}>{item.output.label}</span><span className="mt-1 block text-xs text-[#7F8DA8]">{item.output.unit || 'Unit not specified'}</span></span><StatusBadge tone={TRUST_TONES[item.level]}>{item.label}</StatusBadge></div><div className="mt-2 flex gap-4 text-xs tabular-nums text-[#9FB0C8]"><span>Test R² {formatR2(asNumber(item.test.r2))}</span><span>MAE {formatMetric(asNumber(item.test.mae), item.output.unit)}</span></div></button> })}</div></div>
+
+        <article className="min-w-0 rounded-lg border border-white/[0.09] bg-[#0B1424]/55 p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-medium text-[#74C7F5]">Selected output</p><h2 className="mt-1 truncate text-2xl font-semibold text-white" title={selected.output.label}>{selected.output.label}</h2><p className="mt-1 font-mono text-xs text-[#7F8DA8]">{selected.output.name} · {unit || 'no unit'}</p></div><StatusBadge tone={TRUST_TONES[selected.level]}>{selected.label}</StatusBadge></div>
+          <p className="mt-5 border-l-2 border-[#5BA8FF]/55 pl-4 text-sm leading-6 text-[#C7D2E4]">{selected.interpretation}</p>
+          <div className="mt-6 overflow-x-auto"><table className="min-w-[42rem] w-full text-left text-sm"><thead className="text-xs text-[#9FB0C8]"><tr><th className="px-3 py-2">Split</th><th className="px-3 py-2 text-right">R²</th><th className="px-3 py-2 text-right">MAE</th><th className="px-3 py-2 text-right">RMSE</th><th className="px-3 py-2 text-right">Error vs mean</th><th className="px-3 py-2 text-right">MAE vs baseline</th></tr></thead><tbody>{rows.map((row) => <tr key={row.label} className={`border-t border-white/[0.08] ${row.label === 'Test' ? 'bg-[#10203A]/65 text-white' : 'text-slate-300'}`}><td className="px-3 py-3 font-semibold">{row.label}</td><td className="px-3 py-3 text-right tabular-nums">{formatR2(asNumber(row.metrics.r2))}</td><td className="px-3 py-3 text-right tabular-nums">{formatMetric(asNumber(row.metrics.mae), unit)}</td><td className="px-3 py-3 text-right tabular-nums">{formatMetric(asNumber(row.metrics.rmse), unit)}</td><td className="px-3 py-3 text-right tabular-nums">{formatPercent1(asNumber(row.metrics.mae_percent_of_split_mean))}</td><td className="px-3 py-3 text-right tabular-nums">{formatPercent1(asNumber(row.metrics.baseline_improvement_mae_percent))}</td></tr>)}</tbody></table></div>
+          {asNumber(selected.test.r2) !== undefined && asNumber(selected.test.r2)! < 0 && <p className="mt-4 text-sm leading-6 text-amber-100">Negative test R² remains visible: this model performs worse than predicting the split mean for this output.</p>}
+          <div className="mt-6 grid gap-4 border-t border-white/[0.09] pt-5 sm:grid-cols-3"><div><p className="text-xs text-[#9FB0C8]">Training mean</p><p className="mt-1 font-semibold tabular-nums text-white">{formatNumber(asNumber(ref.train_mean))} {unit}</p></div><div><p className="text-xs text-[#9FB0C8]">Training range</p><p className="mt-1 font-semibold tabular-nums text-white">{formatNumber(asNumber(ref.train_min))}–{formatNumber(asNumber(ref.train_max))} {unit}</p></div><div><p className="text-xs text-[#9FB0C8]">Training std</p><p className="mt-1 font-semibold tabular-nums text-white">{formatNumber(asNumber(ref.std))} {unit}</p></div></div>
+          <div className="mt-6 flex flex-wrap gap-3"><button type="button" onClick={() => onOpenDiagnostics(selected.output.name)} className="rounded-md bg-[#2F6BFF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C7DFF]">View diagnostics</button><span className="self-center text-xs text-[#7F8DA8]">Candidate: {bestModelName || 'unavailable'}</span></div>
+          <TechnicalDetails title="Show detailed metrics"><div className="grid gap-4 md:grid-cols-2">{rows.map((row) => <div key={row.label} className="rounded-md border border-white/[0.09] p-4"><h3 className="font-semibold text-white">{row.label}</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs"><div><dt className="text-[#9FB0C8]">nRMSE</dt><dd className="mt-1 tabular-nums text-white">{formatNumber(asNumber(row.metrics.normalized_rmse))}</dd></div><div><dt className="text-[#9FB0C8]">RMSE / range</dt><dd className="mt-1 tabular-nums text-white">{formatPercent1(asNumber(row.metrics.rmse_percent_of_train_range))}</dd></div><div><dt className="text-[#9FB0C8]">RMSE / std</dt><dd className="mt-1 tabular-nums text-white">{formatPercent1(asNumber(row.metrics.rmse_percent_of_train_std))}</dd></div><div><dt className="text-[#9FB0C8]">Baseline MAE</dt><dd className="mt-1 tabular-nums text-white">{formatMetric(asNumber(row.metrics.baseline_mae), unit)}</dd></div><div><dt className="text-[#9FB0C8]">Baseline RMSE</dt><dd className="mt-1 tabular-nums text-white">{formatMetric(asNumber(row.metrics.baseline_rmse), unit)}</dd></div><div><dt className="text-[#9FB0C8]">Artifact status</dt><dd className="mt-1 text-white">{asString(row.metrics.acceptance_status) || '—'}</dd></div></dl>{asString(row.metrics.r2_note) && <p className="mt-3 text-xs text-amber-100">{asString(row.metrics.r2_note)}</p>}{asString(row.metrics.scientist_summary) && <p className="mt-3 text-xs leading-5 text-[#B8C2D4]">{asString(row.metrics.scientist_summary)}</p>}</div>)}</div></TechnicalDetails>
+        </article>
+      </section>
+    </div>
+  )
+}
